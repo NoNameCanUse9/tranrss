@@ -1,0 +1,42 @@
+[package]
+name = "tranrss-backend"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+# Web 框架：Axum 0.8.8 是 2026 年的最新主流版
+# 注意：Axum 0.8+ 已经原生支持异步 Trait，部分场景可不再依赖 async-trait
+axum = { version = "0.8.8", features = ["macros"] }
+async-trait = "0.1.86"
+tokio = { version = "1.49.0", features = ["full"] }
+tower-http = { version = "0.6.8", features = ["cors", "trace"] }
+tracing = "0.1"
+
+# 序列化
+serde = { version = "1.0.217", features = ["derive"] }
+serde_json = "1.0.135"
+
+# 数据库：SQLx 0.8.6+ 完美适配 Rust 2024
+sqlx = { version = "0.8.6", features = [
+    "runtime-tokio",
+    "tls-rustls",
+    "sqlite",
+    "macros",
+    "chrono",
+] }
+
+# RSS 核心
+scraper = "0.19"
+feed-rs = "2.3.1"
+rss = "2.0.11"
+# 工具链
+reqwest = { version = "0.13.2", features = ["json", "rustls"] }
+chrono = { version = "0.4.43", features = ["serde"] }
+anyhow = "1.0.101"
+
+# 安全与解析
+bcrypt = "0.18.0"
+tl = "0.7.8"
+# jsonwebtoken 已更新至 10.x，支持更现代的 Crypto 后端
+jsonwebtoken = { version = "10.3.0", features = ["rust_crypto"] }
+tracing-subscriber = { version = "0.3.22", features = ["env-filter"] }

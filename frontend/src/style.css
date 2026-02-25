@@ -1,0 +1,220 @@
+:root,
+.light-theme,
+.v-theme--light {
+  --md-sys-color-primary: rgb(22, 102, 110);
+  --md-sys-color-primary-rgb: 22, 102, 110;
+  --md-sys-color-surface-tint: rgb(22, 102, 110);
+  --md-sys-color-on-primary: rgb(255, 255, 255);
+  --md-sys-color-on-primary-rgb: 255, 255, 255;
+  --md-sys-color-primary-container: rgb(166, 238, 245);
+  --md-sys-color-on-primary-container: rgb(0, 32, 35);
+
+  --md-sys-color-secondary: rgb(74, 98, 102);
+  --md-sys-color-secondary-rgb: 74, 98, 102;
+  --md-sys-color-on-secondary: rgb(255, 255, 255);
+  --md-sys-color-secondary-container: rgb(205, 231, 236);
+  --md-sys-color-on-secondary-container: rgb(5, 31, 34);
+
+  --md-sys-color-tertiary: rgb(82, 94, 125);
+  --md-sys-color-on-tertiary: rgb(255, 255, 255);
+  --md-sys-color-tertiary-container: rgb(217, 226, 255);
+  --md-sys-color-on-tertiary-container: rgb(14, 27, 55);
+
+  --md-sys-color-error: rgb(186, 26, 26);
+  --md-sys-color-error-rgb: 186, 26, 26;
+  --md-sys-color-on-error: rgb(255, 255, 255);
+  --md-sys-color-error-container: rgb(255, 218, 214);
+  --md-sys-color-on-error-container: rgb(65, 0, 2);
+
+  --md-sys-color-background: rgb(241, 245, 247);
+  --md-sys-color-background-rgb: 241, 245, 247;
+  --md-sys-color-on-background: rgb(25, 28, 29);
+  --md-sys-color-on-background-rgb: 25, 28, 29;
+
+  --md-sys-color-surface: rgb(241, 245, 247);
+  --md-sys-color-surface-rgb: 241, 245, 247;
+  --md-sys-color-on-surface: rgb(25, 28, 29);
+  --md-sys-color-on-surface-rgb: 25, 28, 29;
+
+  --md-sys-color-surface-variant: rgb(219, 228, 230);
+  --md-sys-color-on-surface-variant: rgb(63, 72, 74);
+  --md-sys-color-outline: rgb(112, 121, 123);
+  --md-sys-color-outline-rgb: 112, 121, 123;
+  --md-sys-color-outline-variant: rgb(191, 200, 202);
+
+  --md-sys-color-shadow: rgb(0, 0, 0);
+  --md-sys-color-scrim: rgb(0, 0, 0);
+  --md-sys-color-inverse-surface: rgb(46, 49, 50);
+  --md-sys-color-inverse-on-surface: rgb(239, 241, 241);
+  --md-sys-color-inverse-primary: rgb(138, 210, 219);
+
+  --md-sys-color-surface-dim: rgb(216, 218, 219);
+  --md-sys-color-surface-bright: rgb(248, 249, 250);
+  --md-sys-color-surface-container-lowest: rgb(255, 255, 255);
+  --md-sys-color-surface-container-low: rgb(241, 244, 245);
+  --md-sys-color-surface-container: rgb(235, 241, 243);
+  --md-sys-color-surface-container-high: rgb(220, 230, 233);
+  --md-sys-color-surface-container-highest: rgb(209, 216, 219);
+}
+
+.dark-theme,
+.v-theme--dark {
+  --md-sys-color-primary: rgb(138, 210, 219);
+  --md-sys-color-primary-rgb: 138, 210, 219;
+  --md-sys-color-surface-tint: rgb(138, 210, 219);
+  --md-sys-color-on-primary: rgb(0, 54, 59);
+  --md-sys-color-on-primary-rgb: 0, 54, 59;
+  --md-sys-color-primary-container: rgb(0, 79, 86);
+  --md-sys-color-on-primary-container: rgb(166, 238, 245);
+
+  --md-sys-color-secondary: rgb(177, 203, 208);
+  --md-sys-color-secondary-rgb: 177, 203, 208;
+  --md-sys-color-on-secondary: rgb(28, 52, 56);
+  --md-sys-color-secondary-container: rgb(50, 74, 79);
+  --md-sys-color-on-secondary-container: rgb(205, 231, 236);
+
+  --md-sys-color-tertiary: rgb(186, 198, 234);
+  --md-sys-color-on-tertiary: rgb(36, 48, 77);
+  --md-sys-color-tertiary-container: rgb(58, 70, 100);
+  --md-sys-color-on-tertiary-container: rgb(217, 226, 255);
+
+  --md-sys-color-error: rgb(255, 180, 171);
+  --md-sys-color-error-rgb: 255, 180, 171;
+  --md-sys-color-on-error: rgb(105, 0, 5);
+  --md-sys-color-error-container: rgb(147, 0, 10);
+  --md-sys-color-on-error-container: rgb(255, 218, 214);
+
+  --md-sys-color-background: rgb(25, 28, 29);
+  --md-sys-color-background-rgb: 25, 28, 29;
+  --md-sys-color-on-background: rgb(225, 227, 227);
+  --md-sys-color-on-background-rgb: 225, 227, 227;
+
+  --md-sys-color-surface: rgb(25, 28, 29);
+  --md-sys-color-surface-rgb: 25, 28, 29;
+  --md-sys-color-on-surface: rgb(225, 227, 227);
+  --md-sys-color-on-surface-rgb: 225, 227, 227;
+
+  --md-sys-color-surface-variant: rgb(63, 72, 74);
+  --md-sys-color-on-surface-variant: rgb(191, 200, 202);
+  --md-sys-color-outline: rgb(137, 146, 148);
+  --md-sys-color-outline-rgb: 137, 146, 148;
+  --md-sys-color-outline-variant: rgb(63, 72, 74);
+
+  --md-sys-color-shadow: rgb(0, 0, 0);
+  --md-sys-color-scrim: rgb(0, 0, 0);
+  --md-sys-color-inverse-surface: rgb(225, 227, 227);
+  --md-sys-color-inverse-on-surface: rgb(46, 49, 50);
+  --md-sys-color-inverse-primary: rgb(22, 102, 110);
+
+  --md-sys-color-surface-dim: rgb(17, 20, 21);
+  --md-sys-color-surface-bright: rgb(54, 58, 59);
+  --md-sys-color-surface-container-lowest: rgb(11, 15, 16);
+  --md-sys-color-surface-container-low: rgb(25, 28, 29);
+  --md-sys-color-surface-container: rgb(29, 32, 33);
+  --md-sys-color-surface-container-high: rgb(39, 42, 43);
+  --md-sys-color-surface-container-highest: rgb(50, 53, 54);
+}
+
+/* 强制重置 Vuetify 的基础背景颜色 */
+.v-application,
+.v-application__wrap,
+html,
+body,
+#app {
+  background-color: var(--md-sys-color-background) !important;
+  color: var(--md-sys-color-on-background) !important;
+  margin: 0;
+  padding: 0;
+}
+
+/* 将 MD3 变量映射到 Vuetify 内部使用的 RGB 变量 */
+.v-theme--light,
+.v-theme--dark {
+  --v-theme-primary-rgb: var(--md-sys-color-primary-rgb) !important;
+  --v-theme-on-primary-rgb: var(--md-sys-color-on-primary-rgb) !important;
+  --v-theme-background-rgb: var(--md-sys-color-background-rgb) !important;
+  --v-theme-on-background-rgb: var(--md-sys-color-on-background-rgb) !important;
+  --v-theme-surface-rgb: var(--md-sys-color-surface-rgb) !important;
+  --v-theme-on-surface-rgb: var(--md-sys-color-on-surface-rgb) !important;
+  --v-theme-error-rgb: var(--md-sys-color-error-rgb) !important;
+  --v-border-color: var(--md-sys-color-outline-rgb) !important;
+  --v-border-opacity: 0.1 !important;
+}
+
+body {
+  background-color: var(--md-sys-color-background);
+  background-image:
+    radial-gradient(circle at 100% 0%, rgba(var(--md-sys-color-primary-rgb), 0.05) 0%, transparent 40%),
+    radial-gradient(circle at 0% 100%, rgba(var(--md-sys-color-primary-rgb), 0.03) 0%, transparent 40%) !important;
+  background-attachment: fixed;
+}
+
+/* Material Design 3 表现力样式 (Expressive Styles) */
+h1,
+h2,
+h3,
+.text-h1,
+.text-h2,
+.text-h3,
+.text-h4,
+.text-h5,
+.text-h6,
+.v-card-title {
+  font-family: 'DM Serif Display', serif !important;
+  color: var(--md-sys-color-primary) !important;
+  letter-spacing: -0.01em !important;
+  font-weight: 500 !important;
+}
+
+/* 让导航栏和侧边栏更具“色偏”感 */
+.v-navigation-drawer,
+.v-app-bar {
+  background-color: var(--md-sys-color-surface-container-low) !important;
+  border-color: rgba(var(--md-sys-color-outline-rgb), 0.05) !important;
+}
+
+.v-navigation-drawer {
+  border-right: none !important;
+}
+
+.logo-avatar {
+  background: linear-gradient(135deg, var(--md-sys-color-primary) 0%, var(--md-sys-color-secondary) 100%) !important;
+  box-shadow: 0 4px 12px rgba(var(--md-sys-color-primary-rgb), 0.2) !important;
+}
+
+/* 统一字体 */
+* {
+  font-family: 'Outfit', sans-serif !important;
+}
+
+.sub-card {
+  background-color: var(--md-sys-color-surface-container) !important;
+  /* Slightly warmer container */
+  border-radius: 32px !important;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1) !important;
+  border: 1px solid rgba(var(--md-sys-color-outline-rgb), 0.05) !important;
+}
+
+.sub-card:hover {
+  background-color: var(--md-sys-color-surface-container-high) !important;
+  transform: translateY(-4px);
+  box-shadow: 0 12px 24px -8px rgba(var(--md-sys-color-primary-rgb), 0.15) !important;
+}
+
+/* Custom scrollbar for a cleaner look */
+::-webkit-scrollbar {
+  width: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(var(--md-sys-color-outline-rgb), 0.1);
+  border-radius: 10px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(var(--md-sys-color-outline-rgb), 0.2);
+}

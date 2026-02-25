@@ -1,0 +1,9 @@
+{
+  "name": "tranrss",
+  "private": true,
+  "scripts": {
+    "dev:frontend": "pnpm --filter frontend dev",
+    "dev:backend": "cd backend && cargo watch -x run",
+    "dev": "pnpm dlx concurrently \"pnpm dev:frontend\" \"pnpm dev:backend\" --names \"WEB,API\" --prefix-colors \"blue,green\""
+  }
+}
