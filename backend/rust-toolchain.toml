@@ -1,0 +1,4 @@
+[toolchain]
+# 强制要求使用支持 2024 Edition 的稳定版
+channel = "stable"
+components = ["rust-src", "rust-analyzer"]
