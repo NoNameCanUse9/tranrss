@@ -15,6 +15,7 @@ interface ApiConfig {
 }
 
 const apiConfigs = ref<ApiConfig[]>([])
+const userSettings = ref<any>(null)
 const loading = ref(false)
 const saving = ref(false)
 
@@ -36,7 +37,7 @@ const form = ref({
   api_type: 'openai',
   api_key: '',
   base_url: '',
-  settings: {} as Record<string, any>,
+  settings: { max_tokens: 20480 } as Record<string, any>,
   timeout_seconds: 180,
   retry_count: 3,
   retry_interval_ms: 1000,
@@ -65,7 +66,24 @@ const fetchConfigs = async () => {
   }
 }
 
-onMounted(fetchConfigs)
+// 获取用户设置（用于判断哪些 API 是当前选中的）
+const fetchUserSettings = async () => {
+  try {
+    const res = await fetch('/api/user/setting', {
+      headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` }
+    })
+    if (res.ok) {
+      userSettings.value = await res.json()
+    }
+  } catch (e) {
+    console.error('获取用户设置失败:', e)
+  }
+}
+
+onMounted(() => {
+  fetchConfigs()
+  fetchUserSettings()
+})
 
 // 获取提供商的 UI 信息
 const getProviderInfo = (type: string) =>
@@ -84,7 +102,7 @@ const openAddDialog = () => {
     api_type: 'openai', 
     api_key: '', 
     base_url: '', 
-    settings: {},
+    settings: { max_tokens: 20480 },
     timeout_seconds: 180,
     retry_count: 3,
     retry_interval_ms: 1000,
@@ -159,6 +177,33 @@ const deleteConfig = async () => {
     console.error('删除失败:', e)
   }
 }
+const fetchingModels = ref(false)
+const availableModels = ref<string[]>([])
+
+const fetchModels = async () => {
+  if (!form.value.base_url) return
+  
+  fetchingModels.value = true
+  try {
+    const url = form.value.base_url.replace(/\/$/, '') + '/models'
+    const headers: Record<string, string> = {}
+    if (form.value.api_key) {
+      headers['Authorization'] = `Bearer ${form.value.api_key}`
+    }
+
+    const res = await fetch(url, { headers })
+    if (res.ok) {
+      const data = await res.json()
+      if (data.data) {
+        availableModels.value = data.data.map((m: any) => m.id)
+      }
+    }
+  } catch (e) {
+    console.error('获取模型列表失败:', e)
+  } finally {
+    fetchingModels.value = false
+  }
+}
 </script>
 
 <template>
@@ -192,8 +237,8 @@ const deleteConfig = async () => {
 
     <!-- 密钥列表 -->
     <v-row v-else>
-      <v-col v-for="config in apiConfigs" :key="config.id" cols="12" md="6">
-        <v-card rounded="xl" variant="flat" color="surface-variant" class="api-key-card">
+      <v-col v-for="config in apiConfigs" :key="config.id" cols="12" md="6" class="d-flex">
+        <v-card rounded="xl" variant="flat" color="surface-variant" class="api-key-card flex-grow-1">
           <v-card-text class="pa-5">
             <div class="d-flex align-start justify-space-between mb-3">
               <div class="d-flex align-center gap-3">
@@ -205,14 +250,34 @@ const deleteConfig = async () => {
                   <p class="text-caption text-medium-emphasis">{{ getProviderInfo(config.api_type).title }}</p>
                 </div>
               </div>
-              <v-chip
-                color="success"
-                size="small"
-                variant="tonal"
-                class="text-none"
-              >
-                活跃
-              </v-chip>
+              <div class="d-flex flex-column align-end gap-1">
+                <v-chip
+                  color="success"
+                  size="small"
+                  variant="tonal"
+                  class="text-none"
+                >
+                  活跃
+                </v-chip>
+                <v-chip
+                  v-if="userSettings?.translate_api_id === config.id"
+                  color="info"
+                  size="small"
+                  variant="tonal"
+                  class="text-none"
+                >
+                  翻译
+                </v-chip>
+                <v-chip
+                  v-if="userSettings?.summary_api_id === config.id"
+                  color="secondary"
+                  size="small"
+                  variant="tonal"
+                  class="text-none"
+                >
+                  摘要
+                </v-chip>
+              </div>
             </div>
 
             <v-divider class="my-3" />
@@ -265,7 +330,7 @@ const deleteConfig = async () => {
               </div>
             </v-expand-transition>
 
-            <div class="d-flex gap-2 mt-2">
+            <div class="d-flex gap-2">
               <v-btn
                 variant="tonal"
                 color="primary"
@@ -294,169 +359,221 @@ const deleteConfig = async () => {
     </v-row>
 
     <!-- 添加/编辑弹窗 (空白模板供用户补充) -->
-    <v-dialog v-model="dialog" max-width="560" :scrim="true">
-      <v-card rounded="xl" class="pa-4">
-        <v-card-title class="text-h6 font-weight-bold">
-          {{ selectedConfig ? '编辑配置' : '添加 API 配置' }}
-        </v-card-title>
+    <!-- 添加/编辑弹窗 -->
+    <v-dialog v-model="dialog" width="60%" :scrim="true" persistent scrollable>
+      <v-card rounded="xl" class="subscription-dialog shadow-premium">
+        <div class="dialog-header pa-6 d-flex align-center justify-space-between">
+          <div>
+            <h2 class="text-h5 font-weight-bold gradient-text">
+              {{ selectedConfig ? '配置 API 密钥' : '添加新密钥' }}
+            </h2>
+            <p class="text-caption text-medium-emphasis mt-1">
+              {{ selectedConfig ? '更新您的服务凭证与运行策略' : '接入 AI 或翻译服务，开启智能阅读体验' }}
+            </p>
+          </div>
+          <v-btn icon="mdi-close" variant="text" color="error" rounded="pill" @click="dialog = false"></v-btn>
+        </div>
         
-        <v-card-text>
-          <!-- 这里留空，让用户补充具体的表单字段 -->
-          
+        <v-divider />
 
-          <v-row dense>
-             <v-col cols="12">
-               <v-text-field
-                 v-model="form.name"
-                 label="配置名称"
-                 variant="outlined"
-                 rounded="lg"
-                 hide-details
-               />
-             </v-col>
-             <v-col cols="12">
-               <v-select
-                 v-model="form.api_type"
-                 :items="providers"
-                 label="类型"
-                 variant="outlined"
-                 rounded="lg"
-                 hide-details
-               />
-             </v-col>
-             <v-col cols="12">
-               <v-text-field
-                 v-model="form.base_url"
-                 label="Api 端点"
-                 variant="outlined"
-                 rounded="lg"
-                 hide-details
-               />
-             </v-col>
-             <v-col cols="12">
-               <v-text-field
-                 v-model="form.api_key"
-                 label="API 密钥 (可选)"
-                 variant="outlined"
-                 rounded="lg"
-                 hide-details
-                 type="password"
-               />
-             </v-col>
+        <v-card-text class="pa-8 custom-scrollbar" style="max-height: 70vh;">
+          <div class="d-flex flex-column gap-8 w-100">
+            <!-- 基础信息 -->
+            <section>
+              <h3 class="text-subtitle-1 font-weight-bold mb-4 d-flex align-center">
+                <v-icon color="primary" class="mr-2">mdi-key-variant</v-icon>
+                基础端点配置
+              </h3>
+              <div class="d-flex flex-column gap-6 w-100">
+                <div class="d-flex gap-4 w-100">
+                  <v-text-field
+                    v-model="form.name"
+                    label="配置别名"
+                    variant="outlined"
+                    density="comfortable"
+                    rounded="lg"
+                    color="primary"
+                    prepend-inner-icon="mdi-label-outline"
+                    persistent-hint
+                    hint="例如: 我的主力 OpenAI"
+                    style="flex: 1"
+                  />
+                  <v-select
+                    v-model="form.api_type"
+                    :items="providers"
+                    label="服务提供商"
+                    variant="outlined"
+                    density="comfortable"
+                    rounded="lg"
+                    color="primary"
+                    prepend-inner-icon="mdi-apps"
+                    style="flex: 1"
+                  />
+                </div>
 
-             <!-- OpenAI 特定配置 -->
-             <template v-if="form.api_type === 'openai'">
-               <v-divider class="my-4" />
-               <v-col cols="12">
-                 <v-text-field
-                   v-model="form.settings.model"
-                   label="模型 (Model)"
-                   placeholder="gpt-4o-mini"
-                   variant="outlined"
-                   rounded="lg"
-                   hide-details
-                 />
-               </v-col>
-               <v-col cols="6">
-                 <v-text-field
-                   v-model.number="form.settings.max_tokens"
-                   label="最大 token"
-                   placeholder="4096"
-                   type="number"
-                   variant="outlined"
-                   rounded="lg"
-                   hide-details
-                 />
-               </v-col>
-               <v-col cols="6">
-                 <v-text-field
-                   v-model.number="form.settings.rpm"
-                   label="RPM (每分钟请求数)"
-                   placeholder="3"
-                   type="number"
-                   variant="outlined"
-                   rounded="lg"
-                   hide-details
-                 />
-               </v-col>
-             </template>
-
-             <!-- 通用设置 -->
-             <v-col cols="12">
-               <div class="text-subtitle-2 font-weight-bold mt-4 mb-2">通用设置</div>
-               <v-divider class="mb-4" />
-             </v-col>
-
-             <v-col cols="6">
-               <v-text-field
-                 v-model.number="form.timeout_seconds"
-                 label="超时时间 (秒)"
-                 type="number"
-                 variant="outlined"
-                 rounded="lg"
-                 hide-details
-               />
-             </v-col>
-
-             <v-col cols="6">
-                <v-switch
-                  v-model="form.retry_enabled"
-                  label="启用重试"
+                <v-text-field
+                  v-model="form.base_url"
+                  label="API 端点 (Base URL)"
+                  variant="outlined"
+                  density="comfortable"
+                  rounded="lg"
                   color="primary"
-                  hide-details
-                  density="compact"
+                  prepend-inner-icon="mdi-link-variant"
+                  persistent-hint
+                  hint="如果不填写则使用服务商默认端点"
+                  class="w-100"
                 />
-             </v-col>
 
-             <template v-if="form.retry_enabled">
-               <v-col cols="6">
-                 <v-text-field
-                   v-model.number="form.retry_count"
-                   label="重试次数"
-                   type="number"
-                   variant="outlined"
-                   rounded="lg"
-                   hide-details
-                 />
-               </v-col>
-               <v-col cols="6">
-                 <v-text-field
-                   v-model.number="form.retry_interval_ms"
-                   label="重试间隔 (ms)"
-                   type="number"
-                   variant="outlined"
-                   rounded="lg"
-                   hide-details
-                 />
-               </v-col>
-             </template>
+                <v-text-field
+                  v-model="form.api_key"
+                  label="API 密钥 (API Key)"
+                  variant="outlined"
+                  density="comfortable"
+                  rounded="lg"
+                  color="primary"
+                  prepend-inner-icon="mdi-shield-key-outline"
+                  type="password"
+                  persistent-hint
+                  hint="您的密钥将被加密存储"
+                  class="w-100"
+                />
+              </div>
+            </section>
 
-             <!-- DeepLX 特定配置 -->
-             <template v-if="form.api_type === 'deeplx'">
-               <v-col cols="12">
-                 <v-alert
-                   type="info"
-                   variant="tonal"
-                   density="compact"
-                   class="text-caption mt-2"
-                   rounded="lg"
-                 >
-                   <v-icon start size="16">mdi-information-outline</v-icon>
-                   DeepLX 提示：如果你的 Token 已嵌入在 URL 中（例如 <code>?token=xxx</code>），则这里的“API 密钥”可以留空。
-                 </v-alert>
-               </v-col>
-             </template>
-          </v-row>
+            <!-- OpenAI 特定配置 -->
+            <template v-if="form.api_type === 'openai'">
+              <v-divider />
+              <section>
+                <h3 class="text-subtitle-1 font-weight-bold mb-4 d-flex align-center">
+                  <v-icon color="secondary" class="mr-2">mdi-brain-outline</v-icon>
+                  AI 模型参数
+                </h3>
+                <div class="d-flex flex-column gap-6 w-100">
+                  <div class="d-flex align-center gap-2 w-100">
+                    <v-combobox
+                      v-model="form.settings.model"
+                      :items="availableModels"
+                      label="模型型号 (Model)"
+                      variant="outlined"
+                      density="comfortable"
+                      rounded="lg"
+                      color="primary"
+                      class="flex-1"
+                      hide-details
+                    />
+                    <v-btn
+                      variant="tonal"
+                      color="primary"
+                      icon="mdi-refresh"
+                      rounded="lg"
+                      height="48"
+                      :loading="fetchingModels"
+                      @click="fetchModels"
+                    >
+                      <v-icon>mdi-refresh</v-icon>
+                      <v-tooltip activator="parent">从接口拉取可用模型</v-tooltip>
+                    </v-btn>
+                  </div>
+                  <div class="d-flex gap-4 w-100">
+                    <v-text-field
+                      v-model.number="form.settings.max_tokens"
+                      label="最大消耗 (Max Tokens)"
+                      type="number"
+                      variant="outlined"
+                      density="comfortable"
+                      rounded="lg"
+                      color="primary"
+                      prepend-inner-icon="mdi-format-text-wrapping-overflow"
+                      style="flex: 1"
+                    />
+                    <v-text-field
+                      v-model.number="form.settings.rpm"
+                      label="频率限制 (RPM)"
+                      type="number"
+                      variant="outlined"
+                      density="comfortable"
+                      rounded="lg"
+                      color="primary"
+                      prepend-inner-icon="mdi-speedometer"
+                      style="flex: 1"
+                    />
+                  </div>
+                </div>
+              </section>
+            </template>
+
+            <!-- 通用设置 -->
+            <v-divider />
+            <section>
+              <h3 class="text-subtitle-1 font-weight-bold mb-4 d-flex align-center">
+                <v-icon color="info" class="mr-2">mdi-cog-outline</v-icon>
+                通用运行策略
+              </h3>
+              <div class="d-flex flex-column gap-6 w-100">
+                <div class="d-flex gap-4 w-100">
+                  <v-text-field
+                    v-model.number="form.timeout_seconds"
+                    label="网络超时 (秒)"
+                    type="number"
+                    variant="outlined"
+                    density="comfortable"
+                    rounded="lg"
+                    color="primary"
+                    prepend-inner-icon="mdi-clock-outline"
+                    style="flex: 1"
+                  />
+                  <div class="d-flex align-center justify-space-between px-4 border rounded-lg" style="flex: 1; height: 48px;">
+                    <span class="text-body-2 text-medium-emphasis">启用重试</span>
+                    <v-switch v-model="form.retry_enabled" color="primary" hide-details density="compact" />
+                  </div>
+                </div>
+
+                <div v-if="form.retry_enabled" class="d-flex gap-4 w-100">
+                  <v-text-field
+                    v-model.number="form.retry_count"
+                    label="最大重试次数"
+                    type="number"
+                    variant="outlined"
+                    density="comfortable"
+                    rounded="lg"
+                    color="primary"
+                    prepend-inner-icon="mdi-refresh"
+                    style="flex: 1"
+                  />
+                  <v-text-field
+                    v-model.number="form.retry_interval_ms"
+                    label="重试间隔 (ms)"
+                    type="number"
+                    variant="outlined"
+                    density="comfortable"
+                    rounded="lg"
+                    color="primary"
+                    prepend-inner-icon="mdi-timer-outline"
+                    style="flex: 1"
+                  />
+                </div>
+
+                <!-- DeepLX 特定提示 -->
+                <div v-if="form.api_type === 'deeplx'" class="w-100">
+                  <v-alert type="info" variant="tonal" density="compact" rounded="lg" icon="mdi-information-outline">
+                    DeepLX 提示：如果你的 URL 中已包含 Token，则“API 密钥”可留空。
+                  </v-alert>
+                </div>
+              </div>
+            </section>
+          </div>
         </v-card-text>
 
-        <v-card-actions class="pt-0">
+        <v-divider />
+
+        <v-card-actions class="pa-6">
           <v-spacer />
-          <v-btn variant="text" rounded="pill" @click="dialog = false">取消</v-btn>
+          <v-btn variant="text" rounded="pill" class="px-6" @click="dialog = false">取消</v-btn>
           <v-btn
             color="primary"
-            class="px-6 font-weight-bold"
+            class="px-10 font-weight-bold btn-premium"
             rounded="pill"
-            elevation="0"
+            elevation="4"
             :loading="saving"
             @click="saveConfig"
           >
@@ -467,13 +584,16 @@ const deleteConfig = async () => {
     </v-dialog>
 
     <!-- 删除确认 -->
-    <v-dialog v-model="deleteDialog" max-width="320">
+    <v-dialog v-model="deleteDialog" max-width="360">
       <v-card rounded="xl">
-        <v-card-title class="text-body-1 font-weight-bold">确认删除?</v-card-title>
-        <v-card-actions>
+        <v-card-title class="pa-6 pb-2 text-body-1 font-weight-bold">确认删除?</v-card-title>
+        <v-card-text class="pa-6 pt-2 text-body-2 text-medium-emphasis">
+          确定要移除密钥配置「{{ selectedConfig?.name }}」吗？
+        </v-card-text>
+        <v-card-actions class="pa-6 pt-0">
           <v-spacer />
-          <v-btn variant="text" @click="deleteDialog = false">取消</v-btn>
-          <v-btn color="error" variant="flat" rounded="pill" @click="deleteConfig">确定删除</v-btn>
+          <v-btn variant="text" rounded="pill" @click="deleteDialog = false">取消</v-btn>
+          <v-btn color="error" class="text-none font-weight-bold px-6" rounded="pill" @click="deleteConfig">确定删除</v-btn>
         </v-card-actions>
       </v-card>
     </v-dialog>
@@ -483,6 +603,14 @@ const deleteConfig = async () => {
 <style scoped>
 .api-key-card {
   transition: box-shadow 0.2s ease;
+  min-height: 200px;
+  display: flex;
+  flex-direction: column;
+}
+.api-key-card :deep(.v-card-text) {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
 }
 .api-key-card:hover {
   box-shadow: 0 4px 20px rgba(var(--v-theme-primary), 0.12) !important;
@@ -497,8 +625,53 @@ const deleteConfig = async () => {
   white-space: nowrap;
   max-width: 200px;
 }
+.gap-1 { gap: 4px; }
 .gap-2 { gap: 8px; }
 .gap-3 { gap: 12px; }
 .gap-4 { gap: 16px; }
 .gap-6 { gap: 24px; }
+.gap-8 { gap: 32px; }
+
+/* Premium Dialog Styles */
+.subscription-dialog {
+  max-height: 90vh;
+  display: flex;
+  flex-direction: column;
+}
+.dialog-header {
+  background: rgba(var(--v-theme-surface), 0.8);
+  backdrop-filter: blur(10px);
+  position: sticky;
+  top: 0;
+  z-index: 10;
+}
+.custom-scrollbar {
+  overflow-y: auto;
+}
+.custom-scrollbar::-webkit-scrollbar {
+  width: 6px;
+}
+.custom-scrollbar::-webkit-scrollbar-track {
+  background: transparent;
+}
+.custom-scrollbar::-webkit-scrollbar-thumb {
+  background: rgba(0, 0, 0, 0.1);
+  border-radius: 10px;
+}
+.custom-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: rgba(var(--v-theme-primary), 0.3);
+}
+.gradient-text {
+  background: linear-gradient(135deg, var(--v-theme-primary) 0%, #2c3e50 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+.shadow-premium {
+  box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25) !important;
+}
+.btn-premium {
+  letter-spacing: 0.5px;
+  text-transform: none;
+  background: linear-gradient(135deg, var(--v-theme-primary) 0%, var(--v-theme-secondary) 100%) !important;
+}
 </style>

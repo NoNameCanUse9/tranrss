@@ -3,10 +3,15 @@ name = "tranrss-backend"
 version = "0.1.0"
 edition = "2024"
 
+[features]
+# 启用此 feature 时，将 frontend/dist 内嵌进二进制（发布用）
+# 用法：cargo build --release --features embed-frontend
+embed-frontend = []
+
 [dependencies]
 # Web 框架：Axum 0.8.8 是 2026 年的最新主流版
 # 注意：Axum 0.8+ 已经原生支持异步 Trait，部分场景可不再依赖 async-trait
-axum = { version = "0.8.8", features = ["macros"] }
+axum = { version = "0.8.8", features = ["macros", "multipart"] }
 async-trait = "0.1.86"
 tokio = { version = "1.49.0", features = ["full"] }
 tower-http = { version = "0.6.8", features = ["cors", "trace"] }
@@ -38,5 +43,16 @@ anyhow = "1.0.101"
 bcrypt = "0.18.0"
 tl = "0.7.8"
 # jsonwebtoken 已更新至 10.x，支持更现代的 Crypto 后端
+apalis = { version = "0.7.4", features = ["limit"] }
+apalis-sql = { version = "0.7.4", features = ["sqlite"] }
+apalis-cron = "0.7.4"
+apalis-core = "0.7.4"
 jsonwebtoken = { version = "10.3.0", features = ["rust_crypto"] }
 tracing-subscriber = { version = "0.3.22", features = ["env-filter"] }
+html2md = "0.2"
+pulldown-cmark = "0.13"
+regex = "1.10"
+rand = "0.8"
+hex = "0.4"
+rust-embed = { version = "8", features = ["compression"] }
+mime_guess = "2"

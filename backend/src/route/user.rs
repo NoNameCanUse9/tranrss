@@ -1,6 +1,7 @@
 use crate::AppState;
 use crate::model::user::{
-    LoginRequest, LoginResponse, RegisterRequest, UpdatePasswordRequest, UpdateUsernameRequest,
+    LoginRequest, LoginResponse, RegisterRequest, UpdatePasswordRequest, UpdateUserSettingRequest,
+    UpdateUsernameRequest, User, UserSetting,
 };
 use crate::services::auth::{self, AuthUser};
 use axum::{
@@ -17,6 +18,10 @@ pub fn router() -> Router<Arc<AppState>> {
         .route("/login", post(login))
         .route("/password", put(update_password))
         .route("/username", put(update_username))
+        .route(
+            "/setting",
+            axum::routing::get(get_setting).put(update_setting),
+        )
 }
 
 async fn register(
@@ -30,11 +35,17 @@ async fn register(
     let password_hash = auth::hash_password(&payload.password)
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
+    let mut tx = state
+        .db
+        .begin()
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+
     // sqlx returns sqlx::Error
-    sqlx::query("INSERT INTO users (username, password_hash) VALUES (?, ?)")
+    let res = sqlx::query("INSERT INTO users (username, password_hash) VALUES (?, ?)")
         .bind(&payload.username)
         .bind(&password_hash)
-        .execute(&state.db)
+        .execute(&mut *tx)
         .await
         .map_err(|e: sqlx::Error| {
             if e.to_string().contains("UNIQUE") {
@@ -47,6 +58,18 @@ async fn register(
             }
         })?;
 
+    let user_id = res.last_insert_rowid();
+
+    sqlx::query("INSERT INTO user_setting (user_id) VALUES (?)")
+        .bind(user_id)
+        .execute(&mut *tx)
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+
+    tx.commit()
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+
     Ok(StatusCode::CREATED)
 }
 
@@ -57,7 +80,7 @@ async fn login(
     let payload: LoginRequest = serde_json::from_slice(body.as_ref())
         .map_err(|e| (StatusCode::BAD_REQUEST, format!("Invalid JSON: {}", e)))?;
 
-    let user: (i64, String, String) =
+    let user: User =
         sqlx::query_as("SELECT id, username, password_hash FROM users WHERE username = ?")
             .bind(&payload.username)
             .fetch_one(&state.db)
@@ -69,19 +92,35 @@ async fn login(
                 )
             })?;
 
-    if !auth::verify_password(&payload.password, &user.2) {
+    if !auth::verify_password(&payload.password, &user.password_hash) {
         return Err((
             StatusCode::UNAUTHORIZED,
             "Invalid username or password".to_string(),
         ));
     }
 
-    let token = auth::create_token(user.0, &user.1)
+    let token = auth::create_token(user.id, &user.username)
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+
+    // fetch settings mapping
+    let settings: Option<(Option<i64>, Option<i64>, Option<bool>, Option<i32>)> = sqlx::query_as(
+        "SELECT translate_api_id, summary_api_id, app_mode, log_num_limit FROM user_setting WHERE user_id = ?",
+    )
+    .bind(user.id)
+    .fetch_optional(&state.db)
+    .await
+    .unwrap_or(None);
+
+    let (translate_api_id, summary_api_id, app_mode, log_num_limit) =
+        settings.unwrap_or((None, None, None, None));
 
     Ok(Json(LoginResponse {
         token,
-        username: user.1,
+        username: user.username,
+        translate_api_id,
+        summary_api_id,
+        app_mode,
+        log_num_limit,
     }))
 }
 
@@ -142,6 +181,45 @@ async fn update_username(
                 (StatusCode::INTERNAL_SERVER_ERROR, e.to_string())
             }
         })?;
+
+    Ok(StatusCode::OK)
+}
+
+async fn get_setting(
+    State(state): State<Arc<AppState>>,
+    auth_user: AuthUser,
+) -> Result<Json<UserSetting>, (StatusCode, String)> {
+    let setting: UserSetting = sqlx::query_as("SELECT translate_api_id, summary_api_id, greader_api, api_proxy, api_proxy_url, app_mode, user_id, log_num_limit FROM user_setting WHERE user_id = ?")
+        .bind(auth_user.user_id)
+        .fetch_one(&state.db)
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+
+    Ok(Json(setting))
+}
+
+async fn update_setting(
+    State(state): State<Arc<AppState>>,
+    auth_user: AuthUser,
+    body: axum::body::Bytes,
+) -> Result<StatusCode, (StatusCode, String)> {
+    let payload: UpdateUserSettingRequest = serde_json::from_slice(body.as_ref())
+        .map_err(|e| (StatusCode::BAD_REQUEST, format!("Invalid JSON: {}", e)))?;
+
+    sqlx::query(
+        "UPDATE user_setting SET translate_api_id = ?, summary_api_id = ?, greader_api = ?, api_proxy = ?, api_proxy_url = ?, app_mode = ?, log_num_limit = ? WHERE user_id = ?"
+    )
+    .bind(payload.translate_api_id)
+    .bind(payload.summary_api_id)
+    .bind(payload.greader_api)
+    .bind(payload.api_proxy)
+    .bind(&payload.api_proxy_url)
+    .bind(payload.app_mode)
+    .bind(payload.log_num_limit)
+    .bind(auth_user.user_id)
+    .execute(&state.db)
+    .await
+    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
     Ok(StatusCode::OK)
 }

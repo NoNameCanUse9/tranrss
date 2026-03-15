@@ -48,6 +48,17 @@ const handleSubmit = async () => {
       const data = await response.json()
       localStorage.setItem('token', data.token)
       localStorage.setItem('username', data.username)
+
+      // Apply theme mode configured by backend (`app_mode`: true for dark mode)
+      if (data.app_mode !== undefined && data.app_mode !== null) {
+        theme.global.name.value = data.app_mode ? 'dark' : 'light'
+      }
+
+      // Store other settings that might be useful
+      if (data.log_num_limit) {
+        localStorage.setItem('log_num_limit', data.log_num_limit.toString())
+      }
+
       emit('auth-success')
     } else {
       // After registration, switch to login

@@ -2,11 +2,16 @@ use crate::model::api_config::{ApiConfig, CreateApiConfigRequest, UpdateApiConfi
 use sqlx::SqlitePool;
 
 /// 创建新的 API 配置
-pub async fn create_config(pool: &SqlitePool, req: CreateApiConfigRequest) -> anyhow::Result<i64> {
+pub async fn create_config(
+    pool: &SqlitePool,
+    user_id: i64,
+    req: CreateApiConfigRequest,
+) -> anyhow::Result<i64> {
     // 将 settings JSON 对象转换为字符串存储到数据库
     let settings_json = req.settings.unwrap_or(serde_json::json!({})).to_string();
 
-    let id = sqlx::query("INSERT INTO api_configs (name, api_type, api_key, base_url, settings, timeout_seconds, retry_count, retry_interval_ms, retry_enabled) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)")
+    let id = sqlx::query("INSERT INTO api_configs (user_id, name, api_type, api_key, base_url, settings, timeout_seconds, retry_count, retry_interval_ms, retry_enabled) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
+        .bind(user_id)
         .bind(req.name)
         .bind(req.api_type)
         .bind(req.api_key)
@@ -27,15 +32,17 @@ pub async fn create_config(pool: &SqlitePool, req: CreateApiConfigRequest) -> an
 pub async fn update_config(
     pool: &SqlitePool,
     id: i64,
+    user_id: i64,
     req: UpdateApiConfigRequest,
 ) -> anyhow::Result<()> {
-    // 1. 先查出旧数据，用于部分更新
-    let old: ApiConfig = sqlx::query_as("SELECT * FROM api_configs WHERE id = ?")
+    // 1. 先查出旧数据，用于部分更新，同时校验所有权
+    let old: ApiConfig = sqlx::query_as("SELECT * FROM api_configs WHERE id = ? AND user_id = ?")
         .bind(id)
+        .bind(user_id)
         .fetch_one(pool)
         .await?;
 
-    // 2. 只有新字段有值时才覆盖，否则保留旧值
+    // ... (rest of the logic stays same)
     let name = req.name.unwrap_or(old.name);
     let api_type = req.api_type.unwrap_or(old.api_type);
     let api_key = req.api_key.or(old.api_key);
@@ -45,14 +52,13 @@ pub async fn update_config(
     let retry_interval_ms = req.retry_interval_ms.unwrap_or(old.retry_interval_ms);
     let retry_enabled = req.retry_enabled.unwrap_or(old.retry_enabled);
 
-    // 如果传入了新的 settings JSON，则更新，否则保持旧的（保持字符串形式）
     let settings_str = if let Some(new_settings) = req.settings {
         new_settings.to_string()
     } else {
         old.settings
     };
 
-    sqlx::query("UPDATE api_configs SET name = ?, api_type = ?, api_key = ?, base_url = ?, settings = ?, timeout_seconds = ?, retry_count = ?, retry_interval_ms = ?, retry_enabled = ? WHERE id = ?")
+    sqlx::query("UPDATE api_configs SET name = ?, api_type = ?, api_key = ?, base_url = ?, settings = ?, timeout_seconds = ?, retry_count = ?, retry_interval_ms = ?, retry_enabled = ? WHERE id = ? AND user_id = ?")
         .bind(name)
         .bind(api_type)
         .bind(api_key)
@@ -63,33 +69,37 @@ pub async fn update_config(
         .bind(retry_interval_ms)
         .bind(retry_enabled)
         .bind(id)
+        .bind(user_id)
         .execute(pool)
         .await?;
 
     Ok(())
 }
 
-/// 获取单个配置
-pub async fn get_config(pool: &SqlitePool, id: i64) -> anyhow::Result<ApiConfig> {
-    let config = sqlx::query_as("SELECT * FROM api_configs WHERE id = ?")
+/// 获取单个配置 (含所有权校验)
+pub async fn get_config(pool: &SqlitePool, id: i64, user_id: i64) -> anyhow::Result<ApiConfig> {
+    let config = sqlx::query_as("SELECT * FROM api_configs WHERE id = ? AND user_id = ?")
         .bind(id)
+        .bind(user_id)
         .fetch_one(pool)
         .await?;
     Ok(config)
 }
 
-/// 列出所有配置
-pub async fn list_configs(pool: &SqlitePool) -> anyhow::Result<Vec<ApiConfig>> {
-    let configs = sqlx::query_as("SELECT * FROM api_configs")
+/// 列出用户的所有配置
+pub async fn list_configs(pool: &SqlitePool, user_id: i64) -> anyhow::Result<Vec<ApiConfig>> {
+    let configs = sqlx::query_as("SELECT * FROM api_configs WHERE user_id = ?")
+        .bind(user_id)
         .fetch_all(pool)
         .await?;
     Ok(configs)
 }
 
-/// 删除配置
-pub async fn delete_config(pool: &SqlitePool, id: i64) -> anyhow::Result<()> {
-    sqlx::query("DELETE FROM api_configs WHERE id = ?")
+/// 删除配置 (含所有权校验)
+pub async fn delete_config(pool: &SqlitePool, id: i64, user_id: i64) -> anyhow::Result<()> {
+    sqlx::query("DELETE FROM api_configs WHERE id = ? AND user_id = ?")
         .bind(id)
+        .bind(user_id)
         .execute(pool)
         .await?;
     Ok(())

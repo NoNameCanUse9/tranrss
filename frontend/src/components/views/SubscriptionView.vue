@@ -15,6 +15,10 @@ interface Subscription {
   siteUrl?: string | null
   description?: string | null
   iconUrl?: string | null
+  num: number
+  refreshInterval: number
+  lastStatusCode?: number | null
+  lastError?: string | null
 }
 
 const getHostname = (url: string) => {
@@ -63,12 +67,14 @@ const form = ref({
   title: '',
   url: '',
   category: '技术',
-  targetLanguage: 'zh',
+  targetLanguage: 'Chinese',
   autoTranslate: false,
   needSummary: false,
   siteUrl: '',
   description: '',
   iconUrl: '',
+  num: 200,
+  refreshInterval: 30,
 })
 
 const filtered = computed(() => {
@@ -79,12 +85,22 @@ const filtered = computed(() => {
   )
 })
 
-const statusInfo = (status: string): { color: string; label: string; icon: string } => {
-  const map: Record<string, { color: string; label: string; icon: string }> = {
-    active: { color: 'success', label: '正常', icon: 'mdi-check-circle-outline' },
-    error: { color: 'error', label: '错误', icon: 'mdi-alert-circle-outline' },
+const getSubStatus = (sub: Subscription) => {
+  if (sub.lastError) return 'error'
+  if (sub.lastStatusCode && (sub.lastStatusCode < 200 || sub.lastStatusCode >= 300)) return 'error'
+  return 'active'
+}
+
+const statusInfo = (sub: Subscription): { color: string; label: string; icon: string } => {
+  const status = getSubStatus(sub)
+  if (status === 'error') {
+    let label = '同步错误'
+    if (sub.lastStatusCode) {
+      label = `错误 ${sub.lastStatusCode}`
+    }
+    return { color: 'error', label, icon: 'mdi-alert-circle-outline' }
   }
-  return map[status] || map['active']!
+  return { color: 'success', label: '正常', icon: 'mdi-check-circle-outline' }
 }
 
 const syncNow = async (id: number) => {
@@ -98,7 +114,7 @@ const syncNow = async (id: number) => {
     })
     if (!response.ok) throw new Error('同步失败')
     
-    snackbar.value = { show: true, text: '同步成功', color: 'success' }
+    snackbar.value = { show: true, text: '同步任务已在后台开始', color: 'success' }
     await fetchSubscriptions()
   } catch (e: any) {
     snackbar.value = { show: true, text: e.message, color: 'error' }
@@ -107,10 +123,32 @@ const syncNow = async (id: number) => {
   }
 }
 
+const syncAllLoading = ref(false)
+const syncAll = async () => {
+  if (subscriptions.value.length === 0) return
+  syncAllLoading.value = true
+  try {
+    const response = await fetch('/api/subscriptions/sync_all', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${localStorage.getItem('token')}`
+      }
+    })
+    if (!response.ok) throw new Error('全部同步失败')
+    
+    snackbar.value = { show: true, text: '同步任务已在后台开始', color: 'success' }
+    await fetchSubscriptions()
+  } catch (e: any) {
+    snackbar.value = { show: true, text: e.message, color: 'error' }
+  } finally {
+    syncAllLoading.value = false
+  }
+}
+
 const openAddDialog = () => {
   form.value = { 
-    title: '', url: '', category: '技术', targetLanguage: 'zh', autoTranslate: false, needSummary: false,
-    siteUrl: '', description: '', iconUrl: ''
+    title: '', url: '', category: '技术', targetLanguage: 'Chinese', autoTranslate: false, needSummary: false,
+    siteUrl: '', description: '', iconUrl: '', num: 200, refreshInterval: 30
   }
   selectedSub.value = null
   dialog.value = true
@@ -121,12 +159,14 @@ const openEditDialog = (sub: Subscription) => {
     title: sub.title, 
     url: sub.url, 
     category: sub.category, 
-    targetLanguage: sub.targetLanguage || 'zh',
+    targetLanguage: sub.targetLanguage || 'Chinese',
     autoTranslate: sub.autoTranslate,
     needSummary: sub.needSummary,
     siteUrl: sub.siteUrl || '',
     description: sub.description || '',
     iconUrl: sub.iconUrl || '',
+    num: sub.num || 200,
+    refreshInterval: sub.refreshInterval || 30,
   }
   selectedSub.value = sub
   dialog.value = true
@@ -165,6 +205,7 @@ const saveSub = async () => {
     // 调整参数名以匹配后端模型
     const payload = {
       feedUrl: form.value.url,
+      category: form.value.category,
       customTitle: form.value.title,
       needTranslate: form.value.autoTranslate,
       needSummary: form.value.needSummary,
@@ -172,7 +213,9 @@ const saveSub = async () => {
       description: form.value.description,
       iconUrl: form.value.iconUrl,
       targetLanguage: form.value.targetLanguage,
-      // folderId: ... // 暂时默认未分类
+      num: form.value.num,
+      refreshInterval: form.value.refreshInterval,
+      // folderId: ... // 暂时默认由后端根据 category 自动处理
     }
 
     const response = await fetch(url, {
@@ -186,6 +229,11 @@ const saveSub = async () => {
 
     if (!response.ok) throw new Error('保存失败')
     
+    snackbar.value = { 
+      show: true, 
+      text: isEdit ? '已成功更新订阅配置' : '订阅成功，文章稍后将自动出现在列表中', 
+      color: 'success' 
+    }
     await fetchSubscriptions()
     dialog.value = false
   } catch (e) {
@@ -243,10 +291,24 @@ const handleUrlBlur = async () => {
         <h1 class="text-h3 font-weight-bold">订阅源</h1>
         <p class="text-body-1 text-medium-emphasis mt-2">共 {{ subscriptions.length }} 个活动的源</p>
       </div>
-      <v-btn color="primary" rounded="pill" elevation="0" class="text-none font-weight-bold" @click="openAddDialog">
-        <v-icon start>mdi-plus</v-icon>
-        添加订阅
-      </v-btn>
+      <div class="d-flex gap-2">
+        <v-btn 
+          variant="tonal" 
+          color="secondary" 
+          rounded="pill" 
+          class="text-none font-weight-bold" 
+          @click="syncAll"
+          :loading="syncAllLoading"
+          :disabled="subscriptions.length === 0"
+        >
+          <v-icon start>mdi-sync</v-icon>
+          全部同步
+        </v-btn>
+        <v-btn color="primary" rounded="pill" elevation="0" class="text-none font-weight-bold" @click="openAddDialog">
+          <v-icon start>mdi-plus</v-icon>
+          添加订阅
+        </v-btn>
+      </div>
     </div>
 
     <!-- 搜索 -->
@@ -274,22 +336,47 @@ const handleUrlBlur = async () => {
     </v-card>
 
     <v-row v-else>
-      <v-col v-for="sub in filtered" :key="sub.id" cols="12" md="6" lg="4">
-        <v-card rounded="xl" variant="flat" color="surface" class="sub-card h-100">
+      <v-col v-for="sub in filtered" :key="sub.id" cols="12" md="6" class="d-flex">
+        <v-card rounded="xl" variant="flat" color="surface" class="sub-card flex-grow-1">
           <v-card-text class="pa-5">
             <div class="d-flex align-start justify-space-between mb-2">
               <div class="flex-1 min-w-0 mr-2">
-                <p class="text-body-1 font-weight-semibold text-truncate">{{ sub.title }}</p>
+                <div class="d-flex align-center gap-2 mb-1">
+                  <v-avatar size="20" rounded="sm" v-if="sub.iconUrl" class="bg-grey-lighten-4">
+                    <v-img :src="sub.iconUrl">
+                      <template v-slot:placeholder>
+                        <v-icon size="14" color="grey">mdi-rss</v-icon>
+                      </template>
+                    </v-img>
+                  </v-avatar>
+                  <p class="text-body-1 font-weight-semibold text-truncate">{{ sub.title }}</p>
+                </div>
                 <p class="text-caption text-medium-emphasis text-truncate">{{ sub.url }}</p>
               </div>
+              <v-tooltip v-if="sub.lastError" location="top" offset="10">
+                <template v-slot:activator="{ props }">
+                  <v-chip
+                    v-bind="props"
+                    :color="statusInfo(sub).color"
+                    size="x-small"
+                    variant="tonal"
+                    class="text-none flex-shrink-0 cursor-help"
+                  >
+                    <v-icon start size="12">{{ statusInfo(sub).icon }}</v-icon>
+                    {{ statusInfo(sub).label }}
+                  </v-chip>
+                </template>
+                <div class="text-caption pa-1" style="max-width: 300px">{{ sub.lastError }}</div>
+              </v-tooltip>
               <v-chip
-                :color="statusInfo(sub.status).color"
+                v-else
+                :color="statusInfo(sub).color"
                 size="x-small"
                 variant="tonal"
                 class="text-none flex-shrink-0"
               >
-                <v-icon start size="12">{{ statusInfo(sub.status).icon }}</v-icon>
-                {{ statusInfo(sub.status).label }}
+                <v-icon start size="12">{{ statusInfo(sub).icon }}</v-icon>
+                {{ statusInfo(sub).label }}
               </v-chip>
             </div>
 
@@ -310,7 +397,7 @@ const handleUrlBlur = async () => {
 
             <v-divider class="mb-3" />
             
-            <div v-if="sub.description" class="text-caption text-medium-emphasis line-clamp-2 mb-3">
+            <div v-if="sub.description" class="text-caption text-medium-emphasis line-clamp-desc mb-3">
               {{ sub.description }}
             </div>
 
@@ -386,9 +473,9 @@ const handleUrlBlur = async () => {
                 订阅源元数据
               </h3>
               
-              <div class="d-flex flex-column gap-6">
+              <div class="d-flex flex-column gap-6 w-100">
                 <!-- 实时预览卡片 -->
-                <div class="preview-card pa-6 rounded-xl text-center d-flex flex-column align-center gap-2 mb-2">
+                <div class="preview-card pa-6 rounded-xl text-center d-flex flex-column align-center gap-2 mb-2 w-100">
                   <v-avatar size="80" rounded="xl" class="shadow-sm mb-2" color="white">
                     <v-img :src="form.iconUrl || ''" cover>
                       <template v-slot:placeholder>
@@ -405,47 +492,46 @@ const handleUrlBlur = async () => {
                   </div>
                 </div>
 
-                <div class="d-flex flex-column gap-4">
+                <div class="d-flex flex-column gap-4 w-100">
                   <v-text-field 
                     v-model="form.url" 
                     label="RSS 订阅地址" 
-                    placeholder="https://example.com/feed.xml"
                     variant="outlined" 
                     density="comfortable" 
                     rounded="lg" 
                     color="primary" 
                     prepend-inner-icon="mdi-rss" 
-                    messages="支持标准 RSS, Atom 和 JSON Feed"
+                    hint="例如: https://example.com/feed.xml (支持标准 RSS, Atom 和 JSON Feed)"
+                    persistent-hint
                     @blur="handleUrlBlur"
                     :loading="fetchingPreview"
+                    class="w-100"
                   />
                   
-                  <v-row>
-                    <v-col cols="12" sm="6">
-                      <v-text-field 
-                        v-model="form.siteUrl" 
-                        label="源站点链接" 
-                        variant="outlined" 
-                        density="comfortable" 
-                        rounded="lg" 
-                        color="primary" 
-                        prepend-inner-icon="mdi-earth" 
-                        hide-details 
-                      />
-                    </v-col>
-                    <v-col cols="12" sm="6">
-                      <v-text-field 
-                        v-model="form.iconUrl" 
-                        label="图标 URL" 
-                        variant="outlined" 
-                        density="comfortable" 
-                        rounded="lg" 
-                        color="primary" 
-                        prepend-inner-icon="mdi-image-outline" 
-                        hide-details 
-                      />
-                    </v-col>
-                  </v-row>
+                  <div class="d-flex gap-4 w-100">
+                    <v-text-field 
+                      v-model="form.siteUrl" 
+                      label="源站点链接" 
+                      variant="outlined" 
+                      density="comfortable" 
+                      rounded="lg" 
+                      color="primary" 
+                      prepend-inner-icon="mdi-earth" 
+                      hide-details 
+                      style="flex: 1"
+                    />
+                    <v-text-field 
+                      v-model="form.iconUrl" 
+                      label="图标 URL" 
+                      variant="outlined" 
+                      density="comfortable" 
+                      rounded="lg" 
+                      color="primary" 
+                      prepend-inner-icon="mdi-image-outline" 
+                      hide-details 
+                      style="flex: 1"
+                    />
+                  </div>
 
                   <v-textarea 
                     v-model="form.description" 
@@ -457,7 +543,7 @@ const handleUrlBlur = async () => {
                     prepend-inner-icon="mdi-text-subject" 
                     hide-details 
                     rows="2"
-                    placeholder="该订阅源的简要介绍..."
+                    class="w-100"
                   />
                 </div>
               </div>
@@ -482,37 +568,62 @@ const handleUrlBlur = async () => {
                 <v-icon color="secondary" class="mr-2">mdi-cog-outline</v-icon>
                 阅读偏好设置
               </h3>
-              <div class="d-flex flex-column gap-4">
-                <v-row>
-                  <v-col cols="12" sm="6">
-                    <v-text-field 
-                      v-model="form.title" 
-                      label="自定义显示名称" 
-                      placeholder="如果不填写将使用源标题"
-                      variant="outlined" 
-                      density="comfortable" 
-                      rounded="lg" 
-                      color="primary" 
-                      prepend-inner-icon="mdi-pencil-outline" 
-                      hide-details
-                    />
-                  </v-col>
-                  <v-col cols="12" sm="6">
-                    <v-combobox 
-                      v-model="form.category" 
-                      :items="categories" 
-                      label="所属分类" 
-                      placeholder="选择或输入新分类"
-                      variant="outlined" 
-                      density="comfortable" 
-                      rounded="lg" 
-                      color="primary" 
-                      prepend-inner-icon="mdi-folder-outline" 
-                      hide-details 
-                      hide-no-data
-                    />
-                  </v-col>
-                </v-row>
+              <div class="d-flex flex-column gap-4 w-100">
+                <div class="d-flex gap-4 w-100 mb-2">
+                  <v-text-field 
+                    v-model="form.title" 
+                    label="自定义显示名称" 
+                    variant="outlined" 
+                    density="comfortable" 
+                    rounded="lg" 
+                    color="primary" 
+                    prepend-inner-icon="mdi-pencil-outline" 
+                    hint="如果不填写将使用源标题"
+                    persistent-hint
+                    style="flex: 5"
+                  />
+                  <v-combobox 
+                    v-model="form.category" 
+                    :items="categories" 
+                    label="所属分类" 
+                    variant="outlined" 
+                    density="comfortable" 
+                    rounded="lg" 
+                    color="primary" 
+                    prepend-inner-icon="mdi-folder-outline" 
+                    persistent-hint
+                    hint="选择或输入新分类"
+                    hide-no-data
+                    style="flex: 3"
+                  />
+                  <v-text-field 
+                    v-model.number="form.num" 
+                    label="最大存储" 
+                    type="number"
+                    variant="outlined" 
+                    density="comfortable" 
+                    rounded="lg" 
+                    color="primary" 
+                    prepend-inner-icon="mdi-numeric" 
+                    persistent-hint
+                    hint="超出限制将自动清理"
+                    style="flex: 2"
+                  />
+                  <v-text-field 
+                    v-model.number="form.refreshInterval" 
+                    label="同步间隔" 
+                    type="number"
+                    variant="outlined" 
+                    density="comfortable" 
+                    rounded="lg" 
+                    color="primary" 
+                    prepend-inner-icon="mdi-update" 
+                    persistent-hint
+                    hint="自动同步间隔 (分钟)"
+                    suffix="分钟"
+                    style="flex: 2"
+                  />
+                </div>
               </div>
             </section>
 
@@ -562,10 +673,10 @@ const handleUrlBlur = async () => {
                       <v-select 
                         v-model="form.targetLanguage" 
                         :items="[
-                          { title: '简体中文 (Chinese)', value: 'zh' },
-                          { title: '英语 (English)', value: 'en' },
-                          { title: '日语 (Japanese)', value: 'ja' },
-                          { title: '法语 (French)', value: 'fr' }
+                          { title: '简体中文 (Chinese)', value: 'Chinese' },
+                          { title: '英语 (English)', value: 'English' },
+                          { title: '日语 (Japanese)', value: 'Japanese' },
+                          { title: '法语 (French)', value: 'French' }
                         ]" 
                         label="翻译与简报的目标语言" 
                         variant="outlined" 
@@ -628,10 +739,30 @@ const handleUrlBlur = async () => {
 
 <style scoped>
 .sub-card {
-  transition: box-shadow 0.2s ease;
+  max-width: 540px;
+  min-height: 260px;
+  display: flex;
+  flex-direction: column;
+  transition: transform 0.2s cubic-bezier(0.4, 0, 0.2, 1), box-shadow 0.2s ease;
+  overflow: hidden;
 }
 .sub-card:hover {
-  box-shadow: 0 4px 20px rgba(var(--v-theme-primary), 0.12) !important;
+  transform: translateY(-4px);
+  box-shadow: 0 12px 30px rgba(var(--v-theme-primary), 0.1) !important;
+  z-index: 10;
+}
+.sub-card:hover .line-clamp-desc {
+  -webkit-line-clamp: 20; 
+  background: rgb(var(--v-theme-surface));
+  position: relative;
+  overflow: visible;
+}
+.line-clamp-desc {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+  transition: all 0.3s ease;
 }
 .gap-2 { gap: 8px; }
 .gap-4 { gap: 16px; }

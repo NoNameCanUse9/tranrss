@@ -19,7 +19,7 @@ const handleAuthSuccess = () => {
 <template>
   <v-app>
     <LoginView v-if="!isLoggedIn" @auth-success="handleAuthSuccess" />
-    <HomeView v-else />
+    <HomeView v-else @logout="isLoggedIn = false" />
   </v-app>
 </template>
 

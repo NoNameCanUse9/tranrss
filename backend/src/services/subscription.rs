@@ -11,18 +11,22 @@ pub async fn list_subscriptions(
         r#"
         SELECT 
             s.id,
+            s.feed_id,
             COALESCE(s.custom_title, f.title) as title,
             f.feed_url as url,
             COALESCE(fo.title, '未分类') as category,
             (SELECT COUNT(*) FROM articles WHERE feed_id = f.id) as article_count,
             f.last_fetched_at as last_sync,
-            'active' as status,
+            'active' as status, -- Placeholder, we will calculate below if needed, but FromRow handles basic mapping
             'en' as language,
             s.need_translate as auto_translate,
             s.need_summary,
             f.site_url,
             f.description,
-            f.icon_url
+            f.icon_url,
+            s.refresh_interval,
+            f.last_status_code,
+            f.last_error
         FROM subscriptions s
         JOIN feeds f ON s.feed_id = f.id
         LEFT JOIN folders fo ON s.folder_id = fo.id
@@ -40,7 +44,7 @@ pub async fn create_subscription(
     db: &SqlitePool,
     user_id: i64,
     payload: CreateSubscriptionRequest,
-) -> Result<i64, anyhow::Error> {
+) -> Result<(i64, i64), anyhow::Error> {
     // 1. Find or create feed
     let feed_id: (i64,) = sqlx::query_as(
         r#"
@@ -67,18 +71,38 @@ pub async fn create_subscription(
     .fetch_one(db)
     .await?;
 
-    // 2. Create subscription
-    let result = sqlx::query("INSERT INTO subscriptions (user_id, feed_id, folder_id, custom_title, need_translate, need_summary) VALUES (?, ?, ?, ?, ?, ?)")
+    // 2. Resolve folder_id from category if folder_id is not provided
+    let mut resolved_folder_id = payload.folder_id;
+    if resolved_folder_id.is_none() {
+        if let Some(cat) = payload.category.as_ref() {
+            if !cat.is_empty() && cat != "未分类" {
+                // Find or create folder
+                let folder_rec: (i64,) = sqlx::query_as(
+                    "INSERT INTO folders (user_id, title) VALUES (?, ?) ON CONFLICT(user_id, title) DO UPDATE SET title=excluded.title RETURNING id"
+                )
+                .bind(user_id)
+                .bind(&cat)
+                .fetch_one(db)
+                .await?;
+                resolved_folder_id = Some(folder_rec.0);
+            }
+        }
+    }
+
+    // 3. Create subscription
+    let result = sqlx::query("INSERT INTO subscriptions (user_id, feed_id, folder_id, custom_title, need_translate, need_summary, num, refresh_interval) VALUES (?, ?, ?, ?, ?, ?, ?, ?)")
         .bind(user_id)
         .bind(feed_id.0)
-        .bind(payload.folder_id)
+        .bind(resolved_folder_id)
         .bind(&payload.custom_title)
         .bind(payload.need_translate.unwrap_or(false))
         .bind(payload.need_summary.unwrap_or(false))
+        .bind(payload.num.unwrap_or(200))
+        .bind(payload.refresh_interval.unwrap_or(30))
         .execute(db)
         .await?;
 
-    Ok(result.last_insert_rowid())
+    Ok((result.last_insert_rowid(), feed_id.0))
 }
 
 pub async fn update_subscription(
@@ -86,23 +110,55 @@ pub async fn update_subscription(
     user_id: i64,
     id: i64,
     payload: UpdateSubscriptionRequest,
-) -> Result<(), Error> {
+) -> Result<(), anyhow::Error> {
+    // 1. Resolve folder_id if needed
+    let mut resolved_folder_id = payload.folder_id;
+    if let Some(cat) = payload.category.as_ref() {
+        if !cat.is_empty() && cat != "未分类" {
+            let folder_rec: (i64,) = sqlx::query_as(
+                "INSERT INTO folders (user_id, title) VALUES (?, ?) ON CONFLICT(user_id, title) DO UPDATE SET title=excluded.title RETURNING id"
+            )
+            .bind(user_id)
+            .bind(&cat)
+            .fetch_one(db)
+            .await?;
+            resolved_folder_id = Some(folder_rec.0);
+        } else {
+            resolved_folder_id = None;
+        }
+    }
+
+    // 2. Perform update
+    // We use a trick with COALESCE and a flag or just handle folder_id explicitly.
+    // Since SubscriptionView always sends category, we can trust it if it's there.
+    let (set_folder, target_folder_id) =
+        if payload.category.is_some() || payload.folder_id.is_some() {
+            (true, resolved_folder_id)
+        } else {
+            (false, None)
+        };
+
     sqlx::query(
         r#"
         UPDATE subscriptions 
-        SET folder_id = COALESCE(?, folder_id),
+        SET folder_id = CASE WHEN ? THEN ? ELSE folder_id END,
             custom_title = COALESCE(?, custom_title),
             need_translate = COALESCE(?, need_translate),
             need_summary = COALESCE(?, need_summary),
-            target_language = COALESCE(?, target_language)
+            target_language = COALESCE(?, target_language),
+            num = COALESCE(?, num),
+            refresh_interval = COALESCE(?, refresh_interval)
         WHERE id = ? AND user_id = ?
         "#,
     )
-    .bind(payload.folder_id)
+    .bind(set_folder)
+    .bind(target_folder_id)
     .bind(payload.custom_title)
     .bind(payload.need_translate)
     .bind(payload.need_summary)
     .bind(payload.target_language)
+    .bind(payload.num)
+    .bind(payload.refresh_interval)
     .bind(id)
     .bind(user_id)
     .execute(db)
@@ -124,7 +180,7 @@ pub async fn delete_subscription(db: &SqlitePool, user_id: i64, id: i64) -> Resu
 
     // 2. 删除该用户在此 feed 下所有文章的翻译块
     sqlx::query(
-        "DELETE FROM article_blocks WHERE user_id = ? AND article_guid IN (SELECT guid FROM articles WHERE feed_id = ?)"
+        "DELETE FROM article_blocks WHERE user_id = ? AND article_id IN (SELECT id FROM articles WHERE feed_id = ?)"
     )
     .bind(user_id)
     .bind(feed_id)
@@ -179,6 +235,7 @@ pub async fn get_subscription_detail(
         r#"
         SELECT 
             s.id,
+            s.feed_id,
             COALESCE(s.custom_title, f.title) as title,
             f.feed_url as url,
             COALESCE(fo.title, '未分类') as category,
@@ -190,7 +247,10 @@ pub async fn get_subscription_detail(
             s.need_summary,
             f.site_url,
             f.description,
-            f.icon_url
+            f.icon_url,
+            s.refresh_interval,
+            f.last_status_code,
+            f.last_error
         FROM subscriptions s
         JOIN feeds f ON s.feed_id = f.id
         LEFT JOIN folders fo ON s.folder_id = fo.id
@@ -216,4 +276,12 @@ pub async fn get_feed_id_by_subscription(
             .fetch_one(db)
             .await?;
     Ok(rec.0)
+}
+
+pub async fn list_user_feed_ids(db: &SqlitePool, user_id: i64) -> Result<Vec<i64>, Error> {
+    let recs: Vec<(i64,)> = sqlx::query_as("SELECT feed_id FROM subscriptions WHERE user_id = ?")
+        .bind(user_id)
+        .fetch_all(db)
+        .await?;
+    Ok(recs.into_iter().map(|r| r.0).collect())
 }

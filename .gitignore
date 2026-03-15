@@ -28,3 +28,8 @@ frontend/*.local
 
 # Root Node dependencies (if any)
 node_modules/
+db_status.txt
+database.sh
+.gitignore
+jwt_secret.key
+.gitignore

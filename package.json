@@ -3,7 +3,10 @@
   "private": true,
   "scripts": {
     "dev:frontend": "pnpm --filter frontend dev",
-    "dev:backend": "cd backend && cargo watch -x run",
-    "dev": "pnpm dlx concurrently \"pnpm dev:frontend\" \"pnpm dev:backend\" --names \"WEB,API\" --prefix-colors \"blue,green\""
+    "dev:backend": "fuser -k 8000/tcp || true; cd backend && cargo watch -x run",
+    "dev:db": "sh database.sh",
+    "dev": "pnpm dlx concurrently \"pnpm dev:frontend\" \"pnpm dev:backend\" \"pnpm dev:db\" --names \"WEB,API,DB\" --prefix-colors \"blue,green,yellow\"",
+    "build": "pnpm --filter frontend build && cd backend && cargo build --release --features embed-frontend",
+    "build:init": "cd backend && cargo build --release --bin init_db"
   }
 }
