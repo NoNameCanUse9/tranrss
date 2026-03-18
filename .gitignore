@@ -33,3 +33,5 @@ database.sh
 .gitignore
 jwt_secret.key
 .gitignore
+rssdata.db-wal
+rssdata.db-shm

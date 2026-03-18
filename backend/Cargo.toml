@@ -2,6 +2,7 @@
 name = "tranrss-backend"
 version = "0.1.0"
 edition = "2024"
+default-run = "tranrss-backend"
 
 [features]
 # 启用此 feature 时，将 frontend/dist 内嵌进二进制（发布用）

@@ -23,7 +23,13 @@ const dialog = ref(false)
 const deleteDialog = ref(false)
 const selectedConfig = ref<ApiConfig | null>(null)
 const showToken = ref<Record<number, boolean>>({})
-const expandedCards = ref<Record<number, boolean>>({})
+const detailDialog = ref(false)
+const detailConfig = ref<ApiConfig | null>(null)
+
+const openDetail = (config: ApiConfig) => {
+  detailConfig.value = config
+  detailDialog.value = true
+}
 
 // 默认提供商配置，用于 UI 展示（图标、颜色等）
 const providers = [
@@ -236,11 +242,12 @@ const fetchModels = async () => {
     </v-card>
 
     <!-- 密钥列表 -->
-    <v-row v-else>
+    <v-row v-else align="stretch">
       <v-col v-for="config in apiConfigs" :key="config.id" cols="12" md="6" class="d-flex">
         <v-card rounded="xl" variant="flat" color="surface-variant" class="api-key-card flex-grow-1">
-          <v-card-text class="pa-5">
-            <div class="d-flex align-start justify-space-between mb-3">
+          <v-card-text class="pa-5 d-flex flex-column">
+            <!-- Header Section with Fixed Layout for Alignment -->
+            <div class="d-flex align-start justify-space-between" style="min-height: 80px;">
               <div class="d-flex align-center gap-3">
                 <v-avatar :color="getProviderInfo(config.api_type).color" size="40" rounded="lg">
                   <v-icon color="white" size="20">{{ getProviderInfo(config.api_type).icon }}</v-icon>
@@ -250,41 +257,19 @@ const fetchModels = async () => {
                   <p class="text-caption text-medium-emphasis">{{ getProviderInfo(config.api_type).title }}</p>
                 </div>
               </div>
-              <div class="d-flex flex-column align-end gap-1">
-                <v-chip
-                  color="success"
-                  size="small"
-                  variant="tonal"
-                  class="text-none"
-                >
-                  活跃
-                </v-chip>
-                <v-chip
-                  v-if="userSettings?.translate_api_id === config.id"
-                  color="info"
-                  size="small"
-                  variant="tonal"
-                  class="text-none"
-                >
-                  翻译
-                </v-chip>
-                <v-chip
-                  v-if="userSettings?.summary_api_id === config.id"
-                  color="secondary"
-                  size="small"
-                  variant="tonal"
-                  class="text-none"
-                >
-                  摘要
-                </v-chip>
+              <div class="d-flex flex-wrap justify-end gap-1" style="max-width: 150px;">
+                <v-chip color="success" size="x-small" variant="tonal" class="text-none">活跃</v-chip>
+                <v-chip v-if="userSettings?.translate_api_id === config.id" color="info" size="x-small" variant="tonal" class="text-none">翻译</v-chip>
+                <v-chip v-if="userSettings?.summary_api_id === config.id" color="secondary" size="x-small" variant="tonal" class="text-none">摘要</v-chip>
               </div>
             </div>
 
             <v-divider class="my-3" />
 
-            <div class="token-row d-flex align-center gap-2 mb-2">
+            <!-- Middle Section: Token -->
+            <div class="token-row d-flex align-center gap-2 mb-4">
               <v-icon size="16" color="medium-emphasis">mdi-shield-key-outline</v-icon>
-              <code class="text-caption flex-1">
+              <code class="text-caption flex-1 text-truncate">
                 {{ showToken[config.id] ? config.api_key : maskToken(config.api_key) }}
               </code>
               <v-btn
@@ -299,36 +284,13 @@ const fetchModels = async () => {
                 icon
                 size="x-small"
                 variant="text"
-                :color="expandedCards[config.id] ? 'primary' : ''"
-                @click="expandedCards[config.id] = !expandedCards[config.id]"
+                @click="openDetail(config)"
               >
-                <v-icon size="18">{{ expandedCards[config.id] ? 'mdi-chevron-up' : 'mdi-chevron-down' }}</v-icon>
+                <v-icon size="20">mdi-information-outline</v-icon>
               </v-btn>
             </div>
 
-            <v-expand-transition>
-              <div v-show="expandedCards[config.id]" class="px-1 pt-1">
-                <div v-if="config.base_url" class="d-flex align-center gap-2 mb-2 text-caption text-medium-emphasis">
-                  <v-icon size="14">mdi-link-variant</v-icon>
-                  <span class="text-truncate flex-1">{{ config.base_url }}</span>
-                </div>
-
-                <div class="d-flex flex-wrap align-center gap-4 text-caption text-medium-emphasis mb-3">
-                  <span v-if="config.settings && (config.settings as any).model" class="d-flex align-center">
-                    <v-icon size="14" class="mr-1">mdi-brain-outline</v-icon>
-                    <span>{{ (config.settings as any).model }}</span>
-                  </span>
-                  <span class="d-flex align-center">
-                    <v-icon size="14" class="mr-1">mdi-clock-outline</v-icon>
-                    <span>{{ config.timeout_seconds }}s</span>
-                  </span>
-                  <span v-if="config.retry_enabled" class="d-flex align-center">
-                    <v-icon size="14" class="mr-1">mdi-refresh</v-icon>
-                    <span>{{ config.retry_count }}次</span>
-                  </span>
-                </div>
-              </div>
-            </v-expand-transition>
+            <v-spacer />
 
             <div class="d-flex gap-2">
               <v-btn
@@ -583,6 +545,57 @@ const fetchModels = async () => {
       </v-card>
     </v-dialog>
 
+    <!-- 密钥详情弹窗 -->
+    <v-dialog v-model="detailDialog" max-width="450">
+      <v-card v-if="detailConfig" rounded="xl" class="pa-2">
+        <v-card-title class="d-flex align-center gap-3 pa-4">
+          <v-avatar :color="getProviderInfo(detailConfig.api_type).color" size="32" rounded="lg">
+            <v-icon color="white" size="16">{{ getProviderInfo(detailConfig.api_type).icon }}</v-icon>
+          </v-avatar>
+          <span class="text-h6 font-weight-bold">{{ detailConfig.name }} 详情</span>
+          <v-spacer />
+          <v-btn icon="mdi-close" variant="text" size="small" @click="detailDialog = false"></v-btn>
+        </v-card-title>
+        
+        <v-card-text class="pa-4 bg-surface rounded-lg mx-4 mb-4 border thin">
+          <div class="d-flex flex-column gap-4">
+            <div class="detail-item">
+              <label class="text-caption text-medium-emphasis d-block mb-1">接口端点</label>
+              <div class="text-body-2 font-weight-medium d-flex align-center gap-2">
+                <v-icon size="14">mdi-link-variant</v-icon>
+                <span class="text-truncate">{{ detailConfig.base_url || '默认端点' }}</span>
+              </div>
+            </div>
+            
+            <div class="detail-item" v-if="(detailConfig.settings as any).model">
+              <label class="text-caption text-medium-emphasis d-block mb-1">AI 模型</label>
+              <div class="text-body-2 font-weight-medium d-flex align-center gap-2">
+                <v-icon size="14">mdi-brain-outline</v-icon>
+                {{ (detailConfig.settings as any).model }}
+              </div>
+            </div>
+
+            <div class="d-flex gap-8">
+              <div class="detail-item flex-1">
+                <label class="text-caption text-medium-emphasis d-block mb-1">超时时间</label>
+                <div class="text-body-2 font-weight-medium">{{ detailConfig.timeout_seconds }} 秒</div>
+              </div>
+              <div class="detail-item flex-1">
+                <label class="text-caption text-medium-emphasis d-block mb-1">自动重试</label>
+                <div class="text-body-2 font-weight-medium">
+                  {{ detailConfig.retry_enabled ? `${detailConfig.retry_count} 次` : '未开启' }}
+                </div>
+              </div>
+            </div>
+          </div>
+        </v-card-text>
+
+        <v-card-actions class="pa-4 pt-0">
+          <v-btn block color="primary" variant="tonal" rounded="pill" @click="detailDialog = false">关闭</v-btn>
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
+
     <!-- 删除确认 -->
     <v-dialog v-model="deleteDialog" max-width="360">
       <v-card rounded="xl">
@@ -602,10 +615,17 @@ const fetchModels = async () => {
 
 <style scoped>
 .api-key-card {
-  transition: box-shadow 0.2s ease;
-  min-height: 200px;
+  transition: 
+    transform var(--md-motion-duration-medium) var(--md-motion-easing-emphasized),
+    box-shadow var(--md-motion-duration-medium) var(--md-motion-easing-emphasized) !important;
   display: flex;
   flex-direction: column;
+  overflow: hidden; /* 防止展开时的内容溢出导致宽度抖动 */
+}
+
+.api-key-card:active {
+  transform: scale(0.99); /* 较弱的卡片缩放反馈 */
+  transition-duration: 100ms !important;
 }
 .api-key-card :deep(.v-card-text) {
   flex: 1;

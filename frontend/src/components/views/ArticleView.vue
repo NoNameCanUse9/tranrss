@@ -88,6 +88,52 @@ const toggleStar = async (id: number, current: boolean) => {
   if (art) art.isStarred = !current
 }
 
+const translateBtnLoading = ref(false)
+const summarizeBtnLoading = ref(false)
+
+const isTranslated = computed(() => {
+  // 对接后端 camelCase 的 transText
+  return blocks.value.length > 0 && blocks.value.some(b => b.transText && b.transText.trim().length > 0)
+})
+
+const hasSummary = computed(() => {
+  return articleDetail.value && articleDetail.value.summary && articleDetail.value.summary.trim().length > 0
+})
+
+const translateArticle = async (id: number) => {
+  translateBtnLoading.value = true
+  try {
+    const res = await fetch(`/api/articles/${id}/translate`, {
+      method: 'POST',
+      headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` }
+    })
+    if (res.ok) {
+      await fetchArticleDetail(id)
+    } else {
+       alert('翻译失败: ' + await res.text())
+    }
+  } finally {
+    translateBtnLoading.value = false
+  }
+}
+
+const summarizeArticle = async (id: number) => {
+  summarizeBtnLoading.value = true
+  try {
+    const res = await fetch(`/api/articles/${id}/summarize`, {
+      method: 'POST',
+      headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` }
+    })
+    if (res.ok) {
+      await fetchArticleDetail(id)
+    } else {
+       alert('总结失败: ' + await res.text())
+    }
+  } finally {
+    summarizeBtnLoading.value = false
+  }
+}
+
 onMounted(fetchArticles)
 watch(() => [props.feedId, props.isRead, props.isStarred], () => {
   articleSearch.value = ''
@@ -133,7 +179,10 @@ const formatDate = (ts: number) => {
         </v-text-field>
       </div>
 
-      <v-list lines="two" class="pa-0 article-list-scroll custom-scrollbar">
+      <v-list 
+        lines="two" 
+        class="pa-0 article-list-scroll custom-scrollbar"
+      >
         <v-list-item
           v-for="article in filteredArticles"
           :key="article.id"
@@ -192,8 +241,48 @@ const formatDate = (ts: number) => {
                 <v-btn
                     icon
                     variant="text"
+                    :color="isTranslated ? 'success' : 'grey'"
+                    @click="translateArticle(articleDetail.id)"
+                    :loading="translateBtnLoading"
+                    :disabled="isTranslated"
+                    title="AI 翻译"
+                    :class="{ 'btn-pulse': !isTranslated && !translateBtnLoading }"
+                >
+                    <v-icon>mdi-translate</v-icon>
+                    <template v-slot:loader>
+                        <div class="squiggle-loader">
+                            <svg viewBox="0 0 100 100">
+                                <path d="M50,10c2.3,0,4.6,3.4,6.9,6.9s4.6,6.9,6.9,6.9s4.6-3.4,6.9-6.9s4.6-6.9,6.9-6.9c2.3,0,4.6,3.4,6.9,6.9s4.6,6.9,6.9,6.9s4.6-3.4,6.9-6.9S97.7,10,100,10" transform="translate(0,0)"/>
+                                <circle cx="50" cy="50" r="40" class="squiggle-path" />
+                            </svg>
+                        </div>
+                    </template>
+                </v-btn>
+                <v-btn
+                    icon
+                    variant="text"
+                    :color="hasSummary ? 'success' : 'grey'"
+                    @click="summarizeArticle(articleDetail.id)"
+                    :loading="summarizeBtnLoading"
+                    :disabled="hasSummary"
+                    title="AI 总结"
+                    :class="{ 'btn-pulse': !hasSummary && !summarizeBtnLoading }"
+                >
+                    <v-icon>mdi-text-box-search-outline</v-icon>
+                    <template v-slot:loader>
+                        <div class="squiggle-loader">
+                            <svg viewBox="0 0 100 100">
+                                <circle cx="50" cy="50" r="38" class="squiggle-path" />
+                            </svg>
+                        </div>
+                    </template>
+                </v-btn>
+                <v-btn
+                    icon
+                    variant="text"
                     :color="articleDetail.isStarred ? 'warning' : ''"
                     @click="toggleStar(articleDetail.id, articleDetail.isStarred)"
+                    title="收藏"
                 >
                     <v-icon>{{ articleDetail.isStarred ? 'mdi-star' : 'mdi-star-outline' }}</v-icon>
                 </v-btn>
@@ -212,6 +301,7 @@ const formatDate = (ts: number) => {
                     icon="mdi-open-in-new"
                     :href="articleDetail.link"
                     target="_blank"
+                    title="在浏览器中打开"
                 />
             </div>
         </div>
@@ -244,7 +334,10 @@ const formatDate = (ts: number) => {
 }
 
 .transition-sidebar {
-  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  transition: 
+    width var(--md-motion-duration-long) var(--md-motion-easing-emphasized),
+    opacity var(--md-motion-duration-medium) var(--md-motion-easing-emphasized),
+    transform var(--md-motion-duration-long) var(--md-motion-easing-emphasized);
   width: 350px;
   flex-shrink: 0;
   height: 100%;
@@ -263,6 +356,14 @@ const formatDate = (ts: number) => {
   padding: 10px 12px 8px;
   background: rgb(var(--v-theme-surface));
   border-bottom: 1px solid rgba(var(--v-border-color), 0.06);
+}
+
+.article-list-scroll .v-list-item {
+  transition: transform var(--md-motion-duration-short) var(--md-motion-easing-emphasized) !important;
+}
+
+.article-list-scroll .v-list-item:active {
+  transform: scale(0.96); /* MD3 Click Spring */
 }
 
 .article-list-scroll {
@@ -292,5 +393,64 @@ const formatDate = (ts: number) => {
   background: rgba(var(--v-border-color), 0.2);
 }
 
+/* AI 按钮心跳动画 */
+.btn-pulse {
+  animation: pulse-animation 2.5s infinite;
+}
+
+@keyframes pulse-animation {
+  0% { transform: scale(1); opacity: 0.8; }
+  50% { transform: scale(1.1); opacity: 1; filter: drop-shadow(0 0 5px rgba(var(--v-theme-primary), 0.3)); }
+  100% { transform: scale(1); opacity: 0.8; }
+}
+
+@keyframes circular-pseudo-rotate {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
+
+/* Material You Squiggle 动画 (折线/波浪模式) */
+.squiggle-loader {
+  width: 42px;
+  height: 42px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.squiggle-path {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 4;
+  stroke-linecap: round;
+  /* 使用虚线模拟折线/波浪的视觉感 */
+  stroke-dasharray: 15, 12;
+  animation: squiggle-rotate 2s linear infinite, squiggle-dash 1.5s ease-in-out infinite alternate;
+  filter: drop-shadow(0 0 2px rgba(var(--v-theme-primary), 0.2));
+}
+
+@keyframes squiggle-rotate {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+@keyframes squiggle-dash {
+  0% {
+    stroke-dashoffset: 0;
+    opacity: 0.7;
+  }
+  100% {
+    stroke-dashoffset: 50;
+    opacity: 1;
+    stroke-width: 5;
+  }
+}
+
+/* 营造折线感的特殊滤镜（可选，增强波纹感） */
+.squiggle-loader svg {
+  overflow: visible;
+  transform-origin: center;
+  transition: all 0.3s ease;
+}
 </style>
 

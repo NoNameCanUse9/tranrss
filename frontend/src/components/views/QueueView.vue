@@ -287,18 +287,38 @@ onUnmounted(() => {
 })
 
 const filterStatus = ref<string>('all')
+const filterType = ref<string>('all')
 
 const statusOptions = [
-  { title: '全部', value: 'all' },
+  { title: '全部状态', value: 'all' },
   { title: '进行中', value: 'running' },
   { title: '等待中', value: 'pending' },
   { title: '已完成', value: 'done' },
   { title: '失败', value: 'failed' },
 ]
 
+const typeOptions = [
+  { title: '全部任务', value: 'all' },
+  { title: '订阅更新', value: 'update' },
+  { title: 'AI 服务', value: 'ai' },
+]
+
 const filtered = computed(() => {
-  if (filterStatus.value === 'all') return jobs.value
-  return jobs.value.filter(j => j.status === filterStatus.value)
+  let result = jobs.value
+  
+  // 状态筛选
+  if (filterStatus.value !== 'all') {
+    result = result.filter(j => j.status === filterStatus.value)
+  }
+  
+  // 类型分组筛选
+  if (filterType.value === 'update') {
+    result = result.filter(j => j.type === 'sync' || j.type === 'cron')
+  } else if (filterType.value === 'ai') {
+    result = result.filter(j => j.type === 'translate' || j.type === 'summarize')
+  }
+  
+  return result
 })
 
 const stats = computed(() => ({
@@ -395,19 +415,38 @@ const clearCompleted = async () => {
       </v-card>
     </div>
 
-    <!-- 筛选标签 -->
-    <v-chip-group v-model="filterStatus" selected-class="bg-primary" class="mb-4" mandatory>
-      <v-chip
-        v-for="opt in statusOptions"
-        :key="opt.value"
-        :value="opt.value"
-        variant="tonal"
-        rounded="pill"
-        class="text-none"
-      >
-        {{ opt.title }}
-      </v-chip>
-    </v-chip-group>
+    <!-- 筛选工具栏 -->
+    <div class="d-flex flex-wrap align-center gap-4 mb-4">
+      <!-- 任务分类 -->
+      <v-chip-group v-model="filterType" selected-class="bg-secondary" mandatory>
+        <v-chip
+          v-for="opt in typeOptions"
+          :key="opt.value"
+          :value="opt.value"
+          variant="tonal"
+          rounded="pill"
+          class="text-none"
+        >
+          {{ opt.title }}
+        </v-chip>
+      </v-chip-group>
+
+      <v-divider vertical class="mx-2 my-2" />
+
+      <!-- 任务状态 -->
+      <v-chip-group v-model="filterStatus" selected-class="bg-primary" mandatory>
+        <v-chip
+          v-for="opt in statusOptions"
+          :key="opt.value"
+          :value="opt.value"
+          variant="tonal"
+          rounded="pill"
+          class="text-none"
+        >
+          {{ opt.title }}
+        </v-chip>
+      </v-chip-group>
+    </div>
 
     <!-- 任务列表 -->
     <v-card v-if="filtered.length === 0" rounded="xl" variant="tonal" color="surface-variant" class="text-center pa-10">
@@ -501,7 +540,7 @@ const clearCompleted = async () => {
             bg-color="surface-variant"
             rounded
             height="6"
-            class="mb-2"
+            class="mb-2 wavy-progress"
           />
           <v-progress-linear
             v-else-if="job.status === 'pending' && !job.isGroup"
@@ -568,10 +607,17 @@ const clearCompleted = async () => {
   width: 100%;
 }
 .job-card {
-  transition: box-shadow 0.2s ease;
+  transition: 
+    transform var(--md-motion-duration-medium) var(--md-motion-easing-emphasized),
+    box-shadow var(--md-motion-duration-medium) var(--md-motion-easing-emphasized) !important;
+}
+.job-card:active {
+  transform: scale(0.98);
+  transition-duration: 100ms !important;
 }
 .job-card:hover {
   box-shadow: 0 4px 20px rgba(var(--v-theme-primary), 0.1) !important;
+  transform: translateY(-2px);
 }
 .gap-2 { gap: 8px; }
 .gap-3 { gap: 12px; }
@@ -579,4 +625,59 @@ const clearCompleted = async () => {
 .gap-5 { gap: 20px; }
 .min-w-0 { min-width: 0; }
 .cursor-pointer { cursor: pointer; }
+
+/* Google Play / Material 3 风格的线性进度条 */
+.wavy-progress :deep(.v-progress-linear__indeterminate) {
+  background: none !important;
+}
+
+.wavy-progress :deep(.v-progress-linear__indeterminate)::before {
+  content: "";
+  position: absolute;
+  background-color: inherit;
+  top: 0; left: 0; bottom: 0;
+  will-change: left, right;
+  animation: m3-linear-1 2.1s cubic-bezier(0.65, 0.815, 0.735, 0.395) infinite;
+}
+
+.wavy-progress :deep(.v-progress-linear__indeterminate)::after {
+  content: "";
+  position: absolute;
+  background-color: inherit;
+  top: 0; left: 0; bottom: 0;
+  will-change: left, right;
+  animation: m3-linear-2 2.1s cubic-bezier(0.165, 0.84, 0.44, 1) infinite;
+  animation-delay: 1.15s;
+}
+
+@keyframes m3-linear-1 {
+  0% { left: -35%; right: 100%; }
+  60% { left: 100%; right: -90%; }
+  100% { left: 100%; right: -90%; }
+}
+
+@keyframes m3-linear-2 {
+  0% { left: -200%; right: 100%; }
+  60% { left: 107%; right: -8%; }
+  100% { left: 107%; right: -8%; }
+}
+
+/* 针对 determinate 状态添加流光 */
+.wavy-progress :deep(.v-progress-linear__determinate)::after {
+  content: "";
+  position: absolute;
+  top: 0; left: 0; bottom: 0; right: 0;
+  background: linear-gradient(
+    90deg,
+    rgba(255, 255, 255, 0) 0%,
+    rgba(255, 255, 255, 0.4) 50%,
+    rgba(255, 255, 255, 0) 100%
+  );
+  animation: wave-animation 2s infinite linear;
+}
+
+@keyframes wave-animation {
+  from { transform: translateX(-100%); }
+  to { transform: translateX(100%); }
+}
 </style>

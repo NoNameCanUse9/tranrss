@@ -188,6 +188,7 @@ impl AiService {
         let full_text = blocks.join("\n\n");
         let prompt = format!(
             "Please provide a concise summary of the following text in {}. \
+            The summary MUST be under 150 characters. \
             Respond ONLY with the summary text, no extra explanation.",
             self.target_lang
         );

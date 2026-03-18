@@ -9,6 +9,7 @@ use axum::{
     http::StatusCode,
     routing::{get, post},
 };
+use apalis::prelude::*;
 use serde::Deserialize;
 use std::sync::Arc;
 
@@ -26,6 +27,7 @@ pub fn router() -> Router<Arc<AppState>> {
         .route("/{id}/read", post(mark_read))
         .route("/{id}/star", post(mark_starred))
         .route("/{id}/translate", post(translate_article))
+        .route("/{id}/summarize", post(summarize_article))
 }
 
 async fn translate_article(
@@ -80,19 +82,115 @@ async fn translate_article(
         .unwrap_or("Chinese")
         .to_string();
 
-    // 4. 实例化 AI Service 并执行翻译
-    let ai = AiService::new(target_lang, model, config);
-    ai.translate_article(&state, auth.user_id, id)
+    // 5. 将任务推入异步队列
+    let mut storage = state.translate_queue.clone();
+    storage
+        .push(crate::services::jobs::TranslateArticleJob {
+            user_id: auth.user_id,
+            article_id: id,
+        })
         .await
         .map_err(|e| {
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
-                format!("Translation error: {}", e),
+                format!("Failed to enqueue translation task: {}", e),
             )
         })?;
 
-    Ok(StatusCode::OK)
+    Ok(StatusCode::ACCEPTED)
 }
+
+async fn summarize_article(
+    State(state): State<Arc<AppState>>,
+    auth: AuthUser,
+    Path(id): Path<i64>,
+) -> Result<StatusCode, (StatusCode, String)> {
+    // 1. 获取 user 的 summary_api_id
+    let summary_api_id: Option<i64> =
+        sqlx::query_scalar("SELECT summary_api_id FROM user_setting WHERE user_id = ?")
+            .bind(auth.user_id)
+            .fetch_one(&state.db)
+            .await
+            .map_err(|e| {
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    format!("Failed to fetch user settings: {}", e),
+                )
+            })?;
+
+    let api_id = summary_api_id.ok_or_else(|| {
+        (
+            StatusCode::BAD_REQUEST,
+            "Please configure a summary API in settings first".to_string(),
+        )
+    })?;
+
+    // 2. 获取 api_configs
+    let config: ApiConfig =
+        sqlx::query_as("SELECT * FROM api_configs WHERE id = ? AND user_id = ?")
+            .bind(api_id)
+            .bind(auth.user_id)
+            .fetch_one(&state.db)
+            .await
+            .map_err(|e| {
+                (
+                    StatusCode::FORBIDDEN,
+                    format!("Failed to fetch API config or access denied: {}", e),
+                )
+            })?;
+
+    // 3. 从设置中解析模型
+    let settings: serde_json::Value = serde_json::from_str(&config.settings).unwrap_or_default();
+    let model = settings
+        .get("model")
+        .and_then(|v| v.as_str())
+        .unwrap_or("gpt-3.5-turbo")
+        .to_string();
+
+    // 4. 获取用户针对该订阅设置的 target_lang
+    let target_lang: String = sqlx::query_scalar(
+        r#"
+        SELECT s.target_language 
+        FROM subscriptions s
+        JOIN articles a ON a.feed_id = s.feed_id
+        WHERE a.id = ? AND s.user_id = ?
+        "#,
+    )
+    .bind(id)
+    .bind(auth.user_id)
+    .fetch_optional(&state.db)
+    .await
+    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
+    .flatten()
+    .unwrap_or_else(|| {
+        // 退而求其次使用 API 配置中的语言，最后默认中文
+        settings
+            .get("target_lang")
+            .and_then(|v| v.as_str())
+            .unwrap_or("Chinese")
+            .to_string()
+    });
+
+    // 5. 将任务推入异步队列，这样就能在“运行日志”中看到并管理它
+    let mut storage = state.summarize_queue.clone();
+    let job = crate::services::jobs::SummarizeArticleJob {
+        user_id: auth.user_id,
+        article_id: id,
+    };
+    
+    storage
+        .push(job)
+        .await
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("Failed to enqueue summary task: {}", e),
+            )
+        })?;
+
+    Ok(StatusCode::ACCEPTED)
+}
+
 
 async fn list_articles(
     State(state): State<Arc<AppState>>,
@@ -217,7 +315,7 @@ em.trans-text {
   line-height: 1.7;
 }}
 .ai-summary::before {{
-  content: '\u201c';
+  content: '“';
   display: block;
   font-size: 2.4em;
   line-height: 0.8;
@@ -227,7 +325,7 @@ em.trans-text {
   opacity: 0.85;
 }}
 .ai-summary::after {{
-  content: '\u201d';
+  content: '”';
   display: block;
   font-size: 2.4em;
   line-height: 0.5;

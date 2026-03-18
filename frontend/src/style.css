@@ -55,6 +55,16 @@
   --md-sys-color-surface-container: rgb(235, 241, 243);
   --md-sys-color-surface-container-high: rgb(220, 230, 233);
   --md-sys-color-surface-container-highest: rgb(209, 216, 219);
+
+  /* Material Design 3 Motion Tokens */
+  --md-motion-easing-emphasized: cubic-bezier(0.2, 0.0, 0.0, 1.0);
+  --md-motion-easing-emphasized-decelerate: cubic-bezier(0.05, 0.7, 0.1, 1.0);
+  --md-motion-easing-emphasized-accelerate: cubic-bezier(0.3, 0.0, 0.8, 0.15);
+  --md-motion-easing-standard: cubic-bezier(0.2, 0.0, 0, 1.0);
+  
+  --md-motion-duration-short: 150ms;
+  --md-motion-duration-medium: 400ms;
+  --md-motion-duration-long: 700ms;
 }
 
 .dark-theme,
@@ -191,18 +201,57 @@ h3,
   background-color: var(--md-sys-color-surface-container) !important;
   /* Slightly warmer container */
   border-radius: 32px !important;
-  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1) !important;
+  transition: 
+    background-color var(--md-motion-duration-short) linear,
+    transform var(--md-motion-duration-medium) var(--md-motion-easing-emphasized),
+    box-shadow var(--md-motion-duration-medium) var(--md-motion-easing-emphasized) !important;
   border: 1px solid rgba(var(--md-sys-color-outline-rgb), 0.05) !important;
+}
+
+.sub-card:active {
+  transform: scale(0.96); /* MD3 Spring click feedback */
+  transition-duration: 100ms !important;
 }
 
 .sub-card:hover {
   background-color: var(--md-sys-color-surface-container-high) !important;
-  transform: translateY(-4px);
+  transform: translateY(-4px) scale(1.01);
   box-shadow: 0 12px 24px -8px rgba(var(--md-sys-color-primary-rgb), 0.15) !important;
 }
 
-/* Custom scrollbar for a cleaner look */
-::-webkit-scrollbar {
+/* --- Material Design 3 Expressive (MD3 E) 按钮强化 --- */
+.v-btn {
+  /* 基础动画继承 MD3 强调型曲线 */
+  transition: 
+    transform var(--md-motion-duration-medium) var(--md-motion-easing-emphasized),
+    box-shadow var(--md-motion-duration-medium) var(--md-motion-easing-emphasized),
+    background-color 0.2s ease !important;
+  text-transform: none !important; /* MD3 不推荐全大写 */
+  letter-spacing: 0.02em !important;
+  font-weight: 500 !important;
+}
+
+/* 按下时的“塌陷”反馈 - 表现力核心 */
+.v-btn:active {
+  transform: scale(0.92) !important;
+  transition-duration: 80ms !important; /* 响应必须极快 */
+}
+
+/* Filled / Tonal 按钮在悬停时的“升起”感 */
+.v-btn--variant-elevated:hover,
+.v-btn--variant-filled:hover,
+.v-btn--variant-tonal:hover {
+  transform: translateY(-2px) scale(1.02);
+  box-shadow: 0 4px 12px rgba(var(--v-theme-primary-rgb), 0.15) !important;
+}
+
+/* 图标按钮的特殊处理：背景圆圈扩散感 */
+.v-btn--icon.v-btn--variant-text:hover {
+  background-color: rgba(var(--v-theme-primary-rgb), 0.08) !important;
+  transform: scale(1.1);
+}
+
+.custom-scrollbar::-webkit-scrollbar {
   width: 8px;
 }
 

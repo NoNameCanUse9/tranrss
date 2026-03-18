@@ -52,9 +52,25 @@ async fn main() -> anyhow::Result<()> {
         )
         .init();
 
-    // 2. 数据库连接池初始化（文件不存在时自动创建）
-    let database_url = "sqlite:../rssdata.db";
-    let pool = SqlitePool::connect(database_url).await?;
+    // 2. 数据库连接池初始化
+    let database_url = std::env::var("DATABASE_URL").unwrap_or_else(|_| {
+        // 智能路径检测：优先使用当前目录或上级目录存在的 rssdata.db
+        let potential_paths = ["rssdata.db", "../rssdata.db"];
+        let mut chosen_path = "../rssdata.db"; // 默认回退
+        
+        for path in potential_paths {
+            if let Ok(metadata) = std::fs::metadata(path) {
+                if metadata.is_file() && metadata.len() > 0 {
+                    chosen_path = path;
+                    break;
+                }
+            }
+        }
+        format!("sqlite:{}", chosen_path)
+    });
+    
+    tracing::info!("📡 正在连接数据库: {}", database_url);
+    let pool = SqlitePool::connect(&database_url).await?;
 
     // 3. 首次启动自动初始化（建表 + 默认账号）
     auto_init_db(&pool).await?;

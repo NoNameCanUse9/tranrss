@@ -3,7 +3,7 @@
   "private": true,
   "scripts": {
     "dev:frontend": "pnpm --filter frontend dev",
-    "dev:backend": "fuser -k 8000/tcp || true; cd backend && cargo watch -x run",
+    "dev:backend": "fuser -k 8000/tcp || true; cd backend && cargo watch -x 'run --bin tranrss-backend'",
     "dev:db": "sh database.sh",
     "dev": "pnpm dlx concurrently \"pnpm dev:frontend\" \"pnpm dev:backend\" \"pnpm dev:db\" --names \"WEB,API,DB\" --prefix-colors \"blue,green,yellow\"",
     "build": "pnpm --filter frontend build && cd backend && cargo build --release --features embed-frontend",
