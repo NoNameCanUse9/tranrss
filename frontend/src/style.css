@@ -170,10 +170,10 @@ h3,
 .text-h5,
 .text-h6,
 .v-card-title {
-  font-family: 'DM Serif Display', serif !important;
+  font-family: 'Noto Serif SC', 'Source Han Serif SC', 'Source Han Serif CN', 'Songti SC', 'STSong', serif !important;
   color: var(--md-sys-color-primary) !important;
   letter-spacing: -0.01em !important;
-  font-weight: 500 !important;
+  font-weight: 600 !important;
 }
 
 /* 让导航栏和侧边栏更具“色偏”感 */
@@ -194,7 +194,7 @@ h3,
 
 /* 统一字体 */
 * {
-  font-family: 'Outfit', sans-serif !important;
+  font-family: 'Noto Serif SC', 'Source Han Serif SC', 'Source Han Serif CN', 'Songti SC', 'STSong', serif !important;
 }
 
 .sub-card {

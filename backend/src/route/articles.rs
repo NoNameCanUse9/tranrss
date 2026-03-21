@@ -1,6 +1,4 @@
 use crate::AppState;
-use crate::model::api_config::ApiConfig;
-use crate::services::ai::AiService;
 use crate::services::articles;
 use crate::services::auth::AuthUser;
 use axum::{
@@ -35,52 +33,23 @@ async fn translate_article(
     auth: AuthUser,
     Path(id): Path<i64>,
 ) -> Result<StatusCode, (StatusCode, String)> {
-    // 1. 获取 user 的 translate_api_id
-    let translate_api_id: Option<i64> =
-        sqlx::query_scalar("SELECT translate_api_id FROM user_setting WHERE user_id = ?")
+    // 1. 获取有效 API ID (优先指定，次之默认，最后回退至最前)
+    let translate_api_id: Option<i64> = sqlx::query_scalar("SELECT translate_api_id FROM user_setting WHERE user_id = ?")
             .bind(auth.user_id)
             .fetch_one(&state.db)
             .await
-            .map_err(|e| {
-                (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    format!("Failed to fetch user settings: {}", e),
-                )
-            })?;
+            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to fetch user settings: {}", e)))?;
 
-    let api_id = translate_api_id.ok_or_else(|| {
-        (
+    let effective_id = crate::services::api::get_effective_api_id(&state.db, auth.user_id, translate_api_id)
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+
+    if effective_id.is_none() {
+        return Err((
             StatusCode::BAD_REQUEST,
             "Please configure a translation API in settings first".to_string(),
-        )
-    })?;
-
-    // 2. 获取 api_configs，增加 user_id 校验确保只能用自己的配置
-    let config: ApiConfig =
-        sqlx::query_as("SELECT * FROM api_configs WHERE id = ? AND user_id = ?")
-            .bind(api_id)
-            .bind(auth.user_id)
-            .fetch_one(&state.db)
-            .await
-            .map_err(|e| {
-                (
-                    StatusCode::FORBIDDEN,
-                    format!("Failed to fetch API config or access denied: {}", e),
-                )
-            })?;
-
-    // 3. 从 settings 中解析 model 和 target_lang
-    let settings: serde_json::Value = serde_json::from_str(&config.settings).unwrap_or_default();
-    let model = settings
-        .get("model")
-        .and_then(|v| v.as_str())
-        .unwrap_or("gpt-3.5-turbo")
-        .to_string();
-    let target_lang = settings
-        .get("target_lang")
-        .and_then(|v| v.as_str())
-        .unwrap_or("Chinese")
-        .to_string();
+        ));
+    }
 
     // 5. 将任务推入异步队列
     let mut storage = state.translate_queue.clone();
@@ -105,71 +74,23 @@ async fn summarize_article(
     auth: AuthUser,
     Path(id): Path<i64>,
 ) -> Result<StatusCode, (StatusCode, String)> {
-    // 1. 获取 user 的 summary_api_id
-    let summary_api_id: Option<i64> =
-        sqlx::query_scalar("SELECT summary_api_id FROM user_setting WHERE user_id = ?")
+    // 1. 获取有效 API ID
+    let summary_api_id: Option<i64> = sqlx::query_scalar("SELECT summary_api_id FROM user_setting WHERE user_id = ?")
             .bind(auth.user_id)
             .fetch_one(&state.db)
             .await
-            .map_err(|e| {
-                (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    format!("Failed to fetch user settings: {}", e),
-                )
-            })?;
+            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to fetch user settings: {}", e)))?;
 
-    let api_id = summary_api_id.ok_or_else(|| {
-        (
+    let effective_id = crate::services::api::get_effective_api_id(&state.db, auth.user_id, summary_api_id)
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+
+    if effective_id.is_none() {
+        return Err((
             StatusCode::BAD_REQUEST,
             "Please configure a summary API in settings first".to_string(),
-        )
-    })?;
-
-    // 2. 获取 api_configs
-    let config: ApiConfig =
-        sqlx::query_as("SELECT * FROM api_configs WHERE id = ? AND user_id = ?")
-            .bind(api_id)
-            .bind(auth.user_id)
-            .fetch_one(&state.db)
-            .await
-            .map_err(|e| {
-                (
-                    StatusCode::FORBIDDEN,
-                    format!("Failed to fetch API config or access denied: {}", e),
-                )
-            })?;
-
-    // 3. 从设置中解析模型
-    let settings: serde_json::Value = serde_json::from_str(&config.settings).unwrap_or_default();
-    let model = settings
-        .get("model")
-        .and_then(|v| v.as_str())
-        .unwrap_or("gpt-3.5-turbo")
-        .to_string();
-
-    // 4. 获取用户针对该订阅设置的 target_lang
-    let target_lang: String = sqlx::query_scalar(
-        r#"
-        SELECT s.target_language 
-        FROM subscriptions s
-        JOIN articles a ON a.feed_id = s.feed_id
-        WHERE a.id = ? AND s.user_id = ?
-        "#,
-    )
-    .bind(id)
-    .bind(auth.user_id)
-    .fetch_optional(&state.db)
-    .await
-    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
-    .flatten()
-    .unwrap_or_else(|| {
-        // 退而求其次使用 API 配置中的语言，最后默认中文
-        settings
-            .get("target_lang")
-            .and_then(|v| v.as_str())
-            .unwrap_or("Chinese")
-            .to_string()
-    });
+        ));
+    }
 
     // 5. 将任务推入异步队列，这样就能在“运行日志”中看到并管理它
     let mut storage = state.summarize_queue.clone();

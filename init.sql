@@ -17,7 +17,21 @@ CREATE TABLE IF NOT EXISTS feeds (
     last_fetched_at DATETIME,
     etag TEXT,
     icon_url TEXT,
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    last_status_code INTEGER,
+    last_error TEXT,
+    consecutive_fetch_failures INTEGER DEFAULT 0
+);
+
+-- Inactive feeds table (feeds disabled due to failures)
+CREATE TABLE IF NOT EXISTS inactive_feeds (
+    user_id INTEGER NOT NULL,
+    feed_id INTEGER NOT NULL,
+    reason TEXT,
+    disabled_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (user_id, feed_id),
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+    FOREIGN KEY (feed_id) REFERENCES feeds(id) ON DELETE CASCADE
 );
 
 -- Folders table

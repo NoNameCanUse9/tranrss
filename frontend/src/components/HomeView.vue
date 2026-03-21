@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref, computed, shallowRef } from 'vue'
-import { useTheme } from 'vuetify'
+import { useTheme, useDisplay } from 'vuetify'
+import { useI18n } from 'vue-i18n'
 import SettingsView from './views/SettingsView.vue'
 import ApiView from './views/ApiView.vue'
 import SubscriptionView from './views/SubscriptionView.vue'
@@ -9,39 +10,46 @@ import ArticleView from './views/ArticleView.vue'
 import { onMounted } from 'vue'
 
 const theme = useTheme()
+const { mdAndUp } = useDisplay()
 const isDark = ref(theme.global.current.value.dark)
+
+// Computed drawer offset for app bar alignment on desktop
+const drawerOffset = computed(() => {
+  if (!mdAndUp.value) return '0px'
+  return drawerOpen.value ? '240px' : '88px'
+})
+const activeTab = ref(0)
+const activeJobsCount = ref(0)
+const mobileDrawer = ref(false)
+const drawerOpen = ref(true)
+const articlesExpanded = ref(true) // manual expand state for articles group
+const openedGroups = ref(['articles'])
 
 const toggleTheme = () => {
   isDark.value = !isDark.value
   theme.global.name.value = isDark.value ? 'dark' : 'light'
 }
 
-// Navigation
-const activeTab = ref(0)
-const drawerOpen = ref(true)    // Desktop sidebar open/closed
-const mobileDrawer = ref(false) // Mobile drawer
-const openedGroups = ref(['articles'])
-
-type NavItem = {
-  icon: string
-  activeIcon: string
-  label: string
-  badge?: number
+const { t, locale } = useI18n()
+const setLanguage = (lang: string) => {
+  locale.value = lang
+  localStorage.setItem('locale', lang)
 }
 
-const navItems = computed((): NavItem[] => {
+const navItemsLocalized = computed(() => {
+  const _l = locale.value // Reactive trigger
   const badgeCount = activeJobsCount.value
   return [
-    { icon: 'mdi-newspaper-variant-outline', activeIcon: 'mdi-newspaper-variant', label: '文章' },
-    { icon: 'mdi-rss',                  activeIcon: 'mdi-rss-box',         label: '订阅' },
-    { icon: 'mdi-text-box-outline',     activeIcon: 'mdi-text-box',          label: '日志', badge: badgeCount > 0 ? badgeCount : undefined },
-    { icon: 'mdi-key-variant',          activeIcon: 'mdi-key-variant',     label: 'API' },
-    { icon: 'mdi-cog-outline',          activeIcon: 'mdi-cog',             label: '设置' },
+    { key: 'articles', icon: 'mdi-newspaper-variant-outline', activeIcon: 'mdi-newspaper-variant', label: t('nav.articles') },
+    { key: 'subscriptions', icon: 'mdi-rss',                  activeIcon: 'mdi-rss-box',         label: t('nav.subscriptions') },
+    { key: 'queue', icon: 'mdi-text-box-outline',     activeIcon: 'mdi-text-box',          label: t('nav.queue'), badge: badgeCount > 0 ? badgeCount : undefined },
+    { key: 'api_keys', icon: 'mdi-key-variant',          activeIcon: 'mdi-key-variant',     label: t('nav.api_keys') },
+    { key: 'settings', icon: 'mdi-cog-outline',          activeIcon: 'mdi-cog',             label: t('nav.settings') },
   ]
 })
 
 const views = shallowRef([ArticleView, SubscriptionView, QueueView, ApiView, SettingsView])
-const currentView = computed(() => views.value[activeTab.value])
+const currentView = computed(() => views.value[activeTab.value] || ArticleView)
 
 const navigateTo = (index: number) => {
   activeTab.value = index
@@ -80,9 +88,10 @@ onMounted(() => {
 })
 
 const groupedSubscriptions = computed(() => {
+  const _l = locale.value // Reactive trigger
   const groups: Record<string, any[]> = {}
   subscriptions.value.forEach(sub => {
-    const cat = sub.category || '未分类'
+    const cat = sub.category || t('common.uncategorized')
     if (!groups[cat]) groups[cat] = []
     groups[cat].push(sub)
   })
@@ -105,7 +114,6 @@ const logout = () => {
   emit('logout')
 }
 
-const activeJobsCount = ref(0)
 const fetchActiveJobsCount = async () => {
   try {
     const response = await fetch('/api/jobs', {
@@ -125,10 +133,11 @@ const fetchActiveJobsCount = async () => {
 </script>
 
 <template>
+  <v-layout>
     <!-- ========== Mobile Navigation Drawer ========== -->
     <v-navigation-drawer
+      v-if="!mdAndUp"
       v-model="mobileDrawer"
-      class="d-flex d-md-none"
       temporary
       location="left"
       width="280"
@@ -141,8 +150,8 @@ const fetchActiveJobsCount = async () => {
             <v-icon color="white" size="24">mdi-leaf</v-icon>
           </v-avatar>
           <div>
-            <p class="text-h6 font-weight-bold" style="line-height:1.2; font-family: 'DM Serif Display', serif !important;">TranRSS</p>
-            <p class="text-caption text-medium-emphasis">智能翻译专家</p>
+            <p class="text-h6 font-weight-bold" style="line-height:1.2; font-family: 'Noto Serif SC', serif !important;">TranRSS</p>
+            <p class="text-caption text-medium-emphasis">{{ $t('nav.expert') }}</p>
           </div>
         </div>
       </div>
@@ -167,13 +176,13 @@ const fetchActiveJobsCount = async () => {
                 </v-icon>
               </template>
               <v-list-item-title :class="activeTab === 0 ? 'text-primary' : 'text-on-surface-variant'">
-                全部文章
+                {{ $t('nav.all_articles') }}
               </v-list-item-title>
             </v-list-item>
           </template>
 
           <v-list-item 
-            title="未读" 
+            :title="$t('nav.unread')" 
             prepend-icon="mdi-circle-medium" 
             density="compact" 
             class="pl-6 mb-1 text-body-2" 
@@ -181,7 +190,7 @@ const fetchActiveJobsCount = async () => {
             @click="selectFeed(undefined, false)" 
           />
           <v-list-item 
-            title="收藏" 
+            :title="$t('nav.starred')" 
             prepend-icon="mdi-star-outline" 
             density="compact" 
             class="pl-6 mb-1 text-body-2" 
@@ -207,7 +216,7 @@ const fetchActiveJobsCount = async () => {
 
         <!-- Other Items -->
         <v-list-item
-          v-for="(item, i) in navItems.slice(1)"
+          v-for="(item, i) in navItemsLocalized.slice(1)"
           :key="i + 1"
           :active="activeTab === i + 1"
           active-color="primary"
@@ -234,7 +243,7 @@ const fetchActiveJobsCount = async () => {
         <div class="pa-4">
           <v-list-item
             prepend-icon="mdi-account-circle-outline"
-            title="管理员"
+            :title="$t('nav.admin')"
             subtitle="admin@tranrss.app"
             rounded="xl"
             class="text-body-2"
@@ -245,119 +254,140 @@ const fetchActiveJobsCount = async () => {
 
     <!-- ========== Desktop Sidebar ========== -->
     <v-navigation-drawer
-      v-model="drawerOpen"
-      class="d-none d-md-flex"
+      v-if="mdAndUp"
+      :model-value="true"
       permanent
+      app
       :rail="!drawerOpen"
-      rail-width="72"
+      rail-width="88"
       width="240"
       color="surface"
+      class="border-e custom-sidebar"
     >
-      <!-- Logo -->
-      <div :class="drawerOpen ? 'pa-5 pb-3' : 'pa-3 pb-2 d-flex justify-center'">
-        <v-avatar class="logo-avatar cursor-pointer" :size="drawerOpen ? 48 : 42" rounded="lg" @click="drawerOpen = !drawerOpen">
-          <v-icon color="white" :size="drawerOpen ? 26 : 24">mdi-leaf</v-icon>
+      <!-- Logo container: matched height to top bar (64px) for perfect divider alignment -->
+      <div class="px-5 d-flex align-center" style="height: 64px;">
+        <v-avatar class="logo-avatar cursor-pointer" size="40" rounded="lg" @click="drawerOpen = !drawerOpen">
+          <v-icon color="white" size="22">mdi-leaf</v-icon>
         </v-avatar>
-        <div v-if="drawerOpen" class="ml-3 mt-1">
-          <p class="text-h6 font-weight-bold" style="line-height:1.2; font-family: 'DM Serif Display', serif !important;">TranRSS</p>
-          <p class="text-caption text-medium-emphasis">智能翻译专家</p>
+        <div v-if="drawerOpen" class="ml-3">
+          <p class="text-h6 font-weight-bold mb-0" style="line-height:1; font-family: 'Noto Serif SC', serif !important;">TranRSS</p>
         </div>
       </div>
 
-      <v-divider class="mx-3 mb-2" />
+      <v-divider class="mx-3 mb-1" />
 
       <!-- Nav Items -->
-      <v-list nav :class="drawerOpen ? 'pa-3' : 'pa-1'" v-model:opened="openedGroups" class="overflow-y-auto">
-        <!-- Articles Group (Only Desktop expanded) -->
-        <v-list-group value="articles" v-if="drawerOpen">
-          <template #activator="{ props }">
-            <v-list-item
-              v-bind="props"
-              :active="activeTab === 0 && !selectedFeedId && filterRead === undefined && filterStarred === undefined"
-              active-color="primary"
-              rounded="xl"
-              class="mb-1 text-body-2 px-4"
-              @click="navigateTo(0); selectFeed(undefined, undefined, undefined)"
-            >
-              <template #prepend>
-                <v-icon :color="activeTab === 0 ? 'primary' : 'on-surface-variant'" class="mr-4">
+      <v-list nav :class="[drawerOpen ? 'pa-3' : 'pa-1', 'custom-sidebar-list']" v-model:opened="openedGroups">
+        <!-- Articles Group -->
+        <div class="articles-group-container">
+          <!-- Group header: using v-list-item for consistency with other items -->
+          <v-list-item
+            v-if="drawerOpen"
+            rounded="xl"
+            class="mb-1"
+            :class="activeTab === 0 && !selectedFeedId && filterRead === undefined && filterStarred === undefined ? 'px-4' : 'px-4'"
+            :active="activeTab === 0 && !selectedFeedId && filterRead === undefined && filterStarred === undefined"
+            active-color="primary"
+            @click="navigateTo(0); selectFeed(undefined, undefined, undefined)"
+          >
+            <template #prepend>
+              <div class="mr-4">
+                <v-icon :color="activeTab === 0 ? 'primary' : 'on-surface-variant'" size="24">
                   {{ activeTab === 0 ? 'mdi-newspaper-variant' : 'mdi-newspaper-variant-outline' }}
                 </v-icon>
-              </template>
-              <v-list-item-title :class="activeTab === 0 ? 'text-primary font-weight-bold' : 'text-on-surface-variant'">
-                全部文章
-              </v-list-item-title>
-            </v-list-item>
-          </template>
-
-          <v-list-item 
-            title="未读" 
-            prepend-icon="mdi-circle-medium" 
-            density="compact" 
-            class="pl-10 mb-1 text-body-2 rounded-lg" 
-            :active="activeTab === 0 && filterRead === false" 
-            @click="selectFeed(undefined, false)" 
-          />
-          <v-list-item 
-            title="收藏" 
-            prepend-icon="mdi-star-outline" 
-            density="compact" 
-            class="pl-10 mb-1 text-body-2 rounded-lg" 
-            :active="activeTab === 0 && filterStarred === true" 
-            @click="selectFeed(undefined, undefined, true)" 
-          />
-
-          <v-list-group v-for="(subs, cat) in groupedSubscriptions" :key="cat" :value="cat">
-            <template #activator="{ props }">
-              <v-list-item v-bind="props" :title="cat" density="compact" class="text-caption opacity-80" />
+              </div>
             </template>
-            <v-list-item
-              v-for="sub in subs"
-              :key="sub.id"
-              :title="sub.title"
-              density="compact"
-              class="pl-10 text-caption rounded-lg mb-1"
-              :active="activeTab === 0 && selectedFeedId === sub.feedId"
-              @click="selectFeed(sub.feedId)"
+            <v-list-item-title :class="activeTab === 0 ? 'text-primary font-weight-bold' : 'text-on-surface-variant'">
+              {{ $t('nav.all_articles') }}
+            </v-list-item-title>
+            <template #append>
+              <v-btn icon variant="text" size="small" density="compact" @click.stop="articlesExpanded = !articlesExpanded">
+                <v-icon size="18" color="on-surface-variant">
+                  {{ articlesExpanded ? 'mdi-chevron-up' : 'mdi-chevron-down' }}
+                </v-icon>
+              </v-btn>
+            </template>
+          </v-list-item>
+
+          <!-- Rail mode version: centered to match other items -->
+          <v-list-item
+            v-else
+            :active="activeTab === 0 && !selectedFeedId && filterRead === undefined && filterStarred === undefined"
+            active-color="primary"
+            rounded="xl"
+            class="mb-1 justify-center px-1"
+            @click="navigateTo(0); selectFeed(undefined, undefined, undefined)"
+          >
+            <template #prepend>
+              <div class="mx-auto">
+                <v-icon :color="activeTab === 0 ? 'primary' : 'on-surface-variant'" size="24">
+                  {{ activeTab === 0 ? 'mdi-newspaper-variant' : 'mdi-newspaper-variant-outline' }}
+                </v-icon>
+              </div>
+            </template>
+          </v-list-item>
+
+          <!-- Sub-items (shown only when expanded AND articlesExpanded is true) -->
+          <template v-if="drawerOpen && articlesExpanded">
+            <v-list-item 
+              :title="$t('nav.unread')" 
+              prepend-icon="mdi-circle-medium" 
+              density="compact" 
+              class="pl-10 mb-1 text-body-2 rounded-lg" 
+              :active="activeTab === 0 && filterRead === false" 
+              @click="selectFeed(undefined, false)" 
             />
-          </v-list-group>
-        </v-list-group>
+            <v-list-item 
+              :title="$t('nav.starred')" 
+              prepend-icon="mdi-star-outline" 
+              density="compact" 
+              class="pl-10 mb-1 text-body-2 rounded-lg" 
+              :active="activeTab === 0 && filterStarred === true" 
+              @click="selectFeed(undefined, undefined, true)" 
+            />
+
+            <template v-for="(subs, cat) in groupedSubscriptions" :key="cat">
+              <v-list-item :title="cat" density="compact" class="text-caption opacity-80 pl-6" />
+              <v-list-item
+                v-for="sub in subs"
+                :key="sub.id"
+                :title="sub.title"
+                density="compact"
+                class="pl-10 text-caption rounded-lg mb-1"
+                :active="activeTab === 0 && selectedFeedId === sub.feedId"
+                @click="selectFeed(sub.feedId)"
+              />
+            </template>
+          </template>
+        </div>
+
 
         <!-- Other Items -->
-        <v-tooltip
-          v-for="(item, i) in navItems.slice(1)"
+        <v-list-item
+          v-for="(item, i) in navItemsLocalized.slice(1)"
           :key="i + 1"
-          :text="item.label"
-          location="end"
-          :disabled="drawerOpen"
+          :value="i + 1"
+          :active="activeTab === i + 1"
+          active-color="primary"
+          rounded="xl"
+          class="mb-1"
+          :class="drawerOpen ? 'text-body-2 px-4' : 'justify-center px-1'"
+          @click="navigateTo(i + 1)"
         >
-          <template #activator="{ props: tooltipProps }">
-            <v-list-item
-              v-bind="tooltipProps"
-              :value="i + 1"
-              :active="activeTab === i + 1"
-              active-color="primary"
-              rounded="xl"
-              class="mb-1"
-              :class="drawerOpen ? 'text-body-2 px-4' : 'justify-center px-1'"
-              @click="navigateTo(i + 1)"
-            >
-              <template #prepend>
-                <div :class="drawerOpen ? 'mr-4' : 'mx-auto'">
-                  <v-icon :color="activeTab === i + 1 ? 'primary' : 'on-surface-variant'" size="24">
-                    {{ activeTab === i + 1 ? item.activeIcon : item.icon }}
-                  </v-icon>
-                </div>
-              </template>
-              <v-list-item-title v-if="drawerOpen" :class="activeTab === i + 1 ? 'text-primary font-weight-bold' : 'text-on-surface-variant'">
-                {{ item.label }}
-              </v-list-item-title>
-              <template v-if="item.badge && drawerOpen" #append>
-                <v-badge :content="item.badge" color="primary" inline />
-              </template>
-            </v-list-item>
+          <template #prepend>
+            <div :class="drawerOpen ? 'mr-4' : 'mx-auto'">
+              <v-icon :color="activeTab === i + 1 ? 'primary' : 'on-surface-variant'" size="24">
+                {{ activeTab === i + 1 ? item.activeIcon : item.icon }}
+              </v-icon>
+            </div>
           </template>
-        </v-tooltip>
+          <v-list-item-title v-if="drawerOpen" :class="activeTab === i + 1 ? 'text-primary font-weight-bold' : 'text-on-surface-variant'">
+            {{ item.label }}
+          </v-list-item-title>
+          <template v-if="item.badge && drawerOpen" #append>
+            <v-badge :content="item.badge" color="primary" inline />
+          </template>
+        </v-list-item>
       </v-list>
 
       <template #append>
@@ -366,7 +396,7 @@ const fetchActiveJobsCount = async () => {
           <v-list-item
             v-if="drawerOpen"
             prepend-icon="mdi-account-circle-outline"
-            title="管理员"
+            :title="$t('nav.admin')"
             subtitle="admin@tranrss.app"
             rounded="xl"
             class="text-body-2"
@@ -379,27 +409,49 @@ const fetchActiveJobsCount = async () => {
     </v-navigation-drawer>
 
     <!-- ========== Top App Bar ========== -->
-    <v-app-bar flat color="surface" class="border-b" height="64">
+    <v-app-bar
+      app
+      flat
+      color="surface"
+      class="border-b"
+      height="64"
+      :style="mdAndUp ? { 
+        left: drawerOffset, 
+        width: `calc(100% - ${drawerOffset})`,
+        paddingLeft: '0px'
+      } : {}"
+    >
+
       <!-- Mobile menu button -->
       <v-app-bar-nav-icon
-        class="d-flex d-md-none ml-1"
+        v-if="!mdAndUp"
+        class="ml-1"
         @click="mobileDrawer = !mobileDrawer"
       />
 
-      <!-- Desktop sidebar toggle (Now toggles Article List if on Articles page) -->
+      <!-- Article list sidebar toggle: Only visible when on Articles tab (All Articles) -->
       <v-app-bar-nav-icon
-        class="d-none d-md-flex ml-1"
-        @click="activeTab === 0 ? (articleListOpen = !articleListOpen) : (drawerOpen = !drawerOpen)"
+        v-if="mdAndUp && activeTab === 0"
+        @click="articleListOpen = !articleListOpen"
       />
 
-      <!-- Title breadcrumb -->
-      <v-app-bar-title>
-        <div class="d-flex align-center gap-1">
-          <span class="text-h4 font-weight-bold">{{ navItems[activeTab]?.label }}</span>
-        </div>
-      </v-app-bar-title>
+      <!-- Spacer (Removed breadcrumb title articles as per user request) -->
+      <v-spacer />
 
       <template #append>
+        <!-- Compatible Language Select (Native fallback due to Vuetify 4.0 beta bugs) -->
+        <div class="lang-select-wrapper mr-3">
+          <v-icon size="small" class="lang-icon">mdi-translate</v-icon>
+          <select 
+            v-model="locale" 
+            class="lang-native-select"
+            @change="setLanguage(locale)"
+          >
+            <option value="zh">简体中文</option>
+            <option value="en">English</option>
+          </select>
+          <v-icon size="small" class="lang-arrow">mdi-chevron-down</v-icon>
+        </div>
         <!-- Theme toggle -->
         <v-btn icon variant="text" class="mr-1" @click="toggleTheme">
           <v-icon>{{ isDark ? 'mdi-weather-sunny' : 'mdi-weather-night' }}</v-icon>
@@ -412,38 +464,36 @@ const fetchActiveJobsCount = async () => {
             </v-avatar>
           </template>
           <v-list rounded="lg" class="mt-2" elevation="8">
-            <v-list-item prepend-icon="mdi-logout" title="退出登录" @click="logout" color="error" />
+            <v-list-item prepend-icon="mdi-logout" :title="$t('nav.logout')" @click="logout" color="error" />
           </v-list>
         </v-menu>
       </template>
     </v-app-bar>
 
     <!-- ========== Main Content ========== -->
-    <v-main class="main-content">
-      <v-container fluid class="pa-4 pa-sm-6 pa-md-8 max-content-width">
-        <transition name="fade-slide" mode="out-in">
-          <component 
-            :is="currentView" 
-            :key="activeTab" 
-            :feed-id="selectedFeedId" 
-            :is-read="filterRead"
-            :is-starred="filterStarred"
-            v-model:is-sidebar-visible="articleListOpen"
-          />
-        </transition>
+    <v-main class="main-content" style="height: 100vh; overflow-y: auto;">
+      <v-container fluid class="pa-4 pa-sm-6 pa-md-8 pb-16 max-content-width">
+        <component 
+          :is="currentView" 
+          :key="activeTab" 
+          :feed-id="selectedFeedId" 
+          :is-read="filterRead"
+          :is-starred="filterStarred"
+          v-model:is-sidebar-visible="articleListOpen"
+        />
       </v-container>
     </v-main>
 
     <!-- ========== Mobile Bottom Navigation ========== -->
     <v-bottom-navigation
+      v-if="!mdAndUp"
       v-model="activeTab"
-      class="d-flex d-md-none"
       color="primary"
       bg-color="surface"
       elevation="8"
       grow
     >
-      <v-btn v-for="(item, i) in navItems" :key="i" :value="i" class="text-none">
+      <v-btn v-for="(item, i) in navItemsLocalized" :key="i" :value="i" class="text-none">
         <v-badge
           v-if="item.badge"
           :content="item.badge"
@@ -458,6 +508,7 @@ const fetchActiveJobsCount = async () => {
         <span class="text-caption mt-1" :class="activeTab === i ? 'text-primary' : 'text-on-surface-variant'">{{ item.label }}</span>
       </v-btn>
     </v-bottom-navigation>
+  </v-layout>
 </template>
 
 <style scoped>
@@ -471,8 +522,7 @@ const fetchActiveJobsCount = async () => {
 }
 
 .max-content-width {
-  max-width: 1280px;
-  margin: 0 auto;
+  width: 100%;
 }
 
 .cursor-pointer {
@@ -481,6 +531,58 @@ const fetchActiveJobsCount = async () => {
 
 .gap-1 { gap: 4px; }
 .gap-3 { gap: 12px; }
+
+/* Articles group header - two clickable zones */
+.articles-group-header {
+  display: flex;
+  align-items: center;
+  height: 40px;
+  padding: 0 8px 0 16px;
+  cursor: pointer;
+  transition: background-color 0.15s ease;
+  position: relative;
+}
+.articles-group-header:hover {
+  background-color: rgba(var(--v-theme-on-surface), 0.06);
+}
+.articles-group-header.active-row {
+  /* No background highlight as per request */
+}
+.articles-nav-zone {
+  display: flex;
+  align-items: center;
+  flex: 1;
+  min-width: 0;
+  height: 100%;
+}
+.articles-chevron-zone {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  transition: background-color 0.15s ease;
+}
+.articles-chevron-zone:hover {
+  background-color: rgba(var(--v-theme-on-surface), 0.1);
+}
+
+.custom-sidebar :deep(.v-navigation-drawer__content) {
+  display: flex !important;
+  flex-direction: column !important;
+}
+
+.custom-sidebar-list {
+  flex: 1 1 auto !important;
+  overflow-y: auto !important;
+}
+
+/* Fixed alignment for rail icons to match logo position */
+.custom-sidebar :deep(.v-list-item--active) .v-list-item__overlay {
+  opacity: 0 !important;
+}
 
 /* Page transition */
 .fade-slide-enter-active,
@@ -494,5 +596,52 @@ const fetchActiveJobsCount = async () => {
 .fade-slide-leave-to {
   opacity: 0;
   transform: translateY(-8px);
+}
+</style>
+
+<style scoped>
+.lang-select-wrapper {
+  position: relative;
+  display: flex;
+  align-items: center;
+  background: rgba(var(--v-theme-primary), 0.08);
+  border-radius: 20px;
+  padding: 0 12px;
+  height: 32px;
+  min-width: 130px;
+  border: 1px solid rgba(var(--v-theme-primary), 0.1);
+}
+
+.lang-native-select {
+  appearance: none;
+  background: transparent;
+  border: none;
+  outline: none;
+  font-size: 0.875rem;
+  font-weight: 500;
+  width: 100%;
+  padding: 0 24px 0 26px;
+  cursor: pointer;
+  z-index: 1;
+  color: inherit;
+}
+
+.lang-icon {
+  position: absolute;
+  left: 10px;
+  pointer-events: none;
+  opacity: 0.75;
+}
+
+.lang-arrow {
+  position: absolute;
+  right: 10px;
+  pointer-events: none;
+  opacity: 0.75;
+}
+
+.lang-native-select option {
+  background: var(--v-theme-surface);
+  color: var(--v-theme-on-surface);
 }
 </style>

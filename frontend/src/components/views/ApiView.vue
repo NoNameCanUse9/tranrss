@@ -1,5 +1,8 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
+import { useI18n } from 'vue-i18n'
+
+const { t } = useI18n()
 
 interface ApiConfig {
   id: number
@@ -97,7 +100,7 @@ const getProviderInfo = (type: string) =>
 
 // 脱敏显示 Token
 const maskToken = (token: string | null) => {
-  if (!token) return '未设置'
+  if (!token) return t('api.not_set')
   return token.length > 8 ? token.slice(0, 4) + '••••••••' + token.slice(-4) : '••••••••'
 }
 
@@ -216,8 +219,8 @@ const fetchModels = async () => {
   <div class="api-view">
     <div class="d-flex align-center justify-space-between mb-6">
       <div>
-        <h2 class="text-h5 font-weight-bold">API 密钥</h2>
-        <p class="text-body-2 text-medium-emphasis mt-1">管理翻译与AI服务的API密钥</p>
+        <h2 class="text-h5 font-weight-bold">{{ $t('api.title') }}</h2>
+        <p class="text-body-2 text-medium-emphasis mt-1">{{ $t('api.subtitle') }}</p>
       </div>
       <v-btn
         color="primary"
@@ -227,17 +230,17 @@ const fetchModels = async () => {
         @click="openAddDialog"
       >
         <v-icon start>mdi-plus</v-icon>
-        添加密钥
+        {{ $t('api.add_btn') }}
       </v-btn>
     </div>
 
     <!-- 空状态 -->
     <v-card v-if="apiConfigs.length === 0" rounded="xl" variant="tonal" color="surface-variant" class="text-center pa-12">
       <v-icon size="64" color="primary" class="mb-4">mdi-key-outline</v-icon>
-      <h3 class="text-h6 mb-2">暂无 API 密钥</h3>
-      <p class="text-body-2 text-medium-emphasis mb-6">添加翻译服务的API密钥以开始使用</p>
+      <h3 class="text-h6 mb-2">{{ $t('api.empty_title') }}</h3>
+      <p class="text-body-2 text-medium-emphasis mb-6">{{ $t('api.empty_subtitle') }}</p>
       <v-btn color="primary" rounded="pill" elevation="0" class="text-none" @click="openAddDialog">
-        添加第一个密钥
+        {{ $t('api.add_first') }}
       </v-btn>
     </v-card>
 
@@ -258,9 +261,9 @@ const fetchModels = async () => {
                 </div>
               </div>
               <div class="d-flex flex-wrap justify-end gap-1" style="max-width: 150px;">
-                <v-chip color="success" size="x-small" variant="tonal" class="text-none">活跃</v-chip>
-                <v-chip v-if="userSettings?.translate_api_id === config.id" color="info" size="x-small" variant="tonal" class="text-none">翻译</v-chip>
-                <v-chip v-if="userSettings?.summary_api_id === config.id" color="secondary" size="x-small" variant="tonal" class="text-none">摘要</v-chip>
+                <v-chip color="success" size="x-small" variant="tonal" class="text-none">{{ $t('api.active') }}</v-chip>
+                <v-chip v-if="userSettings?.translate_api_id === config.id" color="info" size="x-small" variant="tonal" class="text-none">{{ $t('api.translate') }}</v-chip>
+                <v-chip v-if="userSettings?.summary_api_id === config.id" color="secondary" size="x-small" variant="tonal" class="text-none">{{ $t('api.summary') }}</v-chip>
               </div>
             </div>
 
@@ -302,7 +305,7 @@ const fetchModels = async () => {
                 @click="openEditDialog(config)"
               >
                 <v-icon start size="16">mdi-pencil-outline</v-icon>
-                编辑
+                {{ $t('api.edit') }}
               </v-btn>
               <v-btn
                 variant="tonal"
@@ -327,10 +330,10 @@ const fetchModels = async () => {
         <div class="dialog-header pa-6 d-flex align-center justify-space-between">
           <div>
             <h2 class="text-h5 font-weight-bold gradient-text">
-              {{ selectedConfig ? '配置 API 密钥' : '添加新密钥' }}
+              {{ selectedConfig ? $t('api.dialog_edit_title') : $t('api.dialog_add_title') }}
             </h2>
             <p class="text-caption text-medium-emphasis mt-1">
-              {{ selectedConfig ? '更新您的服务凭证与运行策略' : '接入 AI 或翻译服务，开启智能阅读体验' }}
+              {{ selectedConfig ? $t('api.dialog_edit_sub') : $t('api.dialog_add_sub') }}
             </p>
           </div>
           <v-btn icon="mdi-close" variant="text" color="error" rounded="pill" @click="dialog = false"></v-btn>
@@ -344,26 +347,26 @@ const fetchModels = async () => {
             <section>
               <h3 class="text-subtitle-1 font-weight-bold mb-4 d-flex align-center">
                 <v-icon color="primary" class="mr-2">mdi-key-variant</v-icon>
-                基础端点配置
+                {{ $t('api.base_url') }}
               </h3>
               <div class="d-flex flex-column gap-6 w-100">
                 <div class="d-flex gap-4 w-100">
                   <v-text-field
                     v-model="form.name"
-                    label="配置别名"
+                    :label="$t('api.alias')"
                     variant="outlined"
                     density="comfortable"
                     rounded="lg"
                     color="primary"
                     prepend-inner-icon="mdi-label-outline"
                     persistent-hint
-                    hint="例如: 我的主力 OpenAI"
+                    :hint="$t('api.alias_hint')"
                     style="flex: 1"
                   />
                   <v-select
                     v-model="form.api_type"
                     :items="providers"
-                    label="服务提供商"
+                    :label="$t('api.provider')"
                     variant="outlined"
                     density="comfortable"
                     rounded="lg"
@@ -375,20 +378,20 @@ const fetchModels = async () => {
 
                 <v-text-field
                   v-model="form.base_url"
-                  label="API 端点 (Base URL)"
+                  :label="$t('api.base_url')"
                   variant="outlined"
                   density="comfortable"
                   rounded="lg"
                   color="primary"
                   prepend-inner-icon="mdi-link-variant"
                   persistent-hint
-                  hint="如果不填写则使用服务商默认端点"
+                  :hint="$t('api.base_url_hint')"
                   class="w-100"
                 />
 
                 <v-text-field
                   v-model="form.api_key"
-                  label="API 密钥 (API Key)"
+                  :label="$t('api.api_key')"
                   variant="outlined"
                   density="comfortable"
                   rounded="lg"
@@ -396,7 +399,7 @@ const fetchModels = async () => {
                   prepend-inner-icon="mdi-shield-key-outline"
                   type="password"
                   persistent-hint
-                  hint="您的密钥将被加密存储"
+                  :hint="$t('api.api_key_hint')"
                   class="w-100"
                 />
               </div>
@@ -408,14 +411,14 @@ const fetchModels = async () => {
               <section>
                 <h3 class="text-subtitle-1 font-weight-bold mb-4 d-flex align-center">
                   <v-icon color="secondary" class="mr-2">mdi-brain-outline</v-icon>
-                  AI 模型参数
+                  {{ $t('api.ai_model_params') }}
                 </h3>
                 <div class="d-flex flex-column gap-6 w-100">
                   <div class="d-flex align-center gap-2 w-100">
                     <v-combobox
                       v-model="form.settings.model"
                       :items="availableModels"
-                      label="模型型号 (Model)"
+                      :label="$t('api.model')"
                       variant="outlined"
                       density="comfortable"
                       rounded="lg"
@@ -433,13 +436,13 @@ const fetchModels = async () => {
                       @click="fetchModels"
                     >
                       <v-icon>mdi-refresh</v-icon>
-                      <v-tooltip activator="parent">从接口拉取可用模型</v-tooltip>
+                      <v-tooltip activator="parent">{{ $t('api.fetch_models') }}</v-tooltip>
                     </v-btn>
                   </div>
                   <div class="d-flex gap-4 w-100">
                     <v-text-field
                       v-model.number="form.settings.max_tokens"
-                      label="最大消耗 (Max Tokens)"
+                      :label="$t('api.max_tokens')"
                       type="number"
                       variant="outlined"
                       density="comfortable"
@@ -450,7 +453,7 @@ const fetchModels = async () => {
                     />
                     <v-text-field
                       v-model.number="form.settings.rpm"
-                      label="频率限制 (RPM)"
+                      :label="$t('api.rpm')"
                       type="number"
                       variant="outlined"
                       density="comfortable"
@@ -469,13 +472,13 @@ const fetchModels = async () => {
             <section>
               <h3 class="text-subtitle-1 font-weight-bold mb-4 d-flex align-center">
                 <v-icon color="info" class="mr-2">mdi-cog-outline</v-icon>
-                通用运行策略
+                {{ $t('api.general_policy') }}
               </h3>
               <div class="d-flex flex-column gap-6 w-100">
                 <div class="d-flex gap-4 w-100">
                   <v-text-field
                     v-model.number="form.timeout_seconds"
-                    label="网络超时 (秒)"
+                    :label="$t('api.timeout')"
                     type="number"
                     variant="outlined"
                     density="comfortable"
@@ -485,7 +488,7 @@ const fetchModels = async () => {
                     style="flex: 1"
                   />
                   <div class="d-flex align-center justify-space-between px-4 border rounded-lg" style="flex: 1; height: 48px;">
-                    <span class="text-body-2 text-medium-emphasis">启用重试</span>
+                    <span class="text-body-2 text-medium-emphasis">{{ $t('api.retry_enabled') }}</span>
                     <v-switch v-model="form.retry_enabled" color="primary" hide-details density="compact" />
                   </div>
                 </div>
@@ -493,7 +496,7 @@ const fetchModels = async () => {
                 <div v-if="form.retry_enabled" class="d-flex gap-4 w-100">
                   <v-text-field
                     v-model.number="form.retry_count"
-                    label="最大重试次数"
+                    :label="$t('api.retry_count')"
                     type="number"
                     variant="outlined"
                     density="comfortable"
@@ -504,7 +507,7 @@ const fetchModels = async () => {
                   />
                   <v-text-field
                     v-model.number="form.retry_interval_ms"
-                    label="重试间隔 (ms)"
+                    :label="$t('api.retry_interval')"
                     type="number"
                     variant="outlined"
                     density="comfortable"
@@ -518,7 +521,7 @@ const fetchModels = async () => {
                 <!-- DeepLX 特定提示 -->
                 <div v-if="form.api_type === 'deeplx'" class="w-100">
                   <v-alert type="info" variant="tonal" density="compact" rounded="lg" icon="mdi-information-outline">
-                    DeepLX 提示：如果你的 URL 中已包含 Token，则“API 密钥”可留空。
+                    {{ $t('api.deeplx_tip') }}
                   </v-alert>
                 </div>
               </div>
@@ -530,7 +533,7 @@ const fetchModels = async () => {
 
         <v-card-actions class="pa-6">
           <v-spacer />
-          <v-btn variant="text" rounded="pill" class="px-6" @click="dialog = false">取消</v-btn>
+          <v-btn variant="text" rounded="pill" class="px-6" @click="dialog = false">{{ $t('api.cancel') }}</v-btn>
           <v-btn
             color="primary"
             class="px-10 font-weight-bold btn-premium"
@@ -539,7 +542,7 @@ const fetchModels = async () => {
             :loading="saving"
             @click="saveConfig"
           >
-            保存配置
+            {{ $t('api.save') }}
           </v-btn>
         </v-card-actions>
       </v-card>
@@ -552,7 +555,7 @@ const fetchModels = async () => {
           <v-avatar :color="getProviderInfo(detailConfig.api_type).color" size="32" rounded="lg">
             <v-icon color="white" size="16">{{ getProviderInfo(detailConfig.api_type).icon }}</v-icon>
           </v-avatar>
-          <span class="text-h6 font-weight-bold">{{ detailConfig.name }} 详情</span>
+          <span class="text-h6 font-weight-bold">{{ detailConfig.name }}</span>
           <v-spacer />
           <v-btn icon="mdi-close" variant="text" size="small" @click="detailDialog = false"></v-btn>
         </v-card-title>
@@ -560,15 +563,15 @@ const fetchModels = async () => {
         <v-card-text class="pa-4 bg-surface rounded-lg mx-4 mb-4 border thin">
           <div class="d-flex flex-column gap-4">
             <div class="detail-item">
-              <label class="text-caption text-medium-emphasis d-block mb-1">接口端点</label>
+              <label class="text-caption text-medium-emphasis d-block mb-1">{{ $t('api.endpoint') }}</label>
               <div class="text-body-2 font-weight-medium d-flex align-center gap-2">
                 <v-icon size="14">mdi-link-variant</v-icon>
-                <span class="text-truncate">{{ detailConfig.base_url || '默认端点' }}</span>
+                <span class="text-truncate">{{ detailConfig.base_url || $t('api.default_endpoint') }}</span>
               </div>
             </div>
             
             <div class="detail-item" v-if="(detailConfig.settings as any).model">
-              <label class="text-caption text-medium-emphasis d-block mb-1">AI 模型</label>
+              <label class="text-caption text-medium-emphasis d-block mb-1">{{ $t('api.ai_model') }}</label>
               <div class="text-body-2 font-weight-medium d-flex align-center gap-2">
                 <v-icon size="14">mdi-brain-outline</v-icon>
                 {{ (detailConfig.settings as any).model }}
@@ -577,13 +580,13 @@ const fetchModels = async () => {
 
             <div class="d-flex gap-8">
               <div class="detail-item flex-1">
-                <label class="text-caption text-medium-emphasis d-block mb-1">超时时间</label>
-                <div class="text-body-2 font-weight-medium">{{ detailConfig.timeout_seconds }} 秒</div>
+                <label class="text-caption text-medium-emphasis d-block mb-1">{{ $t('api.timeout_label') }}</label>
+                <div class="text-body-2 font-weight-medium">{{ detailConfig.timeout_seconds }} {{ $t('api.unit_seconds') }}</div>
               </div>
               <div class="detail-item flex-1">
-                <label class="text-caption text-medium-emphasis d-block mb-1">自动重试</label>
+                <label class="text-caption text-medium-emphasis d-block mb-1">{{ $t('api.auto_retry') }}</label>
                 <div class="text-body-2 font-weight-medium">
-                  {{ detailConfig.retry_enabled ? `${detailConfig.retry_count} 次` : '未开启' }}
+                  {{ detailConfig.retry_enabled ? `${detailConfig.retry_count} ${t('api.retry_unit')}` : t('api.not_engaged') }}
                 </div>
               </div>
             </div>
@@ -591,7 +594,7 @@ const fetchModels = async () => {
         </v-card-text>
 
         <v-card-actions class="pa-4 pt-0">
-          <v-btn block color="primary" variant="tonal" rounded="pill" @click="detailDialog = false">关闭</v-btn>
+          <v-btn block color="primary" variant="tonal" rounded="pill" @click="detailDialog = false">{{ $t('common.confirm') }}</v-btn>
         </v-card-actions>
       </v-card>
     </v-dialog>
@@ -599,14 +602,14 @@ const fetchModels = async () => {
     <!-- 删除确认 -->
     <v-dialog v-model="deleteDialog" max-width="360">
       <v-card rounded="xl">
-        <v-card-title class="pa-6 pb-2 text-body-1 font-weight-bold">确认删除?</v-card-title>
+        <v-card-title class="pa-6 pb-2 text-body-1 font-weight-bold">{{ $t('api.confirm_delete') }}</v-card-title>
         <v-card-text class="pa-6 pt-2 text-body-2 text-medium-emphasis">
-          确定要移除密钥配置「{{ selectedConfig?.name }}」吗？
+          {{ $t('api.delete_msg', { name: selectedConfig?.name }) }}
         </v-card-text>
         <v-card-actions class="pa-6 pt-0">
           <v-spacer />
-          <v-btn variant="text" rounded="pill" @click="deleteDialog = false">取消</v-btn>
-          <v-btn color="error" class="text-none font-weight-bold px-6" rounded="pill" @click="deleteConfig">确定删除</v-btn>
+          <v-btn variant="text" rounded="pill" @click="deleteDialog = false">{{ $t('api.cancel') }}</v-btn>
+          <v-btn color="error" class="text-none font-weight-bold px-6" rounded="pill" @click="deleteConfig">{{ $t('api.confirm_btn') }}</v-btn>
         </v-card-actions>
       </v-card>
     </v-dialog>

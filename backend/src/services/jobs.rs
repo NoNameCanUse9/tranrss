@@ -221,6 +221,10 @@ async fn refresh_feeds_handler(
         FROM feeds f
         JOIN subscriptions s ON f.id = s.feed_id
         WHERE NOT EXISTS (
+            SELECT 1 FROM inactive_feeds inf 
+            WHERE inf.user_id = s.user_id AND inf.feed_id = f.id
+          )
+          AND NOT EXISTS (
             SELECT 1 FROM Jobs j 
             WHERE j.job_type LIKE '%SyncFeedJob%' 
               AND json_extract(j.job, '$.feed_id') = f.id
@@ -250,11 +254,15 @@ async fn refresh_feeds_handler(
 // --- 辅助函数 ---
 
 async fn get_ai_service_for_user(db: &SqlitePool, user_id: i64) -> Result<AiService> {
-    let api_id: i64 =
+    let translate_api_id: Option<i64> =
         sqlx::query_scalar("SELECT translate_api_id FROM user_setting WHERE user_id = ?")
             .bind(user_id)
             .fetch_one(db)
             .await?;
+
+    let api_id = crate::services::api::get_effective_api_id(db, user_id, translate_api_id)
+        .await?
+        .ok_or_else(|| anyhow::anyhow!("No translation API configured for user {}", user_id))?;
     let config: ApiConfig = sqlx::query_as("SELECT * FROM api_configs WHERE id = ?")
         .bind(api_id)
         .fetch_one(db)
@@ -275,11 +283,15 @@ async fn get_ai_service_for_user(db: &SqlitePool, user_id: i64) -> Result<AiServ
 
 /// 为总结任务获取 AI 服务，使用 summary_api_id
 async fn get_summary_ai_service_for_user(db: &SqlitePool, user_id: i64) -> Result<AiService> {
-    let api_id: i64 =
+    let summary_api_id: Option<i64> =
         sqlx::query_scalar("SELECT summary_api_id FROM user_setting WHERE user_id = ?")
             .bind(user_id)
             .fetch_one(db)
             .await?;
+
+    let api_id = crate::services::api::get_effective_api_id(db, user_id, summary_api_id)
+        .await?
+        .ok_or_else(|| anyhow::anyhow!("No summary API configured for user {}", user_id))?;
     let config: ApiConfig = sqlx::query_as("SELECT * FROM api_configs WHERE id = ?")
         .bind(api_id)
         .fetch_one(db)

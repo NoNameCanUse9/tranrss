@@ -104,3 +104,36 @@ pub async fn delete_config(pool: &SqlitePool, id: i64, user_id: i64) -> anyhow::
         .await?;
     Ok(())
 }
+
+/// 获取用户有效的 API ID（优先具体设置，次之默认设置，最后取序号最前的 API）
+pub async fn get_effective_api_id(
+    pool: &SqlitePool,
+    user_id: i64,
+    specific_api_id: Option<i64>,
+) -> anyhow::Result<Option<i64>> {
+    // 1. 如果有指定的 API ID，则直接映射 (如果指定的 ID 存在)
+    if let Some(id) = specific_api_id {
+        return Ok(Some(id));
+    }
+
+    // 2. 检查 user_setting 中的 default_api_id
+    let default_api_id: Option<i64> =
+        sqlx::query_scalar("SELECT default_api_id FROM user_setting WHERE user_id = ?")
+            .bind(user_id)
+            .fetch_one(pool)
+            .await?;
+
+    if let Some(id) = default_api_id {
+        return Ok(Some(id));
+    }
+
+    // 3. 回退逻辑：获取该用户序号最前（ID 最小）的 API
+    let first_id: Option<i64> =
+        sqlx::query_scalar("SELECT id FROM api_configs WHERE user_id = ? ORDER BY id ASC LIMIT 1")
+            .bind(user_id)
+            .fetch_optional(pool)
+            .await?;
+
+    Ok(first_id)
+}
+

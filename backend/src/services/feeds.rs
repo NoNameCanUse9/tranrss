@@ -256,51 +256,106 @@ pub async fn fetch_and_process_feed(db: &SqlitePool, user_id: i64, feed_id: i64)
         .user_agent("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36")
         .build()?;
 
-    let response_result = client.get(&feed_rec.0).send().await;
+    let mut success = false;
+    let mut last_status = None;
+    let mut last_err_msg = None;
 
-    match response_result {
-        Ok(response) => {
-            let status = response.status();
-            sqlx::query("UPDATE feeds SET last_status_code = ? WHERE id = ?")
-                .bind(status.as_u16() as i32)
-                .bind(feed_id)
-                .execute(db)
-                .await?;
+    for attempt in 1..=3 {
+        match client.get(&feed_rec.0).send().await {
+            Ok(response) => {
+                let status = response.status();
+                last_status = Some(status.as_u16() as i32);
 
-            if !status.is_success() {
-                let err_msg = format!("HTTP Error: {}", status);
-                sqlx::query("UPDATE feeds SET last_error = ? WHERE id = ?")
-                    .bind(&err_msg)
-                    .bind(feed_id)
-                    .execute(db)
-                    .await?;
-                return Err(anyhow::anyhow!(err_msg));
+                if !status.is_success() {
+                    last_err_msg = Some(format!("HTTP Error: {}", status));
+                    if attempt < 3 {
+                        tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+                        continue;
+                    }
+                } else {
+                    let xml_content = match response.text().await {
+                        Ok(text) => text,
+                        Err(e) => {
+                            last_err_msg = Some(format!("Error reading response body: {}", e));
+                            if attempt < 3 {
+                                tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+                                continue;
+                            }
+                            break;
+                        }
+                    };
+
+                    sqlx::query("UPDATE feeds SET last_status_code = ?, last_error = NULL, consecutive_fetch_failures = 0 WHERE id = ?")
+                        .bind(status.as_u16() as i32)
+                        .bind(feed_id)
+                        .execute(db)
+                        .await?;
+
+                    // 如果曾被拉黑，现在复活了，则从拉黑名单移除
+                    let _ = sqlx::query("DELETE FROM inactive_feeds WHERE user_id = ? AND feed_id = ?")
+                        .bind(user_id)
+                        .bind(feed_id)
+                        .execute(db)
+                        .await;
+
+                    tracing::debug!(
+                        "抓取成功 (feed_id={}, attempt={})，开始解析 XML ({} bytes)...",
+                        feed_id,
+                        attempt,
+                        xml_content.len()
+                    );
+
+                    // 3. 处理并同步到数据库
+                    process_xml_content(db, &xml_content, user_id, feed_id).await?;
+                    success = true;
+                    break;
+                }
             }
-
-            let xml_content = response.text().await?;
-            sqlx::query("UPDATE feeds SET last_error = NULL WHERE id = ?")
-                .bind(feed_id)
-                .execute(db)
-                .await?;
-
-            tracing::debug!(
-                "抓取成功 (feed_id={})，开始解析 XML ({} bytes)...",
-                feed_id,
-                xml_content.len()
-            );
-
-            // 3. 处理并同步到数据库
-            process_xml_content(db, &xml_content, user_id, feed_id).await?;
+            Err(e) => {
+                last_err_msg = Some(e.to_string());
+                if attempt < 3 {
+                    tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+                    continue;
+                }
+            }
         }
-        Err(e) => {
-            let err_msg = e.to_string();
-            sqlx::query("UPDATE feeds SET last_error = ?, last_status_code = NULL WHERE id = ?")
-                .bind(&err_msg)
+    }
+
+    if !success {
+        // 更新连续失败计数
+        sqlx::query(
+            "UPDATE feeds SET last_error = ?, last_status_code = ?, consecutive_fetch_failures = consecutive_fetch_failures + 1 WHERE id = ?"
+        )
+        .bind(last_err_msg.as_ref())
+        .bind(last_status)
+        .bind(feed_id)
+        .execute(db)
+        .await?;
+
+        // 判定失效逻辑：如果最后一次成功抓取（或创建时间）超过 2 天，则标记为失效
+        let should_disable: (bool,) = sqlx::query_as(
+            r#"
+            SELECT EXISTS (
+                SELECT 1 FROM feeds 
+                WHERE id = ? 
+                  AND datetime('now') > datetime(IFNULL(last_fetched_at, created_at), '+2 days')
+            )
+            "#
+        )
+        .bind(feed_id)
+        .fetch_one(db)
+        .await?;
+
+        if should_disable.0 {
+            let _ = sqlx::query("INSERT OR IGNORE INTO inactive_feeds (user_id, feed_id, reason) VALUES (?, ?, ?)")
+                .bind(user_id)
                 .bind(feed_id)
+                .bind(format!("连续超过2天抓取失败: {}", last_err_msg.as_deref().unwrap_or("未知错误")))
                 .execute(db)
-                .await?;
-            return Err(e.into());
+                .await;
         }
+
+        return Err(anyhow::anyhow!(last_err_msg.unwrap_or_else(|| "Unknown error".to_string())));
     }
 
     tracing::info!("feed {} 同步完成", feed_id);

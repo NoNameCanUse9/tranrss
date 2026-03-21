@@ -50,9 +50,14 @@ async fn main() -> anyhow::Result<()> {
             icon_url        TEXT,
             created_at      DATETIME DEFAULT CURRENT_TIMESTAMP,
             last_status_code INTEGER,
-            last_error      TEXT
+            last_error      TEXT,
+            consecutive_fetch_failures INTEGER DEFAULT 0
         )
     "#).execute(&pool).await?;
+
+    // Safe migration for existing databases during re-init
+    let _ = sqlx::query("ALTER TABLE feeds ADD COLUMN consecutive_fetch_failures INTEGER DEFAULT 0").execute(&pool).await;
+    let _ = sqlx::query("ALTER TABLE user_setting ADD COLUMN default_api_id INTEGER").execute(&pool).await;
 
     sqlx::query(r#"
         CREATE TABLE IF NOT EXISTS folders (
@@ -171,6 +176,7 @@ async fn main() -> anyhow::Result<()> {
             user_id         INTEGER NOT NULL UNIQUE,
             translate_api_id INTEGER,
             summary_api_id  INTEGER,
+            default_api_id  INTEGER,
             greader_api     BOOLEAN,
             api_proxy       BOOLEAN,
             api_proxy_url   TEXT,
@@ -180,56 +186,19 @@ async fn main() -> anyhow::Result<()> {
         )
     "#).execute(&pool).await?;
 
-    // Apalis 任务队列表
     sqlx::query(r#"
-        CREATE TABLE IF NOT EXISTS Workers (
-            id           TEXT NOT NULL UNIQUE,
-            worker_type  TEXT NOT NULL,
-            storage_name TEXT NOT NULL,
-            layers       TEXT,
-            last_seen    INTEGER NOT NULL DEFAULT (strftime('%s', 'now'))
+        CREATE TABLE IF NOT EXISTS inactive_feeds (
+            user_id         INTEGER NOT NULL,
+            feed_id         INTEGER NOT NULL,
+            reason          TEXT,
+            disabled_at     DATETIME DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY (user_id, feed_id),
+            FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+            FOREIGN KEY (feed_id) REFERENCES feeds(id) ON DELETE CASCADE
         )
     "#).execute(&pool).await?;
 
-    sqlx::query("CREATE INDEX IF NOT EXISTS Idx   ON Workers(id)").execute(&pool).await?;
-    sqlx::query("CREATE INDEX IF NOT EXISTS WTIdx ON Workers(worker_type)").execute(&pool).await?;
-    sqlx::query("CREATE INDEX IF NOT EXISTS LSIdx ON Workers(last_seen)").execute(&pool).await?;
-
-    sqlx::query(r#"
-        CREATE TABLE IF NOT EXISTS Jobs (
-            job          TEXT NOT NULL,
-            id           TEXT NOT NULL UNIQUE,
-            job_type     TEXT NOT NULL,
-            status       TEXT NOT NULL DEFAULT 'Pending',
-            attempts     INTEGER NOT NULL DEFAULT 0,
-            max_attempts INTEGER NOT NULL DEFAULT 25,
-            run_at       INTEGER NOT NULL DEFAULT (strftime('%s', 'now')),
-            last_error   TEXT,
-            lock_at      INTEGER,
-            lock_by      TEXT,
-            done_at      INTEGER,
-            priority     INTEGER NOT NULL DEFAULT 0,
-            FOREIGN KEY(lock_by) REFERENCES Workers(id)
-        )
-    "#).execute(&pool).await?;
-
-    sqlx::query("CREATE INDEX IF NOT EXISTS TIdx ON Jobs(id)").execute(&pool).await?;
-    sqlx::query("CREATE INDEX IF NOT EXISTS SIdx ON Jobs(status)").execute(&pool).await?;
-    sqlx::query("CREATE INDEX IF NOT EXISTS LIdx ON Jobs(lock_by)").execute(&pool).await?;
-    sqlx::query("CREATE INDEX IF NOT EXISTS JTIdx ON Jobs(job_type)").execute(&pool).await?;
-
-    sqlx::query(r#"
-        CREATE TABLE IF NOT EXISTS _sqlx_migrations (
-            version        BIGINT PRIMARY KEY,
-            description    TEXT NOT NULL,
-            installed_on   TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-            success        BOOLEAN NOT NULL,
-            checksum       BLOB NOT NULL,
-            execution_time BIGINT NOT NULL
-        )
-    "#).execute(&pool).await?;
-
-    println!("✅ 数据表创建完成");
+    println!("✅ 基础数据表创建完成");
 
     // --- 创建管理员用户 ---
     let existing: Option<(i64,)> =

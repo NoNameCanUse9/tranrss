@@ -1,5 +1,8 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted } from 'vue'
+import { useI18n } from 'vue-i18n'
+
+const { t } = useI18n()
 
 interface JobData {
   feed_id?: number
@@ -95,7 +98,7 @@ const groupJobs = (rawJobs: any[]): QueueJob[] => {
       // Create new sync group
       grouped.push({
         ...rj,
-        title: '订阅更新任务',
+        title: t('queue.sync_task'),
         titles: [rj.title],
         groupedIds: [rj.id],
         isGroup: true,
@@ -230,24 +233,24 @@ const mapBackendJob = (bj: BackendJob): QueueJob => {
     status = 'failed'
   }
   
-  let title = '未知任务'
+  let title = t('queue.empty')
   let subscription = '-'
 
   if (bj.title_label) {
     title = bj.title_label
-    subscription = type === 'cron' ? '系统自动化任务' : `ID: ${bj.job_data.feed_id || bj.job_data.article_id || '?'}`
+    subscription = type === 'cron' ? t('queue.job_cron') : `ID: ${bj.job_data.feed_id || bj.job_data.article_id || '?'}`
   } else if (type === 'sync') {
-    title = `同步源 #${bj.job_data.feed_id || '?'}`
+    title = `${t('queue.job_sync')} #${bj.job_data.feed_id || '?'}`
     subscription = `Feed ID: ${bj.job_data.feed_id || '?'}`
   } else if (type === 'translate') {
-    title = `翻译文章 (ID: ${bj.job_data.article_id || '?'})`
+    title = `${t('queue.job_translate')} (ID: ${bj.job_data.article_id || '?'})`
     subscription = `Article ID: ${bj.job_data.article_id || '?'}`
   } else if (type === 'summarize') {
-    title = `生成文章摘要 (ID: ${bj.job_data.article_id || '?'})`
+    title = `${t('queue.job_summarize')} (ID: ${bj.job_data.article_id || '?'})`
     subscription = `Article ID: ${bj.job_data.article_id || '?'}`
   } else if (type === 'cron') {
-    title = '定时刷新全部订阅'
-    subscription = '系统自动化任务'
+    title = t('queue.job_cron')
+    subscription = t('queue.job_cron')
   }
 
   const startDate = new Date(bj.run_at * 1000)
@@ -289,19 +292,19 @@ onUnmounted(() => {
 const filterStatus = ref<string>('all')
 const filterType = ref<string>('all')
 
-const statusOptions = [
-  { title: '全部状态', value: 'all' },
-  { title: '进行中', value: 'running' },
-  { title: '等待中', value: 'pending' },
-  { title: '已完成', value: 'done' },
-  { title: '失败', value: 'failed' },
-]
+const statusOptions = computed(() => [
+  { title: t('queue.filter_all_status'), value: 'all' },
+  { title: t('queue.stat_running'), value: 'running' },
+  { title: t('queue.stat_pending'), value: 'pending' },
+  { title: t('queue.stat_done'), value: 'done' },
+  { title: t('queue.stat_failed'), value: 'failed' },
+])
 
-const typeOptions = [
-  { title: '全部任务', value: 'all' },
-  { title: '订阅更新', value: 'update' },
-  { title: 'AI 服务', value: 'ai' },
-]
+const typeOptions = computed(() => [
+  { title: t('queue.filter_all_types'), value: 'all' },
+  { title: t('queue.filter_sync'), value: 'update' },
+  { title: t('queue.filter_ai'), value: 'ai' },
+])
 
 const filtered = computed(() => {
   let result = jobs.value
@@ -330,20 +333,20 @@ const stats = computed(() => ({
 
 const typeInfo = (type: string): { icon: string; color: string; label: string } => {
   const map: Record<string, { icon: string; color: string; label: string }> = {
-    translate: { icon: 'mdi-translate', color: 'primary', label: '翻译' },
-    sync: { icon: 'mdi-sync', color: 'secondary', label: '同步' },
-    summarize: { icon: 'mdi-text-short', color: 'tertiary', label: '摘要' },
-    cron: { icon: 'mdi-calendar-clock', color: 'info', label: '定时' },
+    translate: { icon: 'mdi-translate', color: 'primary', label: t('queue.job_translate') },
+    sync: { icon: 'mdi-sync', color: 'secondary', label: t('queue.job_sync') },
+    summarize: { icon: 'mdi-text-short', color: 'tertiary', label: t('queue.job_summarize') },
+    cron: { icon: 'mdi-calendar-clock', color: 'info', label: t('queue.job_cron') },
   }
   return (map[type] ?? map.translate)!
 }
 
 const statusInfo = (status: string): { color: string; label: string; icon: string } => {
   const map: Record<string, { color: string; label: string; icon: string }> = {
-    pending: { color: 'warning', label: '等待中', icon: 'mdi-clock-outline' },
-    running: { color: 'primary', label: '进行中', icon: 'mdi-loading mdi-spin' },
-    done: { color: 'success', label: '已完成', icon: 'mdi-check-circle-outline' },
-    failed: { color: 'error', label: '已停止(重试上限)', icon: 'mdi-alert-circle-outline' },
+    pending: { color: 'warning', label: t('queue.stat_pending'), icon: 'mdi-clock-outline' },
+    running: { color: 'primary', label: t('queue.stat_running'), icon: 'mdi-loading mdi-spin' },
+    done: { color: 'success', label: t('queue.stat_done'), icon: 'mdi-check-circle-outline' },
+    failed: { color: 'error', label: t('queue.stat_failed'), icon: 'mdi-alert-circle-outline' },
   }
   return (map[status] ?? map.pending)!
 }
@@ -381,8 +384,8 @@ const clearCompleted = async () => {
   <div class="queue-view">
     <div class="d-flex align-center justify-space-between mb-6">
       <div>
-        <h2 class="text-h5 font-weight-bold">运行日志</h2>
-        <p class="text-body-2 text-medium-emphasis mt-1">后台执行记录与日志详情</p>
+        <h2 class="text-h5 font-weight-bold">{{ $t('queue.title') }}</h2>
+        <p class="text-body-2 text-medium-emphasis mt-1">{{ $t('queue.subtitle') }}</p>
       </div>
       <v-btn
         v-if="stats.done > 0"
@@ -393,17 +396,17 @@ const clearCompleted = async () => {
         @click="clearCompleted"
       >
         <v-icon start>mdi-broom</v-icon>
-        清除已完成
+        {{ $t('queue.clear_done') }}
       </v-btn>
     </div>
 
     <!-- 统计卡片 (自动均分的 Grid 布局) -->
     <div class="stats-grid mb-6">
       <v-card v-for="stat in [
-        { label: '进行中', count: stats.running, icon: 'mdi-progress-clock', color: 'primary' },
-        { label: '等待中', count: stats.pending, icon: 'mdi-clock-outline', color: 'warning' },
-        { label: '已完成', count: stats.done, icon: 'mdi-check-circle-outline', color: 'success' },
-        { label: '失败', count: stats.failed, icon: 'mdi-alert-circle-outline', color: 'error' },
+        { label: $t('queue.stat_running'), count: stats.running, icon: 'mdi-progress-clock', color: 'primary' },
+        { label: $t('queue.stat_pending'), count: stats.pending, icon: 'mdi-clock-outline', color: 'warning' },
+        { label: $t('queue.stat_done'), count: stats.done, icon: 'mdi-check-circle-outline', color: 'success' },
+        { label: $t('queue.stat_failed'), count: stats.failed, icon: 'mdi-alert-circle-outline', color: 'error' },
       ]" :key="stat.label" rounded="xl" variant="flat" color="surface" class="text-center pa-5 border-thin w-100 h-100">
         <div class="d-flex align-center justify-center mb-3">
            <v-avatar :color="`${stat.color}-lighten-4`" size="48">
@@ -451,7 +454,7 @@ const clearCompleted = async () => {
     <!-- 任务列表 -->
     <v-card v-if="filtered.length === 0" rounded="xl" variant="tonal" color="surface-variant" class="text-center pa-10">
       <v-icon size="48" color="primary" class="mb-3">mdi-clipboard-check-outline</v-icon>
-      <p class="text-body-1">暂无任务</p>
+      <p class="text-body-1">{{ $t('queue.empty') }}</p>
     </v-card>
 
     <div v-else class="d-flex flex-column gap-3">
@@ -476,19 +479,19 @@ const clearCompleted = async () => {
               <div class="d-flex align-center justify-space-between gap-3">
                 <div v-if="job.isGroup" class="d-flex align-center gap-4 flex-wrap flex-1 min-w-0">
                   <span class="text-h6 font-weight-bold mr-4 text-truncate" style="max-width: 50%;">{{ job.title }}</span>
-                  <v-chip size="x-small" variant="tonal" class="mr-2">{{ job.type === 'sync' ? `${job.groupedIds.length}个源` : `${job.groupedIds.length}个片段` }}</v-chip>
+                  <v-chip size="x-small" variant="tonal" class="mr-2">{{ job.type === 'sync' ? `${job.groupedIds.length}${ $t('queue.unit_source') }` : `${job.groupedIds.length}${ $t('queue.unit_segment') }` }}</v-chip>
                   <div class="d-flex align-center gap-4">
                     <span v-if="job.stats?.done" class="d-flex align-center text-success text-body-2 font-weight-medium">
-                      <v-icon size="16" class="mr-1">mdi-check-circle</v-icon>成功: {{ job.stats.done }}
+                      <v-icon size="16" class="mr-1">mdi-check-circle</v-icon>{{ $t('queue.stat_done') }}: {{ job.stats.done }}
                     </span>
                     <span v-if="job.stats?.failed" class="d-flex align-center text-error text-body-2 font-weight-medium">
-                      <v-icon size="16" class="mr-1">mdi-alert-circle</v-icon>失败: {{ job.stats.failed }}
+                      <v-icon size="16" class="mr-1">mdi-alert-circle</v-icon>{{ $t('queue.stat_failed') }}: {{ job.stats.failed }}
                     </span>
                     <span v-if="job.stats?.pending" class="d-flex align-center text-warning text-body-2 font-weight-medium">
-                      <v-icon size="16" class="mr-1">mdi-clock-outline</v-icon>等待: {{ job.stats.pending }}
+                      <v-icon size="16" class="mr-1">mdi-clock-outline</v-icon>{{ $t('queue.stat_pending') }}: {{ job.stats.pending }}
                     </span>
                     <span v-if="job.stats?.running" class="d-flex align-center text-primary text-body-2 font-weight-medium">
-                      <v-icon size="16" class="mr-1">mdi-loading mdi-spin</v-icon>进行中: {{ job.stats.running }}
+                      <v-icon size="16" class="mr-1">mdi-loading mdi-spin</v-icon>{{ $t('queue.stat_running') }}: {{ job.stats.running }}
                     </span>
                   </div>
                 </div>
@@ -507,7 +510,7 @@ const clearCompleted = async () => {
                 </v-chip>
                 <div v-else class="flex-shrink-0 d-flex align-center">
                   <v-btn v-if="job.stats?.failed" size="small" variant="tonal" @click.stop="retryJob({ groupedIds: job.subJobs?.filter(s => s.status === 'failed').map(s => s.id) || [] } as any)" color="error" class="px-3 mr-4 text-none rounded-pill">
-                    <v-icon start>mdi-refresh</v-icon>重试失败
+                    <v-icon start>mdi-refresh</v-icon>{{ $t('queue.retry_failed') }}
                   </v-btn>
                   <v-icon color="medium-emphasis" size="24">{{ job.expanded ? 'mdi-chevron-up' : 'mdi-chevron-down' }}</v-icon>
                 </div>
@@ -518,12 +521,12 @@ const clearCompleted = async () => {
                   <v-icon size="14" class="mr-1">mdi-identifier</v-icon>{{ job.subscription }}
                 </span>
                 <span v-else class="d-flex align-center">
-                  <v-icon size="14" class="mr-1">mdi-format-list-bulleted-type</v-icon>{{ job.type === 'sync' ? '订阅更新聚合任务' : '文章翻译聚合任务' }}
+                  <v-icon size="14" class="mr-1">mdi-format-list-bulleted-type</v-icon>{{ job.type === 'sync' ? $t('queue.sync_agg') : $t('queue.trans_agg') }}
                 </span>
                 
                 <span class="d-flex align-center">
                   <v-icon size="14" class="mr-1">mdi-clock-outline</v-icon>{{ job.startedAt }}
-                  <v-tooltip v-if="job.duration" activator="parent" location="top">耗时 {{ job.duration }}</v-tooltip>
+                  <v-tooltip v-if="job.duration" activator="parent" location="top">{{ $t('queue.duration', { d: job.duration }) }}</v-tooltip>
                 </span>
                 <v-chip :color="typeInfo(job.type).color" size="x-small" variant="tonal" class="text-none">
                   {{ typeInfo(job.type).label }}
@@ -565,7 +568,7 @@ const clearCompleted = async () => {
             {{ job.error }}
             <template #append>
               <v-btn size="x-small" variant="text" color="error" class="text-none" @click="retryJob({ groupedIds: [job.id] } as any)">
-                重试
+                {{ $t('common.retry') }}
               </v-btn>
             </template>
           </v-alert>
@@ -578,7 +581,7 @@ const clearCompleted = async () => {
                   <span class="text-caption text-truncate font-weight-medium">{{ sub.title }}</span>
                 </div>
                 <div class="d-flex align-center gap-2">
-                  <v-tooltip v-if="sub.error" text="查看错误" location="top">
+                  <v-tooltip :text="$t('queue.view_error')" location="top">
                     <template v-slot:activator="{ props }">
                       <v-btn v-bind="props" icon variant="text" size="small" color="error" density="compact">
                         <v-icon size="16">mdi-alert-circle</v-icon>

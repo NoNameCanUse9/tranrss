@@ -1,6 +1,9 @@
 <script setup lang="ts">
 import { ref, watch, onMounted, computed } from 'vue'
+import { useI18n } from 'vue-i18n'
 import ArticleContent from '../ArticleContent.vue'
+
+const { t } = useI18n()
 
 const props = defineProps<{
   feedId?: number,
@@ -90,6 +93,7 @@ const toggleStar = async (id: number, current: boolean) => {
 
 const translateBtnLoading = ref(false)
 const summarizeBtnLoading = ref(false)
+const snackbar = ref({ show: false, text: '', color: '' })
 
 const isTranslated = computed(() => {
   // 对接后端 camelCase 的 transText
@@ -109,8 +113,9 @@ const translateArticle = async (id: number) => {
     })
     if (res.ok) {
       await fetchArticleDetail(id)
+      snackbar.value = { show: true, text: t('article.translate_started'), color: 'info' }
     } else {
-       alert('翻译失败: ' + await res.text())
+       alert(t('article.ai_translate') + ' failed: ' + await res.text())
     }
   } finally {
     translateBtnLoading.value = false
@@ -127,7 +132,7 @@ const summarizeArticle = async (id: number) => {
     if (res.ok) {
       await fetchArticleDetail(id)
     } else {
-       alert('总结失败: ' + await res.text())
+       alert(t('article.ai_summary') + ' failed: ' + await res.text())
     }
   } finally {
     summarizeBtnLoading.value = false
@@ -164,7 +169,7 @@ const formatDate = (ts: number) => {
       <div class="article-search-box">
         <v-text-field
           v-model="articleSearch"
-          placeholder="搜索文章..."
+          :placeholder="$t('article.search')"
           variant="outlined"
           density="compact"
           rounded="xl"
@@ -216,14 +221,14 @@ const formatDate = (ts: number) => {
           class="d-flex flex-column align-center justify-center pa-8 text-medium-emphasis"
         >
           <v-icon size="36" class="mb-3" color="medium-emphasis">mdi-text-search</v-icon>
-          <span class="text-body-2">没有找到匹配的文章</span>
+          <span class="text-body-2">{{ $t('article.empty_search') }}</span>
           <v-btn
             variant="text"
             color="primary"
             size="small"
             class="mt-2 text-none"
             @click="articleSearch = ''"
-          >清除搜索</v-btn>
+          >{{ $t('article.clear_search') }}</v-btn>
         </div>
 
         <div v-if="loading" class="d-flex justify-center pa-4">
@@ -234,7 +239,7 @@ const formatDate = (ts: number) => {
 
     <!-- Article Content -->
     <div class="article-content flex-grow-1 overflow-y-auto px-6 py-8 custom-scrollbar bg-surface">
-      <div v-if="selectedArticle && articleDetail" class="mx-auto" style="max-width: 800px;">
+      <div v-if="selectedArticle && articleDetail" class="mx-auto" style="max-width: 900px;">
         <div class="d-flex align-start justify-space-between mb-2">
             <h1 class="text-h4 font-weight-bold flex-grow-1 mr-4">{{ articleDetail.title }}</h1>
             <div class="d-flex">
@@ -245,7 +250,7 @@ const formatDate = (ts: number) => {
                     @click="translateArticle(articleDetail.id)"
                     :loading="translateBtnLoading"
                     :disabled="isTranslated"
-                    title="AI 翻译"
+                    :title="$t('article.ai_translate')"
                     :class="{ 'btn-pulse': !isTranslated && !translateBtnLoading }"
                 >
                     <v-icon>mdi-translate</v-icon>
@@ -265,7 +270,7 @@ const formatDate = (ts: number) => {
                     @click="summarizeArticle(articleDetail.id)"
                     :loading="summarizeBtnLoading"
                     :disabled="hasSummary"
-                    title="AI 总结"
+                    :title="$t('article.ai_summary')"
                     :class="{ 'btn-pulse': !hasSummary && !summarizeBtnLoading }"
                 >
                     <v-icon>mdi-text-box-search-outline</v-icon>
@@ -282,7 +287,7 @@ const formatDate = (ts: number) => {
                     variant="text"
                     :color="articleDetail.isStarred ? 'warning' : ''"
                     @click="toggleStar(articleDetail.id, articleDetail.isStarred)"
-                    title="收藏"
+                    :title="$t('article.star')"
                 >
                     <v-icon>{{ articleDetail.isStarred ? 'mdi-star' : 'mdi-star-outline' }}</v-icon>
                 </v-btn>
@@ -291,7 +296,7 @@ const formatDate = (ts: number) => {
                     variant="text"
                     :color="articleDetail.isRead ? 'success' : 'primary'"
                     @click="updateReadStatus(articleDetail.id, !articleDetail.isRead)"
-                    :title="articleDetail.isRead ? '标记为未读' : '标记为已读'"
+                    :title="articleDetail.isRead ? $t('article.mark_unread') : $t('article.mark_read')"
                 >
                     <v-icon>{{ articleDetail.isRead ? 'mdi-check-circle' : 'mdi-circle-outline' }}</v-icon>
                 </v-btn>
@@ -301,7 +306,7 @@ const formatDate = (ts: number) => {
                     icon="mdi-open-in-new"
                     :href="articleDetail.link"
                     target="_blank"
-                    title="在浏览器中打开"
+                    :title="$t('article.open_browser')"
                 />
             </div>
         </div>
@@ -321,13 +326,21 @@ const formatDate = (ts: number) => {
       </div>
       <div v-else class="h-100 d-flex flex-column align-center justify-center text-medium-emphasis opacity-60">
         <v-icon size="64" class="mb-4">mdi-newspaper-variant-outline</v-icon>
-        <p>选择一篇文章预览内容</p>
+        <p>{{ $t('article.empty_state') }}</p>
       </div>
     </div>
+
+    <!-- 提示消息 -->
+    <v-snackbar v-model="snackbar.show" :color="snackbar.color" rounded="pill" elevation="12">
+      {{ snackbar.text }}
+      <template v-slot:actions>
+        <v-btn variant="text" @click="snackbar.show = false">{{ $t('common.confirm') }}</v-btn>
+      </template>
+    </v-snackbar>
   </div>
 </template>
 
-<style>
+<style scoped>
 .article-view {
   height: calc(100vh - 180px); /* Adjust based on App Bar */
   margin: -32px; /* Pull out to edges of container */
@@ -338,7 +351,7 @@ const formatDate = (ts: number) => {
     width var(--md-motion-duration-long) var(--md-motion-easing-emphasized),
     opacity var(--md-motion-duration-medium) var(--md-motion-easing-emphasized),
     transform var(--md-motion-duration-long) var(--md-motion-easing-emphasized);
-  width: 350px;
+  width: 300px;
   flex-shrink: 0;
   height: 100%;
   display: flex;
@@ -353,9 +366,9 @@ const formatDate = (ts: number) => {
 
 .article-search-box {
   flex-shrink: 0;
-  padding: 10px 12px 8px;
+  padding: 12px 14px 10px;
   background: rgb(var(--v-theme-surface));
-  border-bottom: 1px solid rgba(var(--v-border-color), 0.06);
+  border-bottom: 1px solid rgba(var(--v-border-color), 0.08);
 }
 
 .article-list-scroll .v-list-item {

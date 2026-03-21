@@ -1,6 +1,9 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
 import { useTheme } from 'vuetify'
+import { useI18n } from 'vue-i18n'
+
+const { t } = useI18n()
 
 const theme = useTheme()
 const isDark = ref(theme.global.current.value.dark)
@@ -15,11 +18,12 @@ const proxyUrl = ref('')
 const greaderApi = ref(false)
 const translateApiId = ref<number | null>(null)
 const summaryApiId = ref<number | null>(null)
+const defaultApiId = ref<number | null>(null)
 
 const saving = ref(false)
 const importing = ref(false)
 const snackbar = ref(false)
-const snackbarText = ref('设置已保存')
+const snackbarText = ref(t('settings.saved'))
 
 const apiConfigs = ref<any[]>([])
 
@@ -53,6 +57,7 @@ const loadSettings = async () => {
       if (data.greader_api !== undefined && data.greader_api !== null) greaderApi.value = data.greader_api
       if (data.translate_api_id) translateApiId.value = data.translate_api_id
       if (data.summary_api_id) summaryApiId.value = data.summary_api_id
+      if (data.default_api_id) defaultApiId.value = data.default_api_id
     }
   } catch (e) {
     console.error('Failed to load settings', e)
@@ -81,11 +86,12 @@ const saveSettings = async () => {
         greader_api: greaderApi.value,
         translate_api_id: translateApiId.value,
         summary_api_id: summaryApiId.value,
+        default_api_id: defaultApiId.value,
       })
     })
     
     localStorage.setItem('log_num_limit', logNumLimit.value.toString())
-    snackbarText.value = '设置已保存'
+    snackbarText.value = t('settings.saved')
     snackbar.value = true
   } catch (e) {
     console.error('Save failed', e)
@@ -134,14 +140,14 @@ const triggerImport = () => {
         body: formData
       })
       if (res.ok) {
-        snackbarText.value = '订阅导入成功'
+        snackbarText.value = t('settings.import_success')
         snackbar.value = true
       } else {
         throw new Error('Import failed')
       }
     } catch (e) {
       console.error('Import failed', e)
-      snackbarText.value = '导入失败，请检查文件格式'
+      snackbarText.value = t('settings.import_failed')
       snackbar.value = true
     } finally {
       importing.value = false
@@ -154,8 +160,8 @@ const triggerImport = () => {
 <template>
   <div class="settings-view">
     <div class="page-header mb-6">
-      <h2 class="text-h5 font-weight-bold">设置</h2>
-      <p class="text-body-2 text-medium-emphasis mt-1">管理应用程序偏好和系统配置</p>
+      <h2 class="text-h5 font-weight-bold">{{ t('settings.title') }}</h2>
+      <p class="text-body-2 text-medium-emphasis mt-1">{{ t('settings.subtitle') }}</p>
     </div>
 
     <div class="d-flex flex-column">
@@ -165,14 +171,14 @@ const triggerImport = () => {
             <template #prepend>
               <v-icon color="primary" class="mr-2">mdi-palette-outline</v-icon>
             </template>
-            <v-card-title class="text-h6 font-weight-bold">外观</v-card-title>
+            <v-card-title class="text-h6 font-weight-bold">{{ t('settings.appearance') }}</v-card-title>
           </v-card-item>
           <v-divider />
           <v-card-text class="pa-6">
             <div class="d-flex align-center justify-space-between mb-4">
               <div>
-                <p class="text-body-2 font-weight-medium">深色模式</p>
-                <p class="text-caption text-medium-emphasis">切换应用明暗主题</p>
+                <p class="text-body-2 font-weight-medium">{{ t('settings.dark_mode') }}</p>
+                <p class="text-caption text-medium-emphasis">{{ t('settings.dark_mode_desc') }}</p>
               </div>
               <v-switch
                 v-model="isDark"
@@ -182,7 +188,7 @@ const triggerImport = () => {
               />
             </div>
             
-            <p class="text-body-2 font-weight-medium mb-2">队列保留条数</p>
+            <p class="text-body-2 font-weight-medium mb-2">{{ t('settings.queue_limit') }}</p>
             <v-text-field
               v-model="logNumLimit"
               type="number"
@@ -203,28 +209,51 @@ const triggerImport = () => {
             <template #prepend>
               <v-icon color="primary" class="mr-2">mdi-cogs</v-icon>
             </template>
-            <v-card-title class="text-h6 font-weight-bold">系统功能</v-card-title>
+            <v-card-title class="text-h6 font-weight-bold">{{ t('settings.system_features') }}</v-card-title>
           </v-card-item>
           <v-divider />
           <v-card-text class="pa-6">
             <div class="d-flex align-center justify-space-between mb-4">
               <div>
                 <p class="text-body-2 font-weight-medium">Google Reader API</p>
-                <p class="text-caption text-medium-emphasis">支持第三方客户端同步</p>
+                <p class="text-caption text-medium-emphasis">{{ t('settings.greader_desc') }}</p>
               </div>
               <v-switch v-model="greaderApi" color="primary" hide-details />
             </div>
             
+            <div class="mb-4">
+              <p class="text-body-2 font-weight-medium mb-2">{{ t('settings.global_default_api') }}</p>
+              <div class="text-caption text-medium-emphasis mb-2">{{ t('settings.global_default_desc') }}</div>
+              <v-select
+                v-model="defaultApiId"
+                :items="apiConfigs"
+                item-title="name"
+                item-value="id"
+                :placeholder="t('settings.select_api_placeholder')"
+                variant="outlined"
+                density="comfortable"
+                rounded="lg"
+                hide-details
+                clearable
+                prepend-inner-icon="mdi-api"
+                color="primary"
+              >
+                <template #no-data>
+                  <div class="px-4 py-2 text-caption text-medium-emphasis">{{ t('settings.no_api_configs') }}</div>
+                </template>
+              </v-select>
+            </div>
+
             <v-divider class="my-4" />
 
             <div class="mb-4">
-              <p class="text-body-2 font-weight-medium mb-2">默认翻译 API</p>
+              <p class="text-body-2 font-weight-medium mb-2">{{ t('settings.default_translate_api') }}</p>
               <v-select
                 v-model="translateApiId"
                 :items="apiConfigs"
                 item-title="name"
                 item-value="id"
-                placeholder="选择默认翻译 API"
+                :placeholder="t('settings.default_translate_api')"
                 variant="outlined"
                 density="comfortable"
                 rounded="lg"
@@ -234,19 +263,19 @@ const triggerImport = () => {
                 color="primary"
               >
                 <template #no-data>
-                  <div class="px-4 py-2 text-caption text-medium-emphasis">暂未配置API密钥</div>
+                  <div class="px-4 py-2 text-caption text-medium-emphasis">{{ t('settings.no_api_configs') }}</div>
                 </template>
               </v-select>
             </div>
             
             <div>
-              <p class="text-body-2 font-weight-medium mb-2">默认摘要 API</p>
+              <p class="text-body-2 font-weight-medium mb-2">{{ t('settings.default_summary_api') }}</p>
               <v-select
                 v-model="summaryApiId"
                 :items="apiConfigs"
                 item-title="name"
                 item-value="id"
-                placeholder="选择默认摘要 API"
+                :placeholder="t('settings.default_summary_api')"
                 variant="outlined"
                 density="comfortable"
                 rounded="lg"
@@ -256,7 +285,7 @@ const triggerImport = () => {
                 color="primary"
               >
                 <template #no-data>
-                  <div class="px-4 py-2 text-caption text-medium-emphasis">暂未配置API密钥</div>
+                  <div class="px-4 py-2 text-caption text-medium-emphasis">{{ t('settings.no_api_configs') }}</div>
                 </template>
               </v-select>
             </div>
@@ -270,14 +299,14 @@ const triggerImport = () => {
             <template #prepend>
               <v-icon color="primary" class="mr-2">mdi-database-outline</v-icon>
             </template>
-            <v-card-title class="text-h6 font-weight-bold">数据管理</v-card-title>
+            <v-card-title class="text-h6 font-weight-bold">{{ t('settings.data_management') }}</v-card-title>
           </v-card-item>
           <v-divider />
           <v-card-text class="pa-6">
             <div class="d-flex flex-column flex-sm-row align-start align-sm-center justify-space-between gap-4">
               <div>
-                <p class="text-body-2 font-weight-medium mb-1">OPML 订阅信息</p>
-                <p class="text-caption text-medium-emphasis">支持与其他 RSS 客户端进行数据迁移和备份</p>
+                <p class="text-body-2 font-weight-medium mb-1">{{ t('settings.opml_info') }}</p>
+                <p class="text-caption text-medium-emphasis">{{ t('settings.opml_desc') }}</p>
               </div>
               <div class="d-flex" style="gap: 16px;">
                 <v-btn
@@ -291,7 +320,7 @@ const triggerImport = () => {
                   :loading="importing"
                   @click="triggerImport"
                 >
-                  导入 OPML
+                  {{ t('settings.import_opml') }}
                 </v-btn>
                 <v-btn
                   variant="tonal"
@@ -303,7 +332,7 @@ const triggerImport = () => {
                   min-width="200"
                   @click="exportOPML"
                 >
-                  导出 OPML
+                  {{ t('settings.export_opml') }}
                 </v-btn>
               </div>
             </div>
@@ -316,18 +345,18 @@ const triggerImport = () => {
             <template #prepend>
               <v-icon color="primary" class="mr-2">mdi-earth</v-icon>
             </template>
-            <v-card-title class="text-h6 font-weight-bold">网络代理</v-card-title>
+            <v-card-title class="text-h6 font-weight-bold">{{ t('settings.proxy') }}</v-card-title>
           </v-card-item>
           <v-divider />
           <v-card-text class="pa-6">
             <div class="d-flex align-center justify-space-between mb-4">
               <div>
-                <p class="text-body-2 font-weight-medium">启用代理</p>
-                <p class="text-caption text-medium-emphasis">通过代理服务器访问订阅源</p>
+                <p class="text-body-2 font-weight-medium">{{ t('settings.enable_proxy') }}</p>
+                <p class="text-caption text-medium-emphasis">{{ t('settings.proxy_desc') }}</p>
               </div>
               <v-switch v-model="proxyEnabled" color="primary" hide-details />
             </div>
-            <p class="text-body-2 font-weight-medium mb-2" :class="{'text-medium-emphasis': !proxyEnabled}">代理地址</p>
+            <p class="text-body-2 font-weight-medium mb-2" :class="{'text-medium-emphasis': !proxyEnabled}">{{ t('settings.proxy_url') }}</p>
             <v-text-field
               v-model="proxyUrl"
               placeholder="http://127.0.0.1:7890"
@@ -354,7 +383,7 @@ const triggerImport = () => {
         @click="saveSettings"
       >
         <v-icon start>mdi-content-save-outline</v-icon>
-        保存设置
+        {{ t('settings.save') }}
       </v-btn>
     </div>
 

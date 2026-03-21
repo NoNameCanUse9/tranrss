@@ -1,6 +1,14 @@
 <script setup lang="ts">
 import { ref } from 'vue'
 import { useTheme } from 'vuetify'
+import { useI18n } from 'vue-i18n'
+
+const { t, locale } = useI18n()
+
+const setLanguage = (lang: string) => {
+  locale.value = lang
+  localStorage.setItem('locale', lang)
+}
 
 const theme = useTheme()
 const isLogin = ref(true)
@@ -20,7 +28,7 @@ const emit = defineEmits(['auth-success'])
 
 const handleSubmit = async () => {
   if (!username.value || !password.value) {
-    error.value = '请填写用户名和密码'
+    error.value = t('auth.required')
     return
   }
 
@@ -41,7 +49,7 @@ const handleSubmit = async () => {
 
     if (!response.ok) {
         const data = await response.json().catch(() => ({}))
-        throw new Error(data.message || (isLogin.value ? '登录失败' : '注册失败'))
+        throw new Error(data.message || (isLogin.value ? t('auth.login_failed') : t('auth.register_failed')))
     }
 
     if (isLogin.value) {
@@ -64,7 +72,7 @@ const handleSubmit = async () => {
       // After registration, switch to login
       isLogin.value = true
       messageType.value = 'success'
-      error.value = '注册成功，请登录'
+      error.value = t('auth.reg_success')
       password.value = ''
     }
   } catch (e: any) {
@@ -77,8 +85,21 @@ const handleSubmit = async () => {
 
 <template>
   <v-container class="fill-height d-flex align-center justify-center login-view-bg">
-    <!-- 极简主题切换 -->
-    <div class="theme-toggle">
+    <!-- 极简主题/语言切换 -->
+    <div class="theme-toggle d-flex align-center">
+      <!-- Compatible Language Select (Native fallback) -->
+      <div class="lang-select-wrapper mr-2">
+        <v-icon size="small" class="lang-icon">mdi-translate</v-icon>
+        <select 
+          v-model="locale" 
+          class="lang-native-select"
+          @change="setLanguage(locale)"
+        >
+          <option value="zh">简体中文</option>
+          <option value="en">English</option>
+        </select>
+        <v-icon size="small" class="lang-arrow">mdi-chevron-down</v-icon>
+      </div>
       <v-btn icon variant="text" @click="toggleTheme">
         <v-icon>{{ theme.global.current.value.dark ? 'mdi-weather-sunny' : 'mdi-weather-night' }}</v-icon>
       </v-btn>
@@ -86,7 +107,7 @@ const handleSubmit = async () => {
 
     <v-card width="100%" max-width="400" class="pa-6 elevation-4 rounded-xl">
       <v-card-title class="text-h5 font-weight-bold text-center mb-4">
-        {{ isLogin ? '登录' : '注册账号' }}
+        {{ isLogin ? t('auth.login') : t('auth.register') }}
       </v-card-title>
 
       <v-alert
@@ -104,7 +125,7 @@ const handleSubmit = async () => {
       <v-form @submit.prevent="handleSubmit">
         <v-text-field
           v-model="username"
-          label="用户名"
+          :label="t('auth.username')"
           variant="outlined"
           prepend-inner-icon="mdi-account"
           class="mb-2"
@@ -115,7 +136,7 @@ const handleSubmit = async () => {
 
         <v-text-field
           v-model="password"
-          label="密码"
+          :label="t('auth.password')"
           type="password"
           variant="outlined"
           prepend-inner-icon="mdi-lock"
@@ -132,12 +153,12 @@ const handleSubmit = async () => {
           rounded="lg"
           :loading="loading"
         >
-          {{ isLogin ? '立即登录' : '创建账号' }}
+          {{ isLogin ? t('auth.login_btn') : t('auth.register_btn') }}
         </v-btn>
 
         <div class="d-flex align-center justify-center text-body-2 mt-4">
           <span class="text-medium-emphasis">
-            {{ isLogin ? '还没有账号？' : '已有账号？' }}
+            {{ isLogin ? t('auth.no_account') : t('auth.has_account') }}
           </span>
           <v-btn
             variant="text"
@@ -146,7 +167,7 @@ const handleSubmit = async () => {
             density="compact"
             @click="isLogin = !isLogin"
           >
-            {{ isLogin ? '现在注册' : '返回登录' }}
+            {{ isLogin ? t('auth.register_now') : t('auth.back_to_login') }}
           </v-btn>
         </div>
       </v-form>
@@ -167,5 +188,52 @@ const handleSubmit = async () => {
   top: 16px;
   right: 16px;
   z-index: 100;
+}
+</style>
+
+<style scoped>
+.lang-select-wrapper {
+  position: relative;
+  display: flex;
+  align-items: center;
+  background: rgba(var(--v-theme-primary), 0.08);
+  border-radius: 20px;
+  padding: 0 12px;
+  height: 32px;
+  min-width: 140px;
+  border: 1px solid rgba(var(--v-theme-primary), 0.1);
+}
+
+.lang-native-select {
+  appearance: none;
+  background: transparent;
+  border: none;
+  outline: none;
+  font-size: 0.875rem;
+  font-weight: 500;
+  width: 100%;
+  padding: 0 24px 0 26px;
+  cursor: pointer;
+  z-index: 1;
+  color: inherit;
+}
+
+.lang-icon {
+  position: absolute;
+  left: 10px;
+  pointer-events: none;
+  opacity: 0.75;
+}
+
+.lang-arrow {
+  position: absolute;
+  right: 10px;
+  pointer-events: none;
+  opacity: 0.75;
+}
+
+.lang-native-select option {
+  background: white; /* 登录页背景较浅 */
+  color: #333;
 }
 </style>

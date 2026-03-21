@@ -8,5 +8,8 @@
     "dev": "pnpm dlx concurrently \"pnpm dev:frontend\" \"pnpm dev:backend\" \"pnpm dev:db\" --names \"WEB,API,DB\" --prefix-colors \"blue,green,yellow\"",
     "build": "pnpm --filter frontend build && cd backend && cargo build --release --features embed-frontend",
     "build:init": "cd backend && cargo build --release --bin init_db"
+  },
+  "devDependencies": {
+    "vite-plugin-vue-inspector": "^5.4.0"
   }
 }

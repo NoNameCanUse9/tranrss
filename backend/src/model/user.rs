@@ -25,6 +25,7 @@ pub struct LoginResponse {
     pub username: String,
     pub translate_api_id: Option<i64>,
     pub summary_api_id: Option<i64>,
+    pub default_api_id: Option<i64>,
     pub app_mode: Option<bool>,
     pub log_num_limit: Option<i32>,
 }
@@ -44,6 +45,7 @@ pub struct UpdateUsernameRequest {
 pub struct UpdateUserSettingRequest {
     pub translate_api_id: Option<i64>,
     pub summary_api_id: Option<i64>,
+    pub default_api_id: Option<i64>,
     pub greader_api: Option<bool>,
     pub api_proxy: Option<bool>,
     pub api_proxy_url: Option<String>,
@@ -55,6 +57,7 @@ pub struct UpdateUserSettingRequest {
 pub struct UserSetting {
     pub translate_api_id: Option<i64>,
     pub summary_api_id: Option<i64>,
+    pub default_api_id: Option<i64>,
     pub greader_api: Option<bool>,
     pub api_proxy: Option<bool>,
     pub api_proxy_url: Option<String>,

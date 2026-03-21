@@ -1,5 +1,8 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
+import { useI18n } from 'vue-i18n'
+
+const { t } = useI18n()
 
 interface Subscription {
   id: number
@@ -41,7 +44,7 @@ const fetchSubscriptions = async () => {
         'Authorization': `Bearer ${localStorage.getItem('token')}`
       }
     })
-    if (!response.ok) throw new Error('无法加载订阅')
+    if (!response.ok) throw new Error(t('sub.status_error'))
     subscriptions.value = await response.json()
   } catch (e: any) {
     error.value = e.message
@@ -60,6 +63,68 @@ const syncing = ref<Record<number, boolean>>({})
 const saving = ref(false)
 const fetchingPreview = ref(false)
 const snackbar = ref({ show: false, text: '', color: 'success' })
+const inactiveDialog = ref(false)
+const inactiveFeeds = ref<any[]>([])
+const inactiveSearch = ref('')
+const selectedInactive = ref<number[]>([])
+const activating = ref(false)
+
+const filteredInactive = computed(() => {
+  if (!inactiveSearch.value) return inactiveFeeds.value
+  const q = inactiveSearch.value.toLowerCase()
+  return inactiveFeeds.value.filter(
+    f => f.title.toLowerCase().includes(q) || f.url.toLowerCase().includes(q)
+  )
+})
+
+const fetchInactive = async () => {
+  try {
+    const response = await fetch('/api/subscriptions/inactive', {
+      headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` }
+    })
+    if (!response.ok) throw new Error(t('sub.inactive_list'))
+    inactiveFeeds.value = await response.json()
+  } catch (e: any) {
+    error.value = e.message
+  }
+}
+
+const openInactiveDialog = async () => {
+  await fetchInactive()
+  inactiveDialog.value = true
+}
+
+const activateSelected = async () => {
+  if (selectedInactive.value.length === 0) return
+  activating.value = true
+  try {
+    const response = await fetch('/api/subscriptions/inactive/activate', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${localStorage.getItem('token')}`
+      },
+      body: JSON.stringify({ feed_ids: selectedInactive.value })
+    })
+    if (!response.ok) throw new Error('恢复失败')
+    snackbar.value = { show: true, text: `已成功恢复 ${selectedInactive.value.length} 个订阅`, color: 'success' }
+    inactiveDialog.value = false
+    selectedInactive.value = []
+    fetchSubscriptions()
+  } catch (e: any) {
+    snackbar.value = { show: true, text: e.message, color: 'error' }
+  } finally {
+    activating.value = false
+  }
+}
+
+const toggleSelectAllInactive = () => {
+  if (selectedInactive.value.length === filteredInactive.value.length) {
+    selectedInactive.value = []
+  } else {
+    selectedInactive.value = filteredInactive.value.map(f => f.feed_id)
+  }
+}
 
 const categories = ['技术', '科技媒体', '研究', '新闻', '财经', '其他']
 
@@ -94,13 +159,13 @@ const getSubStatus = (sub: Subscription) => {
 const statusInfo = (sub: Subscription): { color: string; label: string; icon: string } => {
   const status = getSubStatus(sub)
   if (status === 'error') {
-    let label = '同步错误'
+    let label = t('sub.status_error')
     if (sub.lastStatusCode) {
-      label = `错误 ${sub.lastStatusCode}`
+      label = `${t('sub.status_error')} ${sub.lastStatusCode}`
     }
     return { color: 'error', label, icon: 'mdi-alert-circle-outline' }
   }
-  return { color: 'success', label: '正常', icon: 'mdi-check-circle-outline' }
+  return { color: 'success', label: t('sub.status_normal'), icon: 'mdi-check-circle-outline' }
 }
 
 const syncNow = async (id: number) => {
@@ -112,9 +177,9 @@ const syncNow = async (id: number) => {
         'Authorization': `Bearer ${localStorage.getItem('token')}`
       }
     })
-    if (!response.ok) throw new Error('同步失败')
+    if (!response.ok) throw new Error(t('common.sync_failed'))
     
-    snackbar.value = { show: true, text: '同步任务已在后台开始', color: 'success' }
+    snackbar.value = { show: true, text: t('sub.sync_started'), color: 'success' }
     await fetchSubscriptions()
   } catch (e: any) {
     snackbar.value = { show: true, text: e.message, color: 'error' }
@@ -244,9 +309,9 @@ const saveSub = async () => {
 }
 
 const formatDate = (dateStr: string | null) => {
-  if (!dateStr) return '从未'
+  if (!dateStr) return '-'
   const date = new Date(dateStr)
-  return date.toLocaleString('zh-CN', { hour12: false }).replace(',', '')
+  return date.toLocaleString()
 }
 
 const handleUrlBlur = async () => {
@@ -288,8 +353,8 @@ const handleUrlBlur = async () => {
   <div class="subscription-view">
     <div class="d-flex align-center justify-space-between mb-8">
       <div>
-        <h1 class="text-h3 font-weight-bold">订阅源</h1>
-        <p class="text-body-1 text-medium-emphasis mt-2">共 {{ subscriptions.length }} 个活动的源</p>
+        <h1 class="text-h3 font-weight-bold">{{ $t('sub.title') }}</h1>
+        <p class="text-body-1 text-medium-emphasis mt-2">{{ $t('sub.active_count', { n: subscriptions.length }) }}</p>
       </div>
       <div class="d-flex gap-2">
         <v-btn 
@@ -302,11 +367,21 @@ const handleUrlBlur = async () => {
           :disabled="subscriptions.length === 0"
         >
           <v-icon start>mdi-sync</v-icon>
-          全部同步
+          {{ $t('sub.sync_all') }}
+        </v-btn>
+        <v-btn 
+          color="warning" 
+          variant="tonal"
+          rounded="pill" 
+          class="text-none font-weight-bold mr-2" 
+          @click="openInactiveDialog"
+        >
+          <v-icon start>mdi-alert-circle-outline</v-icon>
+          {{ $t('sub.inactive_list') }}
         </v-btn>
         <v-btn color="primary" rounded="pill" elevation="0" class="text-none font-weight-bold" @click="openAddDialog">
           <v-icon start>mdi-plus</v-icon>
-          添加订阅
+          {{ $t('sub.add_btn') }}
         </v-btn>
       </div>
     </div>
@@ -314,7 +389,7 @@ const handleUrlBlur = async () => {
     <!-- 搜索 -->
     <v-text-field
       v-model="search"
-      placeholder="搜索订阅..."
+      :placeholder="$t('sub.search')"
       variant="outlined"
       density="comfortable"
       rounded="xl"
@@ -328,17 +403,17 @@ const handleUrlBlur = async () => {
     <!-- 空状态 -->
     <v-card v-if="filtered.length === 0" rounded="xl" variant="tonal" color="surface-variant" class="text-center pa-12">
       <v-icon size="64" color="primary" class="mb-4">mdi-rss-box</v-icon>
-      <h3 class="text-h6 mb-2">{{ search ? '未找到匹配订阅' : '暂无订阅源' }}</h3>
-      <p class="text-body-2 text-medium-emphasis mb-6">{{ search ? '请尝试其他关键词' : '添加RSS订阅源开始阅读' }}</p>
+      <h3 class="text-h6 mb-2">{{ search ? $t('sub.empty_search') : $t('sub.empty_no_feeds') }}</h3>
+      <p class="text-body-2 text-medium-emphasis mb-6">{{ search ? $t('sub.empty_try_other') : $t('sub.empty_add_first') }}</p>
       <v-btn v-if="!search" color="primary" rounded="pill" elevation="0" class="text-none" @click="openAddDialog">
-        添加第一个订阅
+        {{ $t('sub.add_first') }}
       </v-btn>
     </v-card>
 
     <v-row v-else>
-      <v-col v-for="sub in filtered" :key="sub.id" cols="12" md="6" class="d-flex">
-        <v-card rounded="xl" variant="flat" color="surface" class="sub-card flex-grow-1">
-          <v-card-text class="pa-5">
+      <v-col v-for="sub in filtered" :key="sub.id" cols="12" sm="6" md="6" lg="4" xl="3" class="d-flex">
+        <v-card rounded="xl" variant="flat" color="surface" class="sub-card h-100 w-100">
+          <v-card-text class="pa-5 d-flex flex-column h-100">
             <div class="d-flex align-start justify-space-between mb-2">
               <div class="flex-1 min-w-0 mr-2">
                 <div class="d-flex align-center gap-2 mb-1">
@@ -387,11 +462,11 @@ const handleUrlBlur = async () => {
               </v-chip>
               <v-chip v-if="sub.autoTranslate" size="x-small" variant="outlined" color="secondary" class="text-none">
                 <v-icon start size="12">mdi-translate</v-icon>
-                自动翻译
+                {{ $t('sub.auto_translate') }}
               </v-chip>
               <v-chip v-if="sub.needSummary" size="x-small" variant="outlined" color="info" class="text-none ml-1">
                 <v-icon start size="12">mdi-text-box-search-outline</v-icon>
-                简报
+                {{ $t('sub.summary') }}
               </v-chip>
             </div>
 
@@ -400,6 +475,8 @@ const handleUrlBlur = async () => {
             <div v-if="sub.description" class="text-caption text-medium-emphasis line-clamp-desc mb-3">
               {{ sub.description }}
             </div>
+
+            <v-spacer />
 
             <div class="d-flex align-center gap-6 text-caption text-medium-emphasis mb-4">
               <span class="d-flex align-center"><v-icon size="14" class="mr-1">mdi-newspaper-outline</v-icon>{{ sub.articleCount }} 篇</span>
@@ -417,7 +494,7 @@ const handleUrlBlur = async () => {
                 @click="syncNow(sub.id)"
               >
                 <v-icon start size="16">mdi-refresh</v-icon>
-                同步
+                {{ $t('sub.sync') }}
               </v-btn>
               <v-btn 
                 variant="tonal" 
@@ -453,10 +530,10 @@ const handleUrlBlur = async () => {
         <div class="dialog-header pa-6 d-flex align-center justify-space-between">
           <div>
             <h2 class="text-h5 font-weight-bold gradient-text">
-              {{ selectedSub ? '配置订阅源' : '添加新订阅' }}
+              {{ selectedSub ? $t('sub.dialog_edit_title') : $t('sub.dialog_add_title') }}
             </h2>
             <p class="text-caption text-medium-emphasis mt-1">
-              {{ selectedSub ? '更新您的阅读偏好与订阅元数据' : '输入 RSS 链接，开启您的智能阅读之旅' }}
+              {{ selectedSub ? $t('sub.dialog_edit_sub') : $t('sub.dialog_add_sub') }}
             </p>
           </div>
           <v-btn icon="mdi-close" variant="text" color="error" rounded="pill" @click="dialog = false"></v-btn>
@@ -484,7 +561,7 @@ const handleUrlBlur = async () => {
                     </v-img>
                   </v-avatar>
                   <div v-if="form.title || form.url" class="text-h6 font-weight-bold text-truncate max-w-100">
-                    {{ form.title || '新订阅源' }}
+                    {{ form.title || $t('sub.add_btn') }}
                   </div>
                   <div v-if="form.siteUrl" class="text-body-2 text-primary text-decoration-none d-flex align-center">
                     <v-icon size="14" class="mr-1">mdi-link-variant</v-icon>
@@ -495,13 +572,13 @@ const handleUrlBlur = async () => {
                 <div class="d-flex flex-column gap-4 w-100">
                   <v-text-field 
                     v-model="form.url" 
-                    label="RSS 订阅地址" 
+                    :label="$t('sub.url')" 
                     variant="outlined" 
                     density="comfortable" 
                     rounded="lg" 
                     color="primary" 
                     prepend-inner-icon="mdi-rss" 
-                    hint="例如: https://example.com/feed.xml (支持标准 RSS, Atom 和 JSON Feed)"
+                    :hint="$t('sub.url_hint')"
                     persistent-hint
                     @blur="handleUrlBlur"
                     :loading="fetchingPreview"
@@ -511,7 +588,7 @@ const handleUrlBlur = async () => {
                   <div class="d-flex gap-4 w-100">
                     <v-text-field 
                       v-model="form.siteUrl" 
-                      label="源站点链接" 
+                      :label="$t('sub.site_url')" 
                       variant="outlined" 
                       density="comfortable" 
                       rounded="lg" 
@@ -522,7 +599,7 @@ const handleUrlBlur = async () => {
                     />
                     <v-text-field 
                       v-model="form.iconUrl" 
-                      label="图标 URL" 
+                      :label="$t('sub.icon_url')" 
                       variant="outlined" 
                       density="comfortable" 
                       rounded="lg" 
@@ -535,7 +612,7 @@ const handleUrlBlur = async () => {
 
                   <v-textarea 
                     v-model="form.description" 
-                    label="源描述信息" 
+                    :label="$t('sub.desc')" 
                     variant="outlined" 
                     density="comfortable" 
                     rounded="lg" 
@@ -566,39 +643,39 @@ const handleUrlBlur = async () => {
             <section>
               <h3 class="text-subtitle-1 font-weight-bold mb-4 d-flex align-center">
                 <v-icon color="secondary" class="mr-2">mdi-cog-outline</v-icon>
-                阅读偏好设置
+                {{ $t('settings.preferences') }}
               </h3>
               <div class="d-flex flex-column gap-4 w-100">
                 <div class="d-flex gap-4 w-100 mb-2">
                   <v-text-field 
                     v-model="form.title" 
-                    label="自定义显示名称" 
+                    :label="$t('sub.custom_title')" 
                     variant="outlined" 
                     density="comfortable" 
                     rounded="lg" 
                     color="primary" 
                     prepend-inner-icon="mdi-pencil-outline" 
-                    hint="如果不填写将使用源标题"
+                    :hint="$t('sub.custom_title_hint')"
                     persistent-hint
                     style="flex: 5"
                   />
                   <v-combobox 
                     v-model="form.category" 
                     :items="categories" 
-                    label="所属分类" 
+                    :label="$t('sub.category')" 
                     variant="outlined" 
                     density="comfortable" 
                     rounded="lg" 
                     color="primary" 
                     prepend-inner-icon="mdi-folder-outline" 
                     persistent-hint
-                    hint="选择或输入新分类"
+                    hint=""
                     hide-no-data
                     style="flex: 3"
                   />
                   <v-text-field 
                     v-model.number="form.num" 
-                    label="最大存储" 
+                    :label="$t('sub.max_storage')" 
                     type="number"
                     variant="outlined" 
                     density="comfortable" 
@@ -606,12 +683,12 @@ const handleUrlBlur = async () => {
                     color="primary" 
                     prepend-inner-icon="mdi-numeric" 
                     persistent-hint
-                    hint="超出限制将自动清理"
+                    :hint="$t('sub.max_storage_hint')"
                     style="flex: 2"
                   />
                   <v-text-field 
                     v-model.number="form.refreshInterval" 
-                    label="同步间隔" 
+                    :label="$t('sub.refresh_interval')" 
                     type="number"
                     variant="outlined" 
                     density="comfortable" 
@@ -619,8 +696,8 @@ const handleUrlBlur = async () => {
                     color="primary" 
                     prepend-inner-icon="mdi-update" 
                     persistent-hint
-                    hint="自动同步间隔 (分钟)"
-                    suffix="分钟"
+                    :hint="$t('sub.refresh_interval_hint')"
+                    suffix="min"
                     style="flex: 2"
                   />
                 </div>
@@ -629,11 +706,11 @@ const handleUrlBlur = async () => {
 
             <v-divider />
 
-            <!-- 第 步：AI 智能增强 -->
+            <!-- 第 3 步：AI 智能增强 -->
             <section>
               <h3 class="text-subtitle-1 font-weight-bold mb-4 d-flex align-center">
                 <v-icon color="info" class="mr-2">mdi-robot-outline</v-icon>
-                AI 智能增强
+                {{ $t('sub.ai_enhance') }}
               </h3>
               <v-card variant="tonal" border color="primary" rounded="lg" class="pa-4 bg-primary-lighten-5">
                 <div class="d-flex align-center justify-space-between mb-4">
@@ -642,8 +719,8 @@ const handleUrlBlur = async () => {
                       <v-icon size="18" color="white">mdi-translate</v-icon>
                     </v-avatar>
                     <div>
-                      <p class="text-body-2 font-weight-bold">全自动翻译</p>
-                      <p class="text-caption text-medium-emphasis">使用 AI 将文章自动翻译为中文（双语对照）</p>
+                      <p class="text-body-2 font-weight-bold">{{ $t('sub.auto_translate') }}</p>
+                      <p class="text-caption text-medium-emphasis">{{ $t('sub.auto_translate_desc') }}</p>
                     </div>
                   </div>
                   <v-switch v-model="form.autoTranslate" color="primary" hide-details density="compact" />
@@ -657,8 +734,8 @@ const handleUrlBlur = async () => {
                       <v-icon size="18" color="white">mdi-auto-fix</v-icon>
                     </v-avatar>
                     <div>
-                      <p class="text-body-2 font-weight-bold">智能简报摘要</p>
-                      <p class="text-caption text-medium-emphasis">生成 200 字以内的核心内容摘要</p>
+                      <p class="text-body-2 font-weight-bold">{{ $t('sub.summary') }}</p>
+                      <p class="text-caption text-medium-emphasis">{{ $t('sub.summary_desc') }}</p>
                     </div>
                   </div>
                   <v-switch v-model="form.needSummary" color="secondary" hide-details density="compact" />
@@ -673,12 +750,12 @@ const handleUrlBlur = async () => {
                       <v-select 
                         v-model="form.targetLanguage" 
                         :items="[
-                          { title: '简体中文 (Chinese)', value: 'Chinese' },
-                          { title: '英语 (English)', value: 'English' },
-                          { title: '日语 (Japanese)', value: 'Japanese' },
-                          { title: '法语 (French)', value: 'French' }
+                          { title: `简体中文 (${t('sub.lang_zh') || 'Chinese'})`, value: 'Chinese' },
+                          { title: `英语 (${t('sub.lang_en') || 'English'})`, value: 'English' },
+                          { title: `${t('sub.lang_ja') || '日语'} (Japanese)`, value: 'Japanese' },
+                          { title: `${t('sub.lang_fr') || '法语'} (French)`, value: 'French' }
                         ]" 
-                        label="翻译与简报的目标语言" 
+                        :label="$t('sub.target_lang')" 
                         variant="outlined" 
                         density="compact" 
                         rounded="lg" 
@@ -707,7 +784,7 @@ const handleUrlBlur = async () => {
             :loading="saving" 
             @click="saveSub"
           >
-            {{ selectedSub ? '保存修改' : '立即订阅' }}
+            {{ selectedSub ? $t('sub.save') : $t('sub.subscribe_now') }}
           </v-btn>
         </v-card-actions>
       </v-card>
@@ -716,14 +793,14 @@ const handleUrlBlur = async () => {
     <!-- 删除确认 -->
     <v-dialog v-model="deleteDialog" max-width="360">
       <v-card rounded="xl">
-        <v-card-title class="pa-6 pb-2 text-body-1 font-weight-bold">确认删除</v-card-title>
+        <v-card-title class="pa-6 pb-2 text-body-1 font-weight-bold">{{ $t('sub.confirm_delete') }}</v-card-title>
         <v-card-text class="pa-6 pt-2 text-body-2 text-medium-emphasis">
-          确定要删除订阅「{{ selectedSub?.title }}」吗？相关文章数据将一并删除。
+          {{ $t('sub.delete_msg', { name: selectedSub?.title }) }}
         </v-card-text>
         <v-card-actions class="pa-6 pt-0">
           <v-spacer />
-          <v-btn variant="text" class="text-none" rounded="pill" @click="deleteDialog = false">取消</v-btn>
-          <v-btn color="error" class="text-none font-weight-bold px-6" rounded="pill" elevation="0" @click="deleteSub">删除</v-btn>
+          <v-btn variant="text" class="text-none" rounded="pill" @click="deleteDialog = false">{{ $t('common.cancel') }}</v-btn>
+          <v-btn color="error" class="text-none font-weight-bold px-6" rounded="pill" elevation="0" @click="deleteSub">{{ $t('common.delete') }}</v-btn>
         </v-card-actions>
       </v-card>
     </v-dialog>
@@ -731,49 +808,136 @@ const handleUrlBlur = async () => {
     <v-snackbar v-model="snackbar.show" :color="snackbar.color" rounded="pill" elevation="12">
       {{ snackbar.text }}
       <template v-slot:actions>
-        <v-btn variant="text" @click="snackbar.show = false">关闭</v-btn>
+        <v-btn variant="text" @click="snackbar.show = false">{{ $t('common.confirm') }}</v-btn>
       </template>
     </v-snackbar>
   </div>
+    <!-- 失效列表弹窗 -->
+    <v-dialog v-model="inactiveDialog" max-width="700" scrollable>
+      <v-card rounded="xl" class="shadow-premium">
+        <v-card-title class="pa-6 d-flex align-center bg-warning text-white">
+          <v-icon start class="mr-2">mdi-alert-decagram</v-icon>
+          {{ $t('sub.inactive_subtitle') }}
+          <v-spacer />
+          <v-btn icon="mdi-close" variant="text" density="comfortable" @click="inactiveDialog = false" color="white"></v-btn>
+        </v-card-title>
+
+        <v-card-text class="pa-6">
+          <v-alert
+            type="info"
+            variant="tonal"
+            class="mb-4"
+            density="compact"
+            :text="$t('sub.inactive_desc')"
+          />
+
+          <v-text-field
+            v-model="inactiveSearch"
+            :placeholder="$t('sub.inactive_search')"
+            variant="solo-filled"
+            density="comfortable"
+            rounded="lg"
+            flat
+            prepend-inner-icon="mdi-magnify"
+            class="mb-4"
+            hide-details
+          />
+
+          <div class="d-flex align-center mb-2 px-1">
+            <v-checkbox
+              :model-value="selectedInactive.length === filteredInactive.length && filteredInactive.length > 0"
+              :indeterminate="selectedInactive.length > 0 && selectedInactive.length < filteredInactive.length"
+              :label="$t('sub.select_all')"
+              hide-details
+              density="compact"
+              @click="toggleSelectAllInactive"
+            />
+            <v-spacer />
+            <span class="text-caption text-medium-emphasis">{{ $t('sub.selected_info', { n: selectedInactive.length, total: filteredInactive.length }) }}</span>
+          </div>
+
+          <v-divider />
+
+          <v-list class="bg-transparent" v-if="filteredInactive.length > 0">
+            <v-list-item v-for="item in filteredInactive" :key="item.feed_id" class="px-0 py-2 border-b">
+              <template v-slot:prepend>
+                <v-checkbox
+                  v-model="selectedInactive"
+                  :value="item.feed_id"
+                  hide-details
+                  density="compact"
+                />
+              </template>
+              
+              <v-list-item-title class="font-weight-bold">{{ item.title }}</v-list-item-title>
+              <v-list-item-subtitle class="text-truncate">{{ item.url }}</v-list-item-subtitle>
+              <v-list-item-subtitle v-if="item.reason" class="text-error mt-1 text-wrap text-caption">
+                {{ $t('sub.reason', { r: item.reason }) }}
+              </v-list-item-subtitle>
+              
+              <template v-slot:append>
+                <span class="text-caption text-medium-emphasis">{{ new Date(item.disabled_at).toLocaleString() }}</span>
+              </template>
+            </v-list-item>
+          </v-list>
+          
+          <div v-else class="text-center py-12 text-medium-emphasis">
+            <v-icon size="48" color="grey-lighten-1" class="mb-2">mdi-check-circle-outline</v-icon>
+            <p>{{ $t('sub.no_inactive') }}</p>
+          </div>
+        </v-card-text>
+
+        <v-divider />
+        
+        <v-card-actions class="pa-4 bg-grey-lighten-4">
+          <v-spacer />
+          <v-btn 
+            variant="text" 
+            class="text-none" 
+            @click="inactiveDialog = false"
+            rounded="pill"
+          >{{ $t('common.cancel') }}</v-btn>
+          <v-btn 
+            color="warning" 
+            variant="flat"
+            rounded="pill"
+            class="px-6 text-none font-weight-bold"
+            :disabled="selectedInactive.length === 0"
+            :loading="activating"
+            @click="activateSelected"
+          >
+            {{ $t('sub.reactivate') }}
+          </v-btn>
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
 </template>
 
 <style scoped>
 .sub-card {
-  max-width: 540px;
-  min-height: 260px;
   display: flex;
   flex-direction: column;
   transition: transform 0.2s cubic-bezier(0.4, 0, 0.2, 1), box-shadow 0.2s ease;
   overflow: hidden;
+  border: 1px solid rgba(var(--v-theme-primary), 0.05) !important;
 }
 .sub-card:hover {
   transform: translateY(-4px);
   box-shadow: 0 12px 30px rgba(var(--v-theme-primary), 0.1) !important;
   z-index: 10;
 }
-.sub-card:hover .line-clamp-desc {
-  -webkit-line-clamp: 20; 
-  background: rgb(var(--v-theme-surface));
-  position: relative;
-  overflow: visible;
-}
 .line-clamp-desc {
   display: -webkit-box;
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 2;
   overflow: hidden;
-  transition: all 0.3s ease;
+  line-height: 1.6;
+  min-height: 3.2em;
 }
 .gap-2 { gap: 8px; }
 .gap-4 { gap: 16px; }
 .gap-6 { gap: 24px; }
 .min-w-0 { min-width: 0; }
-.line-clamp-2 {
-  display: -webkit-box;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 2;
-  overflow: hidden;
-}
 
 /* Premium Dialog Styles */
 .subscription-dialog {

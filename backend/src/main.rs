@@ -12,8 +12,9 @@ use axum::{
 };
 use tower_http::trace::TraceLayer;
 
-use sqlx::sqlite::SqlitePool;
+use sqlx::sqlite::{SqliteConnectOptions, SqlitePool};
 use std::net::SocketAddr;
+use std::str::FromStr;
 use std::sync::Arc;
 
 mod model;
@@ -53,24 +54,13 @@ async fn main() -> anyhow::Result<()> {
         .init();
 
     // 2. 数据库连接池初始化
-    let database_url = std::env::var("DATABASE_URL").unwrap_or_else(|_| {
-        // 智能路径检测：优先使用当前目录或上级目录存在的 rssdata.db
-        let potential_paths = ["rssdata.db", "../rssdata.db"];
-        let mut chosen_path = "../rssdata.db"; // 默认回退
-        
-        for path in potential_paths {
-            if let Ok(metadata) = std::fs::metadata(path) {
-                if metadata.is_file() && metadata.len() > 0 {
-                    chosen_path = path;
-                    break;
-                }
-            }
-        }
-        format!("sqlite:{}", chosen_path)
-    });
-    
+    let database_url =
+        std::env::var("DATABASE_URL").unwrap_or_else(|_| "sqlite:../rssdata.db".to_string());
+
     tracing::info!("📡 正在连接数据库: {}", database_url);
-    let pool = SqlitePool::connect(&database_url).await?;
+
+    let opts = SqliteConnectOptions::from_str(&database_url)?.create_if_missing(true);
+    let pool = SqlitePool::connect_with(opts).await?;
 
     // 3. 首次启动自动初始化（建表 + 默认账号）
     auto_init_db(&pool).await?;
@@ -131,7 +121,11 @@ async fn serve_frontend(uri: Uri) -> impl IntoResponse {
             .header(header::CONTENT_TYPE, mime.as_ref())
             .header(
                 header::CACHE_CONTROL,
-                if path == "index.html" { "no-cache" } else { "public, max-age=31536000, immutable" },
+                if path == "index.html" {
+                    "no-cache"
+                } else {
+                    "public, max-age=31536000, immutable"
+                },
             )
             .body(Body::from(asset.data.to_vec()))
             .unwrap();
@@ -147,7 +141,9 @@ async fn serve_frontend(uri: Uri) -> impl IntoResponse {
             .unwrap(),
         None => Response::builder()
             .status(StatusCode::NOT_FOUND)
-            .body(Body::from("Frontend not embedded. Build with --features embed-frontend"))
+            .body(Body::from(
+                "Frontend not embedded. Build with --features embed-frontend",
+            ))
             .unwrap(),
     }
 }
@@ -182,32 +178,58 @@ async fn get_user_count(
 
 async fn auto_init_db(pool: &SqlitePool) -> anyhow::Result<()> {
     // 建表（IF NOT EXISTS，幂等，始终安全执行）
-    sqlx::query(r#"CREATE TABLE IF NOT EXISTS users (
+    sqlx::query(
+        r#"CREATE TABLE IF NOT EXISTS users (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         username TEXT NOT NULL UNIQUE,
         password_hash TEXT NOT NULL
-    )"#).execute(pool).await?;
+    )"#,
+    )
+    .execute(pool)
+    .await?;
 
-    sqlx::query(r#"CREATE TABLE IF NOT EXISTS feeds (
+    sqlx::query(
+        r#"CREATE TABLE IF NOT EXISTS feeds (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         feed_url TEXT NOT NULL UNIQUE,
         site_url TEXT, title TEXT NOT NULL, description TEXT,
         last_fetched_at DATETIME, etag TEXT, icon_url TEXT,
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-        last_status_code INTEGER, last_error TEXT
-    )"#).execute(pool).await?;
+        last_status_code INTEGER, last_error TEXT,
+        consecutive_fetch_failures INTEGER DEFAULT 0
+    )"#,
+    )
+    .execute(pool)
+    .await?;
 
-    sqlx::query(r#"CREATE TABLE IF NOT EXISTS folders (
+    // Safe migration for existing databases
+    let _ =
+        sqlx::query("ALTER TABLE feeds ADD COLUMN consecutive_fetch_failures INTEGER DEFAULT 0")
+            .execute(pool)
+            .await;
+    let _ = sqlx::query("ALTER TABLE user_setting ADD COLUMN default_api_id INTEGER")
+        .execute(pool)
+        .await;
+
+    sqlx::query(
+        r#"CREATE TABLE IF NOT EXISTS folders (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         title TEXT NOT NULL,
         user_id INTEGER NOT NULL,
         FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
-    )"#).execute(pool).await?;
+    )"#,
+    )
+    .execute(pool)
+    .await?;
 
-    sqlx::query("CREATE UNIQUE INDEX IF NOT EXISTS idx_folders_user_title ON folders(user_id, title)")
-        .execute(pool).await?;
+    sqlx::query(
+        "CREATE UNIQUE INDEX IF NOT EXISTS idx_folders_user_title ON folders(user_id, title)",
+    )
+    .execute(pool)
+    .await?;
 
-    sqlx::query(r#"CREATE TABLE IF NOT EXISTS subscriptions (
+    sqlx::query(
+        r#"CREATE TABLE IF NOT EXISTS subscriptions (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         user_id INTEGER NOT NULL, feed_id INTEGER NOT NULL, folder_id INTEGER,
         custom_title TEXT, need_translate BOOLEAN DEFAULT 0,
@@ -217,12 +239,17 @@ async fn auto_init_db(pool: &SqlitePool) -> anyhow::Result<()> {
         FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
         FOREIGN KEY (feed_id) REFERENCES feeds(id) ON DELETE CASCADE,
         FOREIGN KEY (folder_id) REFERENCES folders(id) ON DELETE SET NULL
-    )"#).execute(pool).await?;
+    )"#,
+    )
+    .execute(pool)
+    .await?;
 
     sqlx::query("CREATE INDEX IF NOT EXISTS idx_subscriptions_user_id ON subscriptions(user_id)")
-        .execute(pool).await?;
+        .execute(pool)
+        .await?;
 
-    sqlx::query(r#"CREATE TABLE IF NOT EXISTS api_configs (
+    sqlx::query(
+        r#"CREATE TABLE IF NOT EXISTS api_configs (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         name TEXT NOT NULL, api_type TEXT NOT NULL, api_key TEXT,
         base_url TEXT, settings TEXT NOT NULL,
@@ -230,29 +257,44 @@ async fn auto_init_db(pool: &SqlitePool) -> anyhow::Result<()> {
         retry_count INTEGER DEFAULT 3, retry_interval_ms INTEGER DEFAULT 1000,
         retry_enabled BOOLEAN DEFAULT 1,
         user_id INTEGER REFERENCES users(id) ON DELETE CASCADE
-    )"#).execute(pool).await?;
+    )"#,
+    )
+    .execute(pool)
+    .await?;
 
-    sqlx::query(r#"CREATE TABLE IF NOT EXISTS articles (
+    sqlx::query(
+        r#"CREATE TABLE IF NOT EXISTS articles (
         id INTEGER PRIMARY KEY, original_guid TEXT NOT NULL UNIQUE,
         feed_id INTEGER NOT NULL, title TEXT NOT NULL,
         link TEXT, author TEXT, published_at INTEGER, content_skeleton TEXT,
         is_read INTEGER DEFAULT 0, is_starred INTEGER DEFAULT 0,
         updated_at DATETIME DEFAULT CURRENT_TIMESTAMP, summary TEXT,
         FOREIGN KEY (feed_id) REFERENCES feeds(id) ON DELETE CASCADE
-    )"#).execute(pool).await?;
+    )"#,
+    )
+    .execute(pool)
+    .await?;
 
-    sqlx::query("CREATE INDEX IF NOT EXISTS idx_articles_feed_unread ON articles(feed_id, is_read)")
-        .execute(pool).await?;
+    sqlx::query(
+        "CREATE INDEX IF NOT EXISTS idx_articles_feed_unread ON articles(feed_id, is_read)",
+    )
+    .execute(pool)
+    .await?;
     sqlx::query("CREATE INDEX IF NOT EXISTS articles_feed_id ON articles(feed_id)")
-        .execute(pool).await?;
+        .execute(pool)
+        .await?;
 
-    sqlx::query(r#"CREATE TABLE IF NOT EXISTS article_blocks (
+    sqlx::query(
+        r#"CREATE TABLE IF NOT EXISTS article_blocks (
         user_id INTEGER NOT NULL, article_id INTEGER NOT NULL,
         block_index INTEGER NOT NULL, raw_text TEXT NOT NULL, trans_text TEXT,
         PRIMARY KEY (user_id, article_id, block_index),
         FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
         FOREIGN KEY (article_id) REFERENCES articles(id) ON DELETE CASCADE
-    )"#).execute(pool).await?;
+    )"#,
+    )
+    .execute(pool)
+    .await?;
 
     sqlx::query("CREATE INDEX IF NOT EXISTS idx_article_blocks_lookup ON article_blocks(user_id, article_id)")
         .execute(pool).await?;
@@ -261,63 +303,64 @@ async fn auto_init_db(pool: &SqlitePool) -> anyhow::Result<()> {
     sqlx::query("CREATE INDEX IF NOT EXISTS idx_blocks_untranslated ON article_blocks(user_id) WHERE trans_text IS NULL")
         .execute(pool).await?;
 
-    sqlx::query(r#"CREATE TABLE IF NOT EXISTS user_setting (
+    sqlx::query(
+        r#"CREATE TABLE IF NOT EXISTS user_setting (
         id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
         user_id INTEGER NOT NULL UNIQUE,
         translate_api_id INTEGER, summary_api_id INTEGER,
+        default_api_id INTEGER,
         greader_api BOOLEAN, api_proxy BOOLEAN, api_proxy_url TEXT,
         app_mode BOOLEAN DEFAULT 0, log_num_limit INTEGER DEFAULT 300,
         FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
-    )"#).execute(pool).await?;
+    )"#,
+    )
+    .execute(pool)
+    .await?;
 
-    // Apalis 任务队列表
-    sqlx::query(r#"CREATE TABLE IF NOT EXISTS Workers (
-        id TEXT NOT NULL UNIQUE, worker_type TEXT NOT NULL,
-        storage_name TEXT NOT NULL, layers TEXT,
-        last_seen INTEGER NOT NULL DEFAULT (strftime('%s', 'now'))
-    )"#).execute(pool).await?;
-    sqlx::query("CREATE INDEX IF NOT EXISTS Idx   ON Workers(id)").execute(pool).await?;
-    sqlx::query("CREATE INDEX IF NOT EXISTS WTIdx ON Workers(worker_type)").execute(pool).await?;
-    sqlx::query("CREATE INDEX IF NOT EXISTS LSIdx ON Workers(last_seen)").execute(pool).await?;
+    sqlx::query(
+        r#"CREATE TABLE IF NOT EXISTS inactive_feeds (
+        user_id INTEGER NOT NULL,
+        feed_id INTEGER NOT NULL,
+        reason TEXT,
+        disabled_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        PRIMARY KEY (user_id, feed_id),
+        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+        FOREIGN KEY (feed_id) REFERENCES feeds(id) ON DELETE CASCADE
+    )"#,
+    )
+    .execute(pool)
+    .await?;
 
-    sqlx::query(r#"CREATE TABLE IF NOT EXISTS Jobs (
-        job TEXT NOT NULL, id TEXT NOT NULL UNIQUE, job_type TEXT NOT NULL,
-        status TEXT NOT NULL DEFAULT 'Pending',
-        attempts INTEGER NOT NULL DEFAULT 0,
-        max_attempts INTEGER NOT NULL DEFAULT 25,
-        run_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now')),
-        last_error TEXT, lock_at INTEGER, lock_by TEXT, done_at INTEGER,
-        priority INTEGER NOT NULL DEFAULT 0,
-        FOREIGN KEY(lock_by) REFERENCES Workers(id)
-    )"#).execute(pool).await?;
-    sqlx::query("CREATE INDEX IF NOT EXISTS TIdx  ON Jobs(id)").execute(pool).await?;
-    sqlx::query("CREATE INDEX IF NOT EXISTS SIdx  ON Jobs(status)").execute(pool).await?;
-    sqlx::query("CREATE INDEX IF NOT EXISTS LIdx  ON Jobs(lock_by)").execute(pool).await?;
-    sqlx::query("CREATE INDEX IF NOT EXISTS JTIdx ON Jobs(job_type)").execute(pool).await?;
-
-    sqlx::query(r#"CREATE TABLE IF NOT EXISTS _sqlx_migrations (
+    sqlx::query(
+        r#"CREATE TABLE IF NOT EXISTS _sqlx_migrations (
         version BIGINT PRIMARY KEY, description TEXT NOT NULL,
         installed_on TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
         success BOOLEAN NOT NULL, checksum BLOB NOT NULL,
         execution_time BIGINT NOT NULL
-    )"#).execute(pool).await?;
+    )"#,
+    )
+    .execute(pool)
+    .await?;
 
     // 如果没有任何用户，自动创建 admin/admin
     let user_count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM users")
-        .fetch_one(pool).await?;
+        .fetch_one(pool)
+        .await?;
 
     if user_count == 0 {
         tracing::info!("首次启动：自动创建默认账号 admin/admin");
         let hash = bcrypt::hash("admin", bcrypt::DEFAULT_COST)?;
         let user_id: i64 = sqlx::query_scalar(
-            "INSERT INTO users (username, password_hash) VALUES ('admin', ?) RETURNING id"
+            "INSERT INTO users (username, password_hash) VALUES ('admin', ?) RETURNING id",
         )
         .bind(&hash)
-        .fetch_one(pool).await?;
+        .fetch_one(pool)
+        .await?;
 
         sqlx::query("INSERT INTO user_setting (user_id) VALUES (?)")
             .bind(user_id)
-            .execute(pool).await?;
+            .execute(pool)
+            .await?;
 
         tracing::info!("✅ 默认账号已创建 — 用户名: admin  密码: admin（请登录后尽快修改密码）");
     } else {

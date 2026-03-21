@@ -29,6 +29,81 @@ pub fn router() -> Router<Arc<AppState>> {
         .route("/{id}/sync", post(sync_subscription))
         .route("/preview", post(preview_feed))
         .route("/opml", get(export_opml).post(import_opml))
+        .route("/inactive", get(list_inactive_feeds))
+        .route("/inactive/activate", post(activate_inactive_feeds))
+}
+
+#[derive(serde::Serialize, sqlx::FromRow)]
+pub struct InactiveFeed {
+    pub feed_id: i64,
+    pub title: String,
+    pub url: String,
+    pub reason: Option<String>,
+    pub disabled_at: String,
+}
+
+async fn list_inactive_feeds(
+    State(state): State<Arc<AppState>>,
+    auth: AuthUser,
+) -> Result<Json<Vec<InactiveFeed>>, (StatusCode, String)> {
+    let inactive = sqlx::query_as::<_, InactiveFeed>(
+        r#"
+        SELECT f.id as feed_id, f.title, f.feed_url as url, inf.reason, inf.disabled_at
+        FROM inactive_feeds inf
+        JOIN feeds f ON inf.feed_id = f.id
+        WHERE inf.user_id = ?
+        ORDER BY inf.disabled_at DESC
+        "#,
+    )
+    .bind(auth.user_id)
+    .fetch_all(&state.db)
+    .await
+    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+
+    Ok(Json(inactive))
+}
+
+#[derive(serde::Deserialize)]
+pub struct ActivateRequest {
+    pub feed_ids: Vec<i64>,
+}
+
+async fn activate_inactive_feeds(
+    State(state): State<Arc<AppState>>,
+    auth: AuthUser,
+    Json(payload): Json<ActivateRequest>,
+) -> Result<StatusCode, (StatusCode, String)> {
+    let mut tx = state.db.begin().await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+
+    for fid in payload.feed_ids {
+        // 从失效表移除
+        sqlx::query("DELETE FROM inactive_feeds WHERE user_id = ? AND feed_id = ?")
+            .bind(auth.user_id)
+            .bind(fid)
+            .execute(&mut *tx)
+            .await
+            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+
+        // 重置失败计数
+        sqlx::query("UPDATE feeds SET consecutive_fetch_failures = 0, last_error = NULL WHERE id = ?")
+            .bind(fid)
+            .execute(&mut *tx)
+            .await
+            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+            
+        // 立即触发一次同步任务以尝试恢复
+        let mut storage = state.sync_queue.clone();
+        let _ = storage.push(SyncFeedJob {
+            feed_id: fid,
+            initiator_user_id: Some(auth.user_id),
+        }).await;
+    }
+
+    tx.commit().await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+
+    Ok(StatusCode::OK)
 }
 
 async fn create_subscription(
