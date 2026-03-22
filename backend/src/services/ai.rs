@@ -166,6 +166,85 @@ impl AiService {
         Ok(())
     }
 
+    /// 批量翻译所有需要翻译且尚未翻译的文章标题
+    pub async fn translate_titles_batch(
+        &self,
+        state: &AppState,
+        user_id: i64,
+    ) -> Result<usize> {
+        // 1. 获取最多 50 个尚未翻译标题的文章
+        let untranslated = sqlx::query_as::<_, (i64, String)>(
+            r#"
+            SELECT a.id, a.title 
+            FROM articles a
+            JOIN subscriptions s ON s.feed_id = a.feed_id
+            WHERE s.user_id = ? AND s.need_translate = 1
+              AND NOT EXISTS (
+                  SELECT 1 FROM article_blocks b 
+                  WHERE b.article_id = a.id AND b.user_id = ? AND b.block_index = -1
+              )
+            ORDER BY a.published_at DESC
+            LIMIT 50
+            "#,
+        )
+        .bind(user_id)
+        .bind(user_id)
+        .fetch_all(&state.db)
+        .await?;
+
+        if untranslated.is_empty() {
+            return Ok(0);
+        }
+
+        // 2. 构造 ArticleBlock 进行翻译，block_index 固定为 -1 代表标题
+        let blocks: Vec<ArticleBlock> = untranslated
+            .into_iter()
+            .map(|(id, title)| ArticleBlock {
+                article_id: id,
+                block_index: -1,
+                raw_text: title,
+                trans_text: None,
+            })
+            .collect();
+
+        // 3. 调用翻译器
+        let translated_texts = match self.config.api_type.as_str() {
+            "deeplx" => self.handle_deeplx_translation(&blocks).await?,
+            "openai" => self.handle_openai_translation(&blocks).await?,
+            _ => return Err(anyhow!("目前不支持该 API 类型: {}", self.config.api_type)),
+        };
+
+        if translated_texts.len() != blocks.len() {
+            return Err(anyhow!("翻译返回结果数量不匹配"));
+        }
+
+        // 4. 将翻译好的标题存写入 article_blocks
+        let mut tx = state.db.begin().await?;
+
+        for (block, trans) in blocks.iter().zip(translated_texts.iter()) {
+            sqlx::query(
+                r#"
+                INSERT INTO article_blocks (user_id, article_id, block_index, raw_text, trans_text)
+                VALUES (?, ?, ?, ?, ?)
+                ON CONFLICT (user_id, article_id, block_index) DO UPDATE SET trans_text = excluded.trans_text
+                "#
+            )
+            .bind(user_id)
+            .bind(block.article_id)
+            .bind(block.block_index)
+            .bind(&block.raw_text)
+            .bind(trans)
+            .execute(&mut *tx)
+            .await?;
+        }
+
+        tx.commit().await?;
+
+        tracing::info!("(user_id={}) 批量翻译了 {} 个标题", user_id, blocks.len());
+
+        Ok(blocks.len())
+    }
+
     /// 总结文章内容并写入数据库
     pub async fn summarize_article(
         &self,

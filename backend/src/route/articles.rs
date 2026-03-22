@@ -26,6 +26,25 @@ pub fn router() -> Router<Arc<AppState>> {
         .route("/{id}/star", post(mark_starred))
         .route("/{id}/translate", post(translate_article))
         .route("/{id}/summarize", post(summarize_article))
+        .route("/translate-titles", post(batch_translate_titles))
+}
+
+async fn batch_translate_titles(
+    State(state): State<Arc<AppState>>,
+    auth: AuthUser,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    let ai = crate::services::jobs::get_default_ai_service_for_user(&state.db, auth.user_id)
+        .await
+        .map_err(|e| (StatusCode::BAD_REQUEST, e.to_string()))?;
+
+    let count = ai.translate_titles_batch(&state, auth.user_id)
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+
+    Ok(Json(serde_json::json!({
+        "status": "success",
+        "translated_count": count
+    })))
 }
 
 async fn translate_article(

@@ -11,11 +11,12 @@ pub async fn list_articles(
     let mut query = String::from(
         r#"
         SELECT 
-            a.id, a.title, a.author, a.published_at, a.is_read, a.is_starred,
+            a.id, COALESCE(b.trans_text, a.title) as title, a.author, a.published_at, a.is_read, a.is_starred,
             a.feed_id, f.title as feed_title
         FROM articles a
         JOIN feeds f ON a.feed_id = f.id
         JOIN subscriptions s ON s.feed_id = f.id
+        LEFT JOIN article_blocks b ON b.article_id = a.id AND b.user_id = s.user_id AND b.block_index = -1
         WHERE s.user_id = ?
         "#,
     );
@@ -69,11 +70,12 @@ pub async fn get_article_detail(
     sqlx::query_as(
         r#"
         SELECT 
-            a.id, a.title, a.link, a.author, a.published_at, 
+            a.id, COALESCE(b.trans_text, a.title) as title, a.link, a.author, a.published_at, 
             a.content_skeleton, a.is_read, a.is_starred, a.summary,
             s.need_translate
         FROM articles a
         JOIN subscriptions s ON s.feed_id = a.feed_id
+        LEFT JOIN article_blocks b ON b.article_id = a.id AND b.user_id = s.user_id AND b.block_index = -1
         WHERE a.id = ? AND s.user_id = ?
         "#,
     )

@@ -253,7 +253,7 @@ async fn refresh_feeds_handler(
 
 // --- 辅助函数 ---
 
-async fn get_ai_service_for_user(db: &SqlitePool, user_id: i64) -> Result<AiService> {
+pub async fn get_ai_service_for_user(db: &SqlitePool, user_id: i64) -> Result<AiService> {
     let translate_api_id: Option<i64> =
         sqlx::query_scalar("SELECT translate_api_id FROM user_setting WHERE user_id = ?")
             .bind(user_id)
@@ -310,6 +310,31 @@ async fn get_summary_ai_service_for_user(db: &SqlitePool, user_id: i64) -> Resul
     Ok(AiService::new(target_lang, model, config))
 }
 
+/// 获取用户默认的 AI 服务配置
+pub async fn get_default_ai_service_for_user(db: &SqlitePool, user_id: i64) -> Result<AiService> {
+    let api_id = crate::services::api::get_effective_api_id(db, user_id, None)
+        .await?
+        .ok_or_else(|| anyhow::anyhow!("No default API configured for user {}", user_id))?;
+
+    let config: ApiConfig = sqlx::query_as("SELECT * FROM api_configs WHERE id = ?")
+        .bind(api_id)
+        .fetch_one(db)
+        .await?;
+    let settings: serde_json::Value = serde_json::from_str(&config.settings).unwrap_or_default();
+    let model = settings
+        .get("model")
+        .and_then(|v| v.as_str())
+        .unwrap_or("gpt-3.5-turbo")
+        .to_string();
+    let target_lang = settings
+        .get("target_lang")
+        .and_then(|v| v.as_str())
+        .unwrap_or("Chinese")
+        .to_string();
+    Ok(AiService::new(target_lang, model, config))
+}
+
+
 // --- 启动函数 ---
 
 pub fn create_storages(
@@ -329,10 +354,6 @@ pub fn create_storages(
 }
 
 pub async fn start_workers(state: Arc<AppState>) -> anyhow::Result<()> {
-    SqliteStorage::setup(&state.db)
-        .await
-        .map_err(|e| anyhow::anyhow!("Apalis setup failed: {}", e))?;
-
     // Set default max_attempts to 1.
     // This hands over retry control to the AiService's internal loop (based on api_configs.retry_count).
     // It prevents nested retries (e.g., 3 internal retries * 25 queue retries).
