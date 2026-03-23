@@ -9,6 +9,7 @@ pub struct CreateFeedRequest {
     pub title: String,
     pub description: Option<String>,
     pub icon_url: Option<String>,
+    pub icon_base64: Option<String>,
 }
 
 

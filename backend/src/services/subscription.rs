@@ -17,13 +17,15 @@ pub async fn list_subscriptions(
             COALESCE(fo.title, '未分类') as category,
             (SELECT COUNT(*) FROM articles WHERE feed_id = f.id) as article_count,
             f.last_fetched_at as last_sync,
-            'active' as status, -- Placeholder, we will calculate below if needed, but FromRow handles basic mapping
-            'en' as language,
+            'active' as status,
+            s.target_language,
+            COALESCE(s.target_language, 'en') as language,
             s.need_translate as auto_translate,
             s.need_summary,
             f.site_url,
             f.description,
             f.icon_url,
+            f.icon_base64,
             s.refresh_interval,
             f.last_status_code,
             f.last_error
@@ -48,13 +50,14 @@ pub async fn create_subscription(
     // 1. Find or create feed
     let feed_id: (i64,) = sqlx::query_as(
         r#"
-        INSERT INTO feeds (feed_url, site_url, title, description, icon_url) 
-        VALUES (?, ?, ?, ?, ?) 
+        INSERT INTO feeds (feed_url, site_url, title, description, icon_url, icon_base64) 
+        VALUES (?, ?, ?, ?, ?, ?) 
         ON CONFLICT(feed_url) DO UPDATE SET 
             site_url = COALESCE(excluded.site_url, feeds.site_url),
             title = COALESCE(excluded.title, feeds.title),
             description = COALESCE(excluded.description, feeds.description),
-            icon_url = COALESCE(excluded.icon_url, feeds.icon_url)
+            icon_url = COALESCE(excluded.icon_url, feeds.icon_url),
+            icon_base64 = COALESCE(excluded.icon_base64, feeds.icon_base64)
         RETURNING id
         "#,
     )
@@ -68,6 +71,7 @@ pub async fn create_subscription(
     )
     .bind(&payload.description)
     .bind(&payload.icon_url)
+    .bind(&payload.icon_base64)
     .fetch_one(db)
     .await?;
 
@@ -90,13 +94,14 @@ pub async fn create_subscription(
     }
 
     // 3. Create subscription
-    let result = sqlx::query("INSERT INTO subscriptions (user_id, feed_id, folder_id, custom_title, need_translate, need_summary, num, refresh_interval) VALUES (?, ?, ?, ?, ?, ?, ?, ?)")
+    let result = sqlx::query("INSERT INTO subscriptions (user_id, feed_id, folder_id, custom_title, need_translate, need_summary, target_language, num, refresh_interval) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)")
         .bind(user_id)
         .bind(feed_id.0)
         .bind(resolved_folder_id)
         .bind(&payload.custom_title)
         .bind(payload.need_translate.unwrap_or(false))
         .bind(payload.need_summary.unwrap_or(false))
+        .bind(payload.target_language.as_ref().unwrap_or(&"Chinese".to_string()))
         .bind(payload.num.unwrap_or(200))
         .bind(payload.refresh_interval.unwrap_or(30))
         .execute(db)
@@ -242,12 +247,14 @@ pub async fn get_subscription_detail(
             (SELECT COUNT(*) FROM articles WHERE feed_id = f.id) as article_count,
             f.last_fetched_at as last_sync,
             'active' as status,
-            'en' as language,
+            s.target_language,
+            COALESCE(s.target_language, 'en') as language,
             s.need_translate as auto_translate,
             s.need_summary,
             f.site_url,
             f.description,
             f.icon_url,
+            f.icon_base64,
             s.refresh_interval,
             f.last_status_code,
             f.last_error

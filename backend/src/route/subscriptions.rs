@@ -194,6 +194,7 @@ async fn sync_subscription(
         })
         .await
         .map_err(|e| {
+            tracing::error!("Failed to queue sync job: {:?}", e);
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 format!("Failed to queue job: {}", e),
@@ -371,6 +372,8 @@ async fn import_opml(
             site_url: None,
             description: None,
             icon_url: None,
+            icon_base64: None,
+            target_language: None,
             num: Some(200),
             refresh_interval: Some(30),
         };

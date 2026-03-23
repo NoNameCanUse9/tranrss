@@ -48,7 +48,7 @@ async fn sync_feed_handler(
     job: SyncFeedJob,
     data: Data<Arc<AppState>>,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync + 'static>> {
-    tracing::info!("处理同步队列任务: {:?}", job);
+    tracing::info!("⬇️ 开始处理同步任务: [FeedID: {}]", job.feed_id);
     let user_id = if let Some(uid) = job.initiator_user_id {
         uid
     } else {
@@ -136,7 +136,7 @@ async fn sync_feed_handler(
                   AND a.updated_at > datetime('now', '-1 hour')
                   AND a.summary IS NULL
                   AND NOT EXISTS (
-                      SELECT 1 FROM Jobs j
+                      SELECT 1 FROM Jobs j 
                       WHERE j.job_type LIKE '%SummarizeArticleJob%'
                         AND j.job LIKE '%"article_id":' || a.id || '%'
                         AND j.job LIKE '%"user_id":' || ? || '%'
@@ -162,6 +162,7 @@ async fn sync_feed_handler(
             }
         }
     }
+    tracing::info!("✅ 同步任务处理完成: [FeedID: {}]", job.feed_id);
     Ok(())
 }
 
@@ -357,12 +358,13 @@ pub async fn start_workers(state: Arc<AppState>) -> anyhow::Result<()> {
     // Set default max_attempts to 1.
     // This hands over retry control to the AiService's internal loop (based on api_configs.retry_count).
     // It prevents nested retries (e.g., 3 internal retries * 25 queue retries).
+
     let _ = sqlx::query("UPDATE Jobs SET max_attempts = 1 WHERE max_attempts = 25")
         .execute(&state.db)
         .await;
 
-    // Cleanup duplicate pending SyncFeedJob to prevent bombardment
-    let _ = sqlx::query(
+    tracing::info!("🏃 正在清理残留的 Pending 任务...");
+    let cleanup_res = sqlx::query(
         r#"
         DELETE FROM Jobs 
         WHERE job_type LIKE '%SyncFeedJob%' 
@@ -378,6 +380,12 @@ pub async fn start_workers(state: Arc<AppState>) -> anyhow::Result<()> {
     )
     .execute(&state.db)
     .await;
+    
+    if let Ok(res) = cleanup_res {
+        tracing::info!("🧹 已清理 {} 条重复 Pending 任务", res.rows_affected());
+    } else if let Err(e) = cleanup_res {
+        tracing::error!("❌ 清理任务失败 (可能数据库已锁定): {:?}", e);
+    }
 
     let state_sync = state.clone();
     let storage_sync = state.sync_queue.clone();

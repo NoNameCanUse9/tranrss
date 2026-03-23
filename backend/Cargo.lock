@@ -3682,6 +3682,7 @@ dependencies = [
  "apalis-sql",
  "async-trait",
  "axum",
+ "base64",
  "bcrypt",
  "chrono",
  "feed-rs",

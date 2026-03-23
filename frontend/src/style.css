@@ -152,11 +152,31 @@ body,
 }
 
 body {
-  background-color: var(--md-sys-color-background);
+  background-color: var(--md-sys-color-background) !important;
   background-image:
     radial-gradient(circle at 100% 0%, rgba(var(--md-sys-color-primary-rgb), 0.05) 0%, transparent 40%),
     radial-gradient(circle at 0% 100%, rgba(var(--md-sys-color-primary-rgb), 0.03) 0%, transparent 40%) !important;
   background-attachment: fixed;
+}
+
+.text-truncate {
+  display: block !important;
+  white-space: nowrap !important;
+  overflow: hidden !important;
+  text-overflow: ellipsis !important;
+  width: 100% !important;
+  max-width: 100% !important;
+  min-width: 0 !important;
+}
+
+.line-clamp-desc {
+  display: -webkit-box !important;
+  -webkit-box-orient: vertical !important;
+  -webkit-line-clamp: 2 !important; /* 限制2行 */
+  line-clamp: 2 !important;
+  overflow: hidden !important;
+  text-overflow: ellipsis !important;
+  height: 2.8em !important; /* 统一高度，防止一行和两行的卡片高度不一 */
 }
 
 /* Material Design 3 表现力样式 (Expressive Styles) */
@@ -199,13 +219,22 @@ h3,
 
 .sub-card {
   background-color: var(--md-sys-color-surface-container) !important;
-  /* Slightly warmer container */
   border-radius: 32px !important;
   transition: 
     background-color var(--md-motion-duration-short) linear,
     transform var(--md-motion-duration-medium) var(--md-motion-easing-emphasized),
     box-shadow var(--md-motion-duration-medium) var(--md-motion-easing-emphasized) !important;
   border: 1px solid rgba(var(--md-sys-color-outline-rgb), 0.05) !important;
+  overflow: hidden !important;
+  display: flex !important;
+  flex-direction: column !important;
+  width: 100% !important;
+  min-width: 0 !important;
+  max-width: 100% !important;
+}
+
+.sub-card-col {
+  min-width: 0 !important;
 }
 
 .sub-card:active {
@@ -266,4 +295,24 @@ h3,
 
 ::-webkit-scrollbar-thumb:hover {
   background: rgba(var(--md-sys-color-outline-rgb), 0.2);
+}
+
+/* mdi-spin for SVG icons (previously provided by @mdi/font) */
+.mdi-spin::before {
+  display: none !important;
+}
+
+.mdi-spin {
+  animation: mdi-spin 2s infinite linear;
+  transform-origin: center;
+  display: inline-block;
+}
+
+@keyframes mdi-spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
 }

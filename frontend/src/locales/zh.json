@@ -108,6 +108,7 @@
   },
   "sub": {
     "title": "订阅源",
+    "add_first": "添加第一个订阅",
     "active_count": "共 {n} 个活动的源",
     "sync_all": "全部同步",
     "inactive_list": "失效列表",

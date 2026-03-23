@@ -1,6 +1,39 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
+import {
+  mdiSync,
+  mdiAlertCircleOutline,
+  mdiPlus,
+  mdiMagnify,
+  mdiRssBox,
+  mdiRss,
+  mdiCheckCircleOutline,
+  mdiTagOutline,
+  mdiTranslate,
+  mdiTextBoxSearchOutline,
+  mdiNewspaper,
+  mdiClockOutline,
+  mdiRefresh,
+  mdiPencilOutline,
+  mdiTrashCanOutline,
+  mdiClose,
+  mdiLinkVariant,
+  mdiEarth,
+  mdiImageOutline,
+  mdiFormatListText,
+  mdiInformationOutline,
+  mdiFolderOutline,
+  mdiNumeric,
+  mdiUpdate,
+  mdiRobotOutline,
+  mdiAutoFix,
+  mdiAlertDecagram,
+  mdiCogOutline,
+  // mdiArchiveOutline,
+  // mdiHeartOutline,
+  // mdiHeart
+} from '@mdi/js'
 
 const { t } = useI18n()
 
@@ -18,6 +51,7 @@ interface Subscription {
   siteUrl?: string | null
   description?: string | null
   iconUrl?: string | null
+  iconBase64?: string | null
   num: number
   refreshInterval: number
   lastStatusCode?: number | null
@@ -39,7 +73,7 @@ const error = ref('')
 const fetchSubscriptions = async () => {
   loading.value = true
   try {
-    const response = await fetch('/api/subscriptions', {
+    const response = await fetch('/api/feeds', {
       headers: {
         'Authorization': `Bearer ${localStorage.getItem('token')}`
       }
@@ -79,7 +113,7 @@ const filteredInactive = computed(() => {
 
 const fetchInactive = async () => {
   try {
-    const response = await fetch('/api/subscriptions/inactive', {
+    const response = await fetch('/api/feeds/inactive', {
       headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` }
     })
     if (!response.ok) throw new Error(t('sub.inactive_list'))
@@ -98,7 +132,7 @@ const activateSelected = async () => {
   if (selectedInactive.value.length === 0) return
   activating.value = true
   try {
-    const response = await fetch('/api/subscriptions/inactive/activate', {
+    const response = await fetch('/api/feeds/inactive/activate', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -138,6 +172,7 @@ const form = ref({
   siteUrl: '',
   description: '',
   iconUrl: '',
+  iconBase64: '',
   num: 200,
   refreshInterval: 30,
 })
@@ -158,20 +193,20 @@ const getSubStatus = (sub: Subscription) => {
 
 const statusInfo = (sub: Subscription): { color: string; label: string; icon: string } => {
   const status = getSubStatus(sub)
-  if (status === 'error') {
-    let label = t('sub.status_error')
-    if (sub.lastStatusCode) {
-      label = `${t('sub.status_error')} ${sub.lastStatusCode}`
+    if (status === 'error') {
+      let label = t('sub.status_error')
+      if (sub.lastStatusCode) {
+        label = `${t('sub.status_error')} ${sub.lastStatusCode}`
+      }
+      return { color: 'error', label, icon: mdiAlertCircleOutline }
     }
-    return { color: 'error', label, icon: 'mdi-alert-circle-outline' }
-  }
-  return { color: 'success', label: t('sub.status_normal'), icon: 'mdi-check-circle-outline' }
+    return { color: 'success', label: t('sub.status_normal'), icon: mdiCheckCircleOutline }
 }
 
 const syncNow = async (id: number) => {
   syncing.value[id] = true
   try {
-    const response = await fetch(`/api/subscriptions/${id}/sync`, {
+    const response = await fetch(`/api/feeds/${id}/sync`, {
       method: 'POST',
       headers: {
         'Authorization': `Bearer ${localStorage.getItem('token')}`
@@ -193,7 +228,7 @@ const syncAll = async () => {
   if (subscriptions.value.length === 0) return
   syncAllLoading.value = true
   try {
-    const response = await fetch('/api/subscriptions/sync_all', {
+    const response = await fetch('/api/feeds/sync_all', {
       method: 'POST',
       headers: {
         'Authorization': `Bearer ${localStorage.getItem('token')}`
@@ -213,7 +248,7 @@ const syncAll = async () => {
 const openAddDialog = () => {
   form.value = { 
     title: '', url: '', category: '技术', targetLanguage: 'Chinese', autoTranslate: false, needSummary: false,
-    siteUrl: '', description: '', iconUrl: '', num: 200, refreshInterval: 30
+    siteUrl: '', description: '', iconUrl: '', iconBase64: '', num: 200, refreshInterval: 30
   }
   selectedSub.value = null
   dialog.value = true
@@ -230,6 +265,7 @@ const openEditDialog = (sub: Subscription) => {
     siteUrl: sub.siteUrl || '',
     description: sub.description || '',
     iconUrl: sub.iconUrl || '',
+    iconBase64: sub.iconBase64 || '',
     num: sub.num || 200,
     refreshInterval: sub.refreshInterval || 30,
   }
@@ -246,7 +282,7 @@ const deleteSub = async () => {
   if (!selectedSub.value) return
   
   try {
-    const response = await fetch(`/api/subscriptions/${selectedSub.value.id}`, {
+    const response = await fetch(`/api/feeds/${selectedSub.value.id}`, {
       method: 'DELETE',
       headers: {
         'Authorization': `Bearer ${localStorage.getItem('token')}`
@@ -264,7 +300,7 @@ const saveSub = async () => {
   saving.value = true
   try {
     const isEdit = !!selectedSub.value
-    const url = isEdit ? `/api/subscriptions/${selectedSub.value!.id}` : '/api/subscriptions'
+    const url = isEdit ? `/api/feeds/${selectedSub.value!.id}` : '/api/feeds'
     const method = isEdit ? 'PUT' : 'POST'
     
     // 调整参数名以匹配后端模型
@@ -277,10 +313,10 @@ const saveSub = async () => {
       siteUrl: form.value.siteUrl,
       description: form.value.description,
       iconUrl: form.value.iconUrl,
+      iconBase64: form.value.iconBase64,
       targetLanguage: form.value.targetLanguage,
       num: form.value.num,
-      refreshInterval: form.value.refreshInterval,
-      // folderId: ... // 暂时默认由后端根据 category 自动处理
+      refreshInterval: form.value.refreshInterval,      // folderId: ... // 暂时默认由后端根据 category 自动处理
     }
 
     const response = await fetch(url, {
@@ -301,7 +337,8 @@ const saveSub = async () => {
     }
     await fetchSubscriptions()
     dialog.value = false
-  } catch (e) {
+  } catch (e: any) {
+    snackbar.value = { show: true, text: e.message || '保存失败', color: 'error' }
     console.error(e)
   } finally {
     saving.value = false
@@ -319,7 +356,7 @@ const handleUrlBlur = async () => {
   
   fetchingPreview.value = true
   try {
-    const response = await fetch('/api/subscriptions/preview', {
+    const response = await fetch('/api/feeds/preview', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -337,6 +374,7 @@ const handleUrlBlur = async () => {
     form.value.siteUrl = data.siteUrl || ''
     form.value.description = data.description || ''
     form.value.iconUrl = data.iconUrl || ''
+    form.value.iconBase64 = data.iconBase64 || ''
   } catch (e: any) {
     snackbar.value = {
       show: true,
@@ -366,7 +404,7 @@ const handleUrlBlur = async () => {
           :loading="syncAllLoading"
           :disabled="subscriptions.length === 0"
         >
-          <v-icon start>mdi-sync</v-icon>
+          <v-icon start :icon="mdiSync" />
           {{ $t('sub.sync_all') }}
         </v-btn>
         <v-btn 
@@ -376,11 +414,11 @@ const handleUrlBlur = async () => {
           class="text-none font-weight-bold mr-2" 
           @click="openInactiveDialog"
         >
-          <v-icon start>mdi-alert-circle-outline</v-icon>
+          <v-icon start :icon="mdiAlertCircleOutline" />
           {{ $t('sub.inactive_list') }}
         </v-btn>
         <v-btn color="primary" rounded="pill" elevation="0" class="text-none font-weight-bold" @click="openAddDialog">
-          <v-icon start>mdi-plus</v-icon>
+          <v-icon start :icon="mdiPlus" />
           {{ $t('sub.add_btn') }}
         </v-btn>
       </div>
@@ -395,14 +433,14 @@ const handleUrlBlur = async () => {
       rounded="xl"
       class="mb-4"
       color="primary"
-      prepend-inner-icon="mdi-magnify"
+      :prepend-inner-icon="mdiMagnify"
       hide-details
       clearable
     />
 
     <!-- 空状态 -->
     <v-card v-if="filtered.length === 0" rounded="xl" variant="tonal" color="surface-variant" class="text-center pa-12">
-      <v-icon size="64" color="primary" class="mb-4">mdi-rss-box</v-icon>
+      <v-icon size="64" color="primary" class="mb-4">{{ mdiRssBox }}</v-icon>
       <h3 class="text-h6 mb-2">{{ search ? $t('sub.empty_search') : $t('sub.empty_no_feeds') }}</h3>
       <p class="text-body-2 text-medium-emphasis mb-6">{{ search ? $t('sub.empty_try_other') : $t('sub.empty_add_first') }}</p>
       <v-btn v-if="!search" color="primary" rounded="pill" elevation="0" class="text-none" @click="openAddDialog">
@@ -411,22 +449,22 @@ const handleUrlBlur = async () => {
     </v-card>
 
     <v-row v-else>
-      <v-col v-for="sub in filtered" :key="sub.id" cols="12" sm="6" md="6" lg="4" xl="3" class="d-flex">
+      <v-col v-for="sub in filtered" :key="sub.id" cols="12" sm="6" md="6" lg="4" xl="3" class="d-flex sub-card-col">
         <v-card rounded="xl" variant="flat" color="surface" class="sub-card h-100 w-100">
           <v-card-text class="pa-5 d-flex flex-column h-100">
             <div class="d-flex align-start justify-space-between mb-2">
               <div class="flex-1 min-w-0 mr-2">
-                <div class="d-flex align-center gap-2 mb-1">
-                  <v-avatar size="20" rounded="sm" v-if="sub.iconUrl" class="bg-grey-lighten-4">
-                    <v-img :src="sub.iconUrl">
+                <div class="d-flex align-center gap-2 mb-1 overflow-hidden" style="min-width: 0">
+                <v-avatar size="20" rounded="sm" v-if="sub.iconBase64 || sub.iconUrl" class="bg-grey-lighten-4 flex-shrink-0">
+                  <v-img :src="sub.iconBase64 || sub.iconUrl">
                       <template v-slot:placeholder>
-                        <v-icon size="14" color="grey">mdi-rss</v-icon>
+                        <v-icon size="14" color="grey">{{ mdiRss }}</v-icon>
                       </template>
                     </v-img>
                   </v-avatar>
-                  <p class="text-body-1 font-weight-semibold text-truncate">{{ sub.title }}</p>
+                  <p class="text-body-1 font-weight-semibold text-truncate flex-grow-1 mb-0">{{ sub.title }}</p>
                 </div>
-                <p class="text-caption text-medium-emphasis text-truncate">{{ sub.url }}</p>
+                <p class="text-caption text-medium-emphasis text-truncate w-100 mb-0">{{ sub.url }}</p>
               </div>
               <v-tooltip v-if="sub.lastError" location="top" offset="10">
                 <template v-slot:activator="{ props }">
@@ -437,7 +475,7 @@ const handleUrlBlur = async () => {
                     variant="tonal"
                     class="text-none flex-shrink-0 cursor-help"
                   >
-                    <v-icon start size="12">{{ statusInfo(sub).icon }}</v-icon>
+                    <v-icon start size="12" :icon="statusInfo(sub).icon" />
                     {{ statusInfo(sub).label }}
                   </v-chip>
                 </template>
@@ -450,22 +488,22 @@ const handleUrlBlur = async () => {
                 variant="tonal"
                 class="text-none flex-shrink-0"
               >
-                <v-icon start size="12">{{ statusInfo(sub).icon }}</v-icon>
+                <v-icon start size="12" :icon="statusInfo(sub).icon" />
                 {{ statusInfo(sub).label }}
               </v-chip>
             </div>
 
             <div class="d-flex align-center gap-2 mb-3">
               <v-chip size="x-small" variant="outlined" color="primary" class="text-none">
-                <v-icon start size="12">mdi-tag-outline</v-icon>
+                <v-icon start size="12" :icon="mdiTagOutline" />
                 {{ sub.category }}
               </v-chip>
               <v-chip v-if="sub.autoTranslate" size="x-small" variant="outlined" color="secondary" class="text-none">
-                <v-icon start size="12">mdi-translate</v-icon>
+                <v-icon start size="12" :icon="mdiTranslate" />
                 {{ $t('sub.auto_translate') }}
               </v-chip>
               <v-chip v-if="sub.needSummary" size="x-small" variant="outlined" color="info" class="text-none ml-1">
-                <v-icon start size="12">mdi-text-box-search-outline</v-icon>
+                <v-icon start size="12" :icon="mdiTextBoxSearchOutline" />
                 {{ $t('sub.summary') }}
               </v-chip>
             </div>
@@ -478,9 +516,9 @@ const handleUrlBlur = async () => {
 
             <v-spacer />
 
-            <div class="d-flex align-center gap-6 text-caption text-medium-emphasis mb-4">
-              <span class="d-flex align-center"><v-icon size="14" class="mr-1">mdi-newspaper-outline</v-icon>{{ sub.articleCount }} 篇</span>
-              <span class="d-flex align-center text-truncate"><v-icon size="14" class="mr-1">mdi-clock-outline</v-icon>{{ formatDate(sub.lastSync) }}</span>
+            <div class="d-flex align-center gap-4 text-caption text-medium-emphasis mb-4 flex-wrap">
+              <span class="d-flex align-center text-no-wrap"><v-icon size="14" class="mr-1" :icon="mdiNewspaper" />{{ sub.articleCount }} 篇</span>
+              <span class="d-flex align-center text-no-wrap text-truncate"><v-icon size="14" class="mr-1" :icon="mdiClockOutline" />{{ formatDate(sub.lastSync) }}</span>
             </div>
 
             <div class="d-flex align-center gap-2">
@@ -493,7 +531,7 @@ const handleUrlBlur = async () => {
                 :loading="syncing[sub.id]"
                 @click="syncNow(sub.id)"
               >
-                <v-icon start size="16">mdi-refresh</v-icon>
+                <v-icon start size="16" :icon="mdiRefresh" />
                 {{ $t('sub.sync') }}
               </v-btn>
               <v-btn 
@@ -505,7 +543,7 @@ const handleUrlBlur = async () => {
                 min-width="36"
                 @click="openEditDialog(sub)"
               >
-                <v-icon size="16">mdi-pencil-outline</v-icon>
+                <v-icon size="16" :icon="mdiPencilOutline" />
               </v-btn>
               <v-btn 
                 variant="tonal" 
@@ -516,7 +554,7 @@ const handleUrlBlur = async () => {
                 min-width="36"
                 @click="confirmDelete(sub)"
               >
-                <v-icon size="16">mdi-trash-can-outline</v-icon>
+                <v-icon size="16" :icon="mdiTrashCanOutline" />
               </v-btn>
             </div>
           </v-card-text>
@@ -536,7 +574,7 @@ const handleUrlBlur = async () => {
               {{ selectedSub ? $t('sub.dialog_edit_sub') : $t('sub.dialog_add_sub') }}
             </p>
           </div>
-          <v-btn icon="mdi-close" variant="text" color="error" rounded="pill" @click="dialog = false"></v-btn>
+          <v-btn :icon="mdiClose" variant="text" color="error" rounded="pill" @click="dialog = false"></v-btn>
         </div>
 
         <v-divider />
@@ -546,17 +584,17 @@ const handleUrlBlur = async () => {
             <!-- 第 1 步：订阅源基本信息 -->
             <section>
               <h3 class="text-subtitle-1 font-weight-bold mb-4 d-flex align-center">
-                <v-icon color="primary" class="mr-2">mdi-rss</v-icon>
+                <v-icon color="primary" class="mr-2">{{ mdiRss }}</v-icon>
                 订阅源元数据
               </h3>
               
               <div class="d-flex flex-column gap-6 w-100">
                 <!-- 实时预览卡片 -->
                 <div class="preview-card pa-6 rounded-xl text-center d-flex flex-column align-center gap-2 mb-2 w-100">
-                  <v-avatar size="80" rounded="xl" class="shadow-sm mb-2" color="white">
-                    <v-img :src="form.iconUrl || ''" cover>
+                <v-avatar size="80" rounded="xl" class="shadow-sm mb-2" color="white">
+                  <v-img :src="form.iconBase64 || form.iconUrl || ''" cover>
                       <template v-slot:placeholder>
-                        <v-icon size="40" color="grey-lighten-2">mdi-rss-box</v-icon>
+                        <v-icon size="40" color="grey-lighten-2">{{ mdiRssBox }}</v-icon>
                       </template>
                     </v-img>
                   </v-avatar>
@@ -564,7 +602,7 @@ const handleUrlBlur = async () => {
                     {{ form.title || $t('sub.add_btn') }}
                   </div>
                   <div v-if="form.siteUrl" class="text-body-2 text-primary text-decoration-none d-flex align-center">
-                    <v-icon size="14" class="mr-1">mdi-link-variant</v-icon>
+                    <v-icon size="14" class="mr-1">{{ mdiLinkVariant }}</v-icon>
                     {{ getHostname(form.siteUrl) }}
                   </div>
                 </div>
@@ -577,7 +615,7 @@ const handleUrlBlur = async () => {
                     density="comfortable" 
                     rounded="lg" 
                     color="primary" 
-                    prepend-inner-icon="mdi-rss" 
+                    :prepend-inner-icon="mdiRss" 
                     :hint="$t('sub.url_hint')"
                     persistent-hint
                     @blur="handleUrlBlur"
@@ -593,7 +631,7 @@ const handleUrlBlur = async () => {
                       density="comfortable" 
                       rounded="lg" 
                       color="primary" 
-                      prepend-inner-icon="mdi-earth" 
+                      :prepend-inner-icon="mdiEarth" 
                       hide-details 
                       style="flex: 1"
                     />
@@ -604,7 +642,7 @@ const handleUrlBlur = async () => {
                       density="comfortable" 
                       rounded="lg" 
                       color="primary" 
-                      prepend-inner-icon="mdi-image-outline" 
+                      :prepend-inner-icon="mdiImageOutline" 
                       hide-details 
                       style="flex: 1"
                     />
@@ -617,7 +655,7 @@ const handleUrlBlur = async () => {
                     density="comfortable" 
                     rounded="lg" 
                     color="primary" 
-                    prepend-inner-icon="mdi-text-subject" 
+                    :prepend-inner-icon="mdiFormatListText" 
                     hide-details 
                     rows="2"
                     class="w-100"
@@ -630,7 +668,7 @@ const handleUrlBlur = async () => {
                 type="info"
                 variant="tonal"
                 density="compact"
-                icon="mdi-information-outline"
+                :icon="mdiInformationOutline"
                 class="text-caption mt-6"
               >
                 输入 RSS 地址后，我们将自动为您提取这些信息。
@@ -642,7 +680,7 @@ const handleUrlBlur = async () => {
             <!-- 第 2 步：个人订阅配置 -->
             <section>
               <h3 class="text-subtitle-1 font-weight-bold mb-4 d-flex align-center">
-                <v-icon color="secondary" class="mr-2">mdi-cog-outline</v-icon>
+                <v-icon color="secondary" class="mr-2">{{ mdiCogOutline }}</v-icon>
                 {{ $t('settings.preferences') }}
               </h3>
               <div class="d-flex flex-column gap-4 w-100">
@@ -654,7 +692,7 @@ const handleUrlBlur = async () => {
                     density="comfortable" 
                     rounded="lg" 
                     color="primary" 
-                    prepend-inner-icon="mdi-pencil-outline" 
+                    :prepend-inner-icon="mdiPencilOutline" 
                     :hint="$t('sub.custom_title_hint')"
                     persistent-hint
                     style="flex: 5"
@@ -667,7 +705,7 @@ const handleUrlBlur = async () => {
                     density="comfortable" 
                     rounded="lg" 
                     color="primary" 
-                    prepend-inner-icon="mdi-folder-outline" 
+                    :prepend-inner-icon="mdiFolderOutline" 
                     persistent-hint
                     hint=""
                     hide-no-data
@@ -681,7 +719,7 @@ const handleUrlBlur = async () => {
                     density="comfortable" 
                     rounded="lg" 
                     color="primary" 
-                    prepend-inner-icon="mdi-numeric" 
+                    :prepend-inner-icon="mdiNumeric" 
                     persistent-hint
                     :hint="$t('sub.max_storage_hint')"
                     style="flex: 2"
@@ -694,7 +732,7 @@ const handleUrlBlur = async () => {
                     density="comfortable" 
                     rounded="lg" 
                     color="primary" 
-                    prepend-inner-icon="mdi-update" 
+                    :prepend-inner-icon="mdiUpdate" 
                     persistent-hint
                     :hint="$t('sub.refresh_interval_hint')"
                     suffix="min"
@@ -709,14 +747,14 @@ const handleUrlBlur = async () => {
             <!-- 第 3 步：AI 智能增强 -->
             <section>
               <h3 class="text-subtitle-1 font-weight-bold mb-4 d-flex align-center">
-                <v-icon color="info" class="mr-2">mdi-robot-outline</v-icon>
+                <v-icon color="info" class="mr-2">{{ mdiRobotOutline }}</v-icon>
                 {{ $t('sub.ai_enhance') }}
               </h3>
               <v-card variant="tonal" border color="primary" rounded="lg" class="pa-4 bg-primary-lighten-5">
                 <div class="d-flex align-center justify-space-between mb-4">
                   <div class="d-flex align-center">
                     <v-avatar color="primary" size="32" class="mr-3">
-                      <v-icon size="18" color="white">mdi-translate</v-icon>
+                      <v-icon size="18" color="white">{{ mdiTranslate }}</v-icon>
                     </v-avatar>
                     <div>
                       <p class="text-body-2 font-weight-bold">{{ $t('sub.auto_translate') }}</p>
@@ -731,7 +769,7 @@ const handleUrlBlur = async () => {
                 <div class="d-flex align-center justify-space-between">
                   <div class="d-flex align-center">
                     <v-avatar color="secondary" size="32" class="mr-3">
-                      <v-icon size="18" color="white">mdi-auto-fix</v-icon>
+                      <v-icon size="18" color="white">{{ mdiAutoFix }}</v-icon>
                     </v-avatar>
                     <div>
                       <p class="text-body-2 font-weight-bold">{{ $t('sub.summary') }}</p>
@@ -746,7 +784,7 @@ const handleUrlBlur = async () => {
                   <div v-if="form.autoTranslate || form.needSummary">
                     <v-divider class="my-4" />
                     <div class="d-flex align-center gap-4">
-                      <v-icon color="primary" size="20">mdi-translate</v-icon>
+                      <v-icon color="primary" size="20">{{ mdiTranslate }}</v-icon>
                       <v-select 
                         v-model="form.targetLanguage" 
                         :items="[
@@ -816,10 +854,10 @@ const handleUrlBlur = async () => {
     <v-dialog v-model="inactiveDialog" max-width="700" scrollable>
       <v-card rounded="xl" class="shadow-premium">
         <v-card-title class="pa-6 d-flex align-center bg-warning text-white">
-          <v-icon start class="mr-2">mdi-alert-decagram</v-icon>
+          <v-icon start class="mr-2">{{ mdiAlertDecagram }}</v-icon>
           {{ $t('sub.inactive_subtitle') }}
           <v-spacer />
-          <v-btn icon="mdi-close" variant="text" density="comfortable" @click="inactiveDialog = false" color="white"></v-btn>
+          <v-btn :icon="mdiClose" variant="text" density="comfortable" @click="inactiveDialog = false" color="white"></v-btn>
         </v-card-title>
 
         <v-card-text class="pa-6">
@@ -838,7 +876,7 @@ const handleUrlBlur = async () => {
             density="comfortable"
             rounded="lg"
             flat
-            prepend-inner-icon="mdi-magnify"
+            :prepend-inner-icon="mdiMagnify"
             class="mb-4"
             hide-details
           />
@@ -882,7 +920,7 @@ const handleUrlBlur = async () => {
           </v-list>
           
           <div v-else class="text-center py-12 text-medium-emphasis">
-            <v-icon size="48" color="grey-lighten-1" class="mb-2">mdi-check-circle-outline</v-icon>
+            <v-icon size="48" color="grey-lighten-1" class="mb-2">{{ mdiCheckCircleOutline }}</v-icon>
             <p>{{ $t('sub.no_inactive') }}</p>
           </div>
         </v-card-text>
@@ -930,6 +968,7 @@ const handleUrlBlur = async () => {
   display: -webkit-box;
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 2;
+  line-clamp: 2;
   overflow: hidden;
   line-height: 1.6;
   min-height: 3.2em;
@@ -964,6 +1003,7 @@ const handleUrlBlur = async () => {
 .gradient-text {
   background: linear-gradient(135deg, var(--v-theme-primary) 0%, #2c3e50 100%);
   -webkit-background-clip: text;
+  background-clip: text;
   -webkit-text-fill-color: transparent;
 }
 .shadow-premium {

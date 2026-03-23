@@ -60,13 +60,7 @@ async fn get_jobs(
             .unwrap_or(Some(300))
             .unwrap_or(300);
 
-    // 0. 自动清理机制：只保留特定的任务数据
-    let _ = sqlx::query(
-        "DELETE FROM Jobs WHERE id NOT IN (SELECT id FROM Jobs ORDER BY run_at DESC LIMIT ?)",
-    )
-    .bind(log_num_limit)
-    .execute(&state.db)
-    .await;
+    // 获取任务日志（直接从数据库读取，不在此逻辑执行清理）
 
     // 1. 获取最近的任务
     let rows = sqlx::query("SELECT id, job_type, status, attempts, last_error, run_at, done_at, job FROM Jobs ORDER BY run_at DESC LIMIT ?")

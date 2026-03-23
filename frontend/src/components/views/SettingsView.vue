@@ -2,6 +2,21 @@
 import { ref, onMounted } from 'vue'
 import { useTheme } from 'vuetify'
 import { useI18n } from 'vue-i18n'
+import {
+  mdiPaletteOutline,
+  mdiDatabaseClock,
+  mdiCogs,
+  mdiApi,
+  mdiTranslate,
+  mdiTextShort,
+  mdiDatabaseOutline,
+  mdiFileImportOutline,
+  mdiFileExportOutline,
+  mdiEarth,
+  mdiServerNetwork,
+  mdiContentSaveOutline,
+  mdiCheckCircleOutline
+} from '@mdi/js'
 
 const { t } = useI18n()
 
@@ -102,7 +117,7 @@ const saveSettings = async () => {
 
 const exportOPML = async () => {
   try {
-    const res = await fetch('/api/subscriptions/opml', {
+    const res = await fetch('/api/feeds/opml', {
       headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
     })
     if (res.ok) {
@@ -134,7 +149,7 @@ const triggerImport = () => {
     formData.append('file', file)
     
     try {
-      const res = await fetch('/api/subscriptions/opml', {
+      const res = await fetch('/api/feeds/opml', {
         method: 'POST',
         headers: { Authorization: `Bearer ${localStorage.getItem('token')}` },
         body: formData
@@ -169,7 +184,7 @@ const triggerImport = () => {
       <v-card rounded="xl" variant="flat" color="surface-variant" class="mb-6">
           <v-card-item class="pa-6 pb-4">
             <template #prepend>
-              <v-icon color="primary" class="mr-2">mdi-palette-outline</v-icon>
+              <v-icon color="primary" class="mr-2">{{ mdiPaletteOutline }}</v-icon>
             </template>
             <v-card-title class="text-h6 font-weight-bold">{{ t('settings.appearance') }}</v-card-title>
           </v-card-item>
@@ -197,7 +212,7 @@ const triggerImport = () => {
               density="comfortable"
               rounded="lg"
               hide-details
-              prepend-inner-icon="mdi-database-clock"
+              :prepend-inner-icon="mdiDatabaseClock"
               color="primary"
             />
           </v-card-text>
@@ -207,7 +222,7 @@ const triggerImport = () => {
       <v-card rounded="xl" variant="flat" color="surface-variant" class="mb-6">
           <v-card-item class="pa-6 pb-4">
             <template #prepend>
-              <v-icon color="primary" class="mr-2">mdi-cogs</v-icon>
+              <v-icon color="primary" class="mr-2">{{ mdiCogs }}</v-icon>
             </template>
             <v-card-title class="text-h6 font-weight-bold">{{ t('settings.system_features') }}</v-card-title>
           </v-card-item>
@@ -235,7 +250,7 @@ const triggerImport = () => {
                 rounded="lg"
                 hide-details
                 clearable
-                prepend-inner-icon="mdi-api"
+                :prepend-inner-icon="mdiApi"
                 color="primary"
               >
                 <template #no-data>
@@ -259,7 +274,7 @@ const triggerImport = () => {
                 rounded="lg"
                 hide-details
                 clearable
-                prepend-inner-icon="mdi-translate"
+                :prepend-inner-icon="mdiTranslate"
                 color="primary"
               >
                 <template #no-data>
@@ -281,7 +296,7 @@ const triggerImport = () => {
                 rounded="lg"
                 hide-details
                 clearable
-                prepend-inner-icon="mdi-text-short"
+                :prepend-inner-icon="mdiTextShort"
                 color="primary"
               >
                 <template #no-data>
@@ -297,7 +312,7 @@ const triggerImport = () => {
       <v-card rounded="xl" variant="flat" color="surface-variant" class="mb-6">
           <v-card-item class="pa-6 pb-4">
             <template #prepend>
-              <v-icon color="primary" class="mr-2">mdi-database-outline</v-icon>
+              <v-icon color="primary" class="mr-2">{{ mdiDatabaseOutline }}</v-icon>
             </template>
             <v-card-title class="text-h6 font-weight-bold">{{ t('settings.data_management') }}</v-card-title>
           </v-card-item>
@@ -314,7 +329,7 @@ const triggerImport = () => {
                   color="primary"
                   rounded="lg"
                   class="text-none font-weight-medium"
-                  prepend-icon="mdi-file-import-outline"
+                  :prepend-icon="mdiFileImportOutline"
                   size="large"
                   min-width="200"
                   :loading="importing"
@@ -327,7 +342,7 @@ const triggerImport = () => {
                   color="primary"
                   rounded="lg"
                   class="text-none font-weight-medium"
-                  prepend-icon="mdi-file-export-outline"
+                  :prepend-icon="mdiFileExportOutline"
                   size="large"
                   min-width="200"
                   @click="exportOPML"
@@ -343,7 +358,7 @@ const triggerImport = () => {
       <v-card rounded="xl" variant="flat" color="surface-variant" class="mb-6">
           <v-card-item class="pa-6 pb-4">
             <template #prepend>
-              <v-icon color="primary" class="mr-2">mdi-earth</v-icon>
+              <v-icon color="primary" class="mr-2">{{ mdiEarth }}</v-icon>
             </template>
             <v-card-title class="text-h6 font-weight-bold">{{ t('settings.proxy') }}</v-card-title>
           </v-card-item>
@@ -364,7 +379,7 @@ const triggerImport = () => {
               density="comfortable"
               rounded="lg"
               :disabled="!proxyEnabled"
-              prepend-inner-icon="mdi-server-network"
+              :prepend-inner-icon="mdiServerNetwork"
               hide-details
               color="primary"
             />
@@ -382,13 +397,13 @@ const triggerImport = () => {
         class="text-none font-weight-bold px-8"
         @click="saveSettings"
       >
-        <v-icon start>mdi-content-save-outline</v-icon>
+        <v-icon start>{{ mdiContentSaveOutline }}</v-icon>
         {{ t('settings.save') }}
       </v-btn>
     </div>
 
     <v-snackbar v-model="snackbar" :timeout="3000" location="bottom end" color="primary" rounded="pill">
-      <v-icon start>mdi-check-circle-outline</v-icon>
+      <v-icon start>{{ mdiCheckCircleOutline }}</v-icon>
       {{ snackbarText }}
     </v-snackbar>
   </div>

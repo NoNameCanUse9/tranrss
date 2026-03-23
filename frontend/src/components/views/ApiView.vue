@@ -1,6 +1,29 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
+import {
+  mdiBrain,
+  mdiTranslate,
+  mdiKeyOutline,
+  mdiPlus,
+  mdiShieldKeyOutline,
+  mdiEyeOffOutline,
+  mdiEyeOutline,
+  mdiInformationOutline,
+  mdiPencilOutline,
+  mdiTrashCanOutline,
+  mdiClose,
+  mdiKeyVariant,
+  mdiLabelOutline,
+  mdiApps,
+  mdiLinkVariant,
+  mdiRefresh,
+  mdiFormatTextWrappingOverflow,
+  mdiSpeedometer,
+  mdiCogOutline,
+  mdiClockOutline,
+  mdiTimerOutline
+} from '@mdi/js'
 
 const { t } = useI18n()
 
@@ -36,8 +59,8 @@ const openDetail = (config: ApiConfig) => {
 
 // 默认提供商配置，用于 UI 展示（图标、颜色等）
 const providers = [
-  { title: 'OpenAI', value: 'openai', icon: 'mdi-brain', color: '#10a37f' },
-  { title: 'DeepLX', value: 'deeplx', icon: 'mdi-translate', color: '#0f2b46' },
+  { title: 'OpenAI', value: 'openai', icon: mdiBrain, color: '#10a37f' },
+  { title: 'DeepLX', value: 'deeplx', icon: mdiTranslate, color: '#0f2b46' },
 ]
 
 // 初始表单状态
@@ -96,7 +119,7 @@ onMounted(() => {
 
 // 获取提供商的 UI 信息
 const getProviderInfo = (type: string) =>
-  providers.find(p => p.value === type) ?? { title: type, icon: 'mdi-key-outline', color: 'primary' }
+  providers.find(p => p.value === type) ?? { title: type, icon: mdiKeyOutline, color: 'primary' }
 
 // 脱敏显示 Token
 const maskToken = (token: string | null) => {
@@ -229,14 +252,14 @@ const fetchModels = async () => {
         class="text-none font-weight-bold"
         @click="openAddDialog"
       >
-        <v-icon start>mdi-plus</v-icon>
+        <v-icon start>{{ mdiPlus }}</v-icon>
         {{ $t('api.add_btn') }}
       </v-btn>
     </div>
 
     <!-- 空状态 -->
     <v-card v-if="apiConfigs.length === 0" rounded="xl" variant="tonal" color="surface-variant" class="text-center pa-12">
-      <v-icon size="64" color="primary" class="mb-4">mdi-key-outline</v-icon>
+      <v-icon size="64" color="primary" class="mb-4">{{ mdiKeyOutline }}</v-icon>
       <h3 class="text-h6 mb-2">{{ $t('api.empty_title') }}</h3>
       <p class="text-body-2 text-medium-emphasis mb-6">{{ $t('api.empty_subtitle') }}</p>
       <v-btn color="primary" rounded="pill" elevation="0" class="text-none" @click="openAddDialog">
@@ -271,7 +294,7 @@ const fetchModels = async () => {
 
             <!-- Middle Section: Token -->
             <div class="token-row d-flex align-center gap-2 mb-4">
-              <v-icon size="16" color="medium-emphasis">mdi-shield-key-outline</v-icon>
+              <v-icon size="16" color="medium-emphasis">{{ mdiShieldKeyOutline }}</v-icon>
               <code class="text-caption flex-1 text-truncate">
                 {{ showToken[config.id] ? config.api_key : maskToken(config.api_key) }}
               </code>
@@ -281,7 +304,7 @@ const fetchModels = async () => {
                 variant="text"
                 @click="showToken[config.id] = !showToken[config.id]"
               >
-                <v-icon size="16">{{ showToken[config.id] ? 'mdi-eye-off-outline' : 'mdi-eye-outline' }}</v-icon>
+                <v-icon size="16">{{ showToken[config.id] ? mdiEyeOffOutline : mdiEyeOutline }}</v-icon>
               </v-btn>
               <v-btn
                 icon
@@ -289,7 +312,7 @@ const fetchModels = async () => {
                 variant="text"
                 @click="openDetail(config)"
               >
-                <v-icon size="20">mdi-information-outline</v-icon>
+                <v-icon size="20">{{ mdiInformationOutline }}</v-icon>
               </v-btn>
             </div>
 
@@ -304,7 +327,7 @@ const fetchModels = async () => {
                 class="text-none flex-1"
                 @click="openEditDialog(config)"
               >
-                <v-icon start size="16">mdi-pencil-outline</v-icon>
+                <v-icon start size="16">{{ mdiPencilOutline }}</v-icon>
                 {{ $t('api.edit') }}
               </v-btn>
               <v-btn
@@ -315,7 +338,7 @@ const fetchModels = async () => {
                 class="text-none"
                 @click="selectedConfig = config; deleteDialog = true"
               >
-                <v-icon size="16">mdi-trash-can-outline</v-icon>
+                <v-icon size="16">{{ mdiTrashCanOutline }}</v-icon>
               </v-btn>
             </div>
           </v-card-text>
@@ -336,7 +359,7 @@ const fetchModels = async () => {
               {{ selectedConfig ? $t('api.dialog_edit_sub') : $t('api.dialog_add_sub') }}
             </p>
           </div>
-          <v-btn icon="mdi-close" variant="text" color="error" rounded="pill" @click="dialog = false"></v-btn>
+          <v-btn :icon="mdiClose" variant="text" color="error" rounded="pill" @click="dialog = false"></v-btn>
         </div>
         
         <v-divider />
@@ -346,7 +369,7 @@ const fetchModels = async () => {
             <!-- 基础信息 -->
             <section>
               <h3 class="text-subtitle-1 font-weight-bold mb-4 d-flex align-center">
-                <v-icon color="primary" class="mr-2">mdi-key-variant</v-icon>
+                <v-icon color="primary" class="mr-2">{{ mdiKeyVariant }}</v-icon>
                 {{ $t('api.base_url') }}
               </h3>
               <div class="d-flex flex-column gap-6 w-100">
@@ -358,7 +381,7 @@ const fetchModels = async () => {
                     density="comfortable"
                     rounded="lg"
                     color="primary"
-                    prepend-inner-icon="mdi-label-outline"
+                    :prepend-inner-icon="mdiLabelOutline"
                     persistent-hint
                     :hint="$t('api.alias_hint')"
                     style="flex: 1"
@@ -371,7 +394,7 @@ const fetchModels = async () => {
                     density="comfortable"
                     rounded="lg"
                     color="primary"
-                    prepend-inner-icon="mdi-apps"
+                    :prepend-inner-icon="mdiApps"
                     style="flex: 1"
                   />
                 </div>
@@ -383,7 +406,7 @@ const fetchModels = async () => {
                   density="comfortable"
                   rounded="lg"
                   color="primary"
-                  prepend-inner-icon="mdi-link-variant"
+                  :prepend-inner-icon="mdiLinkVariant"
                   persistent-hint
                   :hint="$t('api.base_url_hint')"
                   class="w-100"
@@ -396,7 +419,7 @@ const fetchModels = async () => {
                   density="comfortable"
                   rounded="lg"
                   color="primary"
-                  prepend-inner-icon="mdi-shield-key-outline"
+                  :prepend-inner-icon="mdiShieldKeyOutline"
                   type="password"
                   persistent-hint
                   :hint="$t('api.api_key_hint')"
@@ -410,7 +433,7 @@ const fetchModels = async () => {
               <v-divider />
               <section>
                 <h3 class="text-subtitle-1 font-weight-bold mb-4 d-flex align-center">
-                  <v-icon color="secondary" class="mr-2">mdi-brain-outline</v-icon>
+                  <v-icon color="secondary" class="mr-2">{{ mdiBrain }}</v-icon>
                   {{ $t('api.ai_model_params') }}
                 </h3>
                 <div class="d-flex flex-column gap-6 w-100">
@@ -429,13 +452,13 @@ const fetchModels = async () => {
                     <v-btn
                       variant="tonal"
                       color="primary"
-                      icon="mdi-refresh"
+                      :icon="mdiRefresh"
                       rounded="lg"
                       height="48"
                       :loading="fetchingModels"
                       @click="fetchModels"
                     >
-                      <v-icon>mdi-refresh</v-icon>
+                      <v-icon>{{ mdiRefresh }}</v-icon>
                       <v-tooltip activator="parent">{{ $t('api.fetch_models') }}</v-tooltip>
                     </v-btn>
                   </div>
@@ -448,7 +471,7 @@ const fetchModels = async () => {
                       density="comfortable"
                       rounded="lg"
                       color="primary"
-                      prepend-inner-icon="mdi-format-text-wrapping-overflow"
+                      :prepend-inner-icon="mdiFormatTextWrappingOverflow"
                       style="flex: 1"
                     />
                     <v-text-field
@@ -459,7 +482,7 @@ const fetchModels = async () => {
                       density="comfortable"
                       rounded="lg"
                       color="primary"
-                      prepend-inner-icon="mdi-speedometer"
+                      :prepend-inner-icon="mdiSpeedometer"
                       style="flex: 1"
                     />
                   </div>
@@ -471,7 +494,7 @@ const fetchModels = async () => {
             <v-divider />
             <section>
               <h3 class="text-subtitle-1 font-weight-bold mb-4 d-flex align-center">
-                <v-icon color="info" class="mr-2">mdi-cog-outline</v-icon>
+                <v-icon color="info" class="mr-2">{{ mdiCogOutline }}</v-icon>
                 {{ $t('api.general_policy') }}
               </h3>
               <div class="d-flex flex-column gap-6 w-100">
@@ -484,7 +507,7 @@ const fetchModels = async () => {
                     density="comfortable"
                     rounded="lg"
                     color="primary"
-                    prepend-inner-icon="mdi-clock-outline"
+                    :prepend-inner-icon="mdiClockOutline"
                     style="flex: 1"
                   />
                   <div class="d-flex align-center justify-space-between px-4 border rounded-lg" style="flex: 1; height: 48px;">
@@ -502,7 +525,7 @@ const fetchModels = async () => {
                     density="comfortable"
                     rounded="lg"
                     color="primary"
-                    prepend-inner-icon="mdi-refresh"
+                    :prepend-inner-icon="mdiRefresh"
                     style="flex: 1"
                   />
                   <v-text-field
@@ -513,14 +536,14 @@ const fetchModels = async () => {
                     density="comfortable"
                     rounded="lg"
                     color="primary"
-                    prepend-inner-icon="mdi-timer-outline"
+                    :prepend-inner-icon="mdiTimerOutline"
                     style="flex: 1"
                   />
                 </div>
 
                 <!-- DeepLX 特定提示 -->
                 <div v-if="form.api_type === 'deeplx'" class="w-100">
-                  <v-alert type="info" variant="tonal" density="compact" rounded="lg" icon="mdi-information-outline">
+                  <v-alert type="info" variant="tonal" density="compact" rounded="lg" :icon="mdiInformationOutline">
                     {{ $t('api.deeplx_tip') }}
                   </v-alert>
                 </div>
@@ -557,7 +580,7 @@ const fetchModels = async () => {
           </v-avatar>
           <span class="text-h6 font-weight-bold">{{ detailConfig.name }}</span>
           <v-spacer />
-          <v-btn icon="mdi-close" variant="text" size="small" @click="detailDialog = false"></v-btn>
+          <v-btn :icon="mdiClose" variant="text" size="small" @click="detailDialog = false"></v-btn>
         </v-card-title>
         
         <v-card-text class="pa-4 bg-surface rounded-lg mx-4 mb-4 border thin">
@@ -565,7 +588,7 @@ const fetchModels = async () => {
             <div class="detail-item">
               <label class="text-caption text-medium-emphasis d-block mb-1">{{ $t('api.endpoint') }}</label>
               <div class="text-body-2 font-weight-medium d-flex align-center gap-2">
-                <v-icon size="14">mdi-link-variant</v-icon>
+                <v-icon size="14">{{ mdiLinkVariant }}</v-icon>
                 <span class="text-truncate">{{ detailConfig.base_url || $t('api.default_endpoint') }}</span>
               </div>
             </div>
@@ -573,7 +596,7 @@ const fetchModels = async () => {
             <div class="detail-item" v-if="(detailConfig.settings as any).model">
               <label class="text-caption text-medium-emphasis d-block mb-1">{{ $t('api.ai_model') }}</label>
               <div class="text-body-2 font-weight-medium d-flex align-center gap-2">
-                <v-icon size="14">mdi-brain-outline</v-icon>
+                <v-icon size="14">{{ mdiBrain }}</v-icon>
                 {{ (detailConfig.settings as any).model }}
               </div>
             </div>

@@ -1,6 +1,20 @@
 <script setup lang="ts">
 import { ref, watch, onMounted, computed } from 'vue'
 import { useI18n } from 'vue-i18n'
+import {
+  mdiMagnify,
+  mdiCheckCircle,
+  mdiCircleOutline,
+  mdiStar,
+  mdiTextSearch,
+  mdiTranslate,
+  mdiTextBoxSearchOutline,
+  mdiStarOutline,
+  mdiOpenInNew,
+  mdiAccountOutline,
+  mdiClockOutline,
+  mdiNewspaperVariantOutline
+} from '@mdi/js'
 import ArticleContent from '../ArticleContent.vue'
 
 const { t } = useI18n()
@@ -179,7 +193,7 @@ const formatDate = (ts: number) => {
           color="primary"
         >
           <template #prepend-inner>
-            <v-icon size="18" color="medium-emphasis">mdi-magnify</v-icon>
+            <v-icon size="18" color="medium-emphasis">{{ mdiMagnify }}</v-icon>
           </template>
         </v-text-field>
       </div>
@@ -201,12 +215,11 @@ const formatDate = (ts: number) => {
                 :color="article.isRead ? 'success' : 'primary'"
                 size="12"
                 class="mr-1"
-              >
-                {{ article.isRead ? 'mdi-check-circle' : 'mdi-circle-outline' }}
-              </v-icon>
+                :icon="article.isRead ? mdiCheckCircle : mdiCircleOutline"
+              />
               <span class="text-caption text-medium-emphasis">{{ article.feedTitle }}</span>
               <v-spacer />
-              <v-icon v-if="article.isStarred" size="x-small" color="warning">mdi-star</v-icon>
+              <v-icon v-if="article.isStarred" size="x-small" color="warning">{{ mdiStar }}</v-icon>
             </div>
             <div class="text-subtitle-2 font-weight-bold line-clamp-2" :class="article.isRead ? 'text-medium-emphasis' : ''">{{ article.title }}</div>
             <div class="text-caption text-medium-emphasis mt-1">
@@ -220,7 +233,7 @@ const formatDate = (ts: number) => {
           v-if="!loading && articleSearch && filteredArticles.length === 0"
           class="d-flex flex-column align-center justify-center pa-8 text-medium-emphasis"
         >
-          <v-icon size="36" class="mb-3" color="medium-emphasis">mdi-text-search</v-icon>
+          <v-icon size="36" class="mb-3" color="medium-emphasis">{{ mdiTextSearch }}</v-icon>
           <span class="text-body-2">{{ $t('article.empty_search') }}</span>
           <v-btn
             variant="text"
@@ -253,7 +266,7 @@ const formatDate = (ts: number) => {
                     :title="$t('article.ai_translate')"
                     :class="{ 'btn-pulse': !isTranslated && !translateBtnLoading }"
                 >
-                    <v-icon>mdi-translate</v-icon>
+                    <v-icon>{{ mdiTranslate }}</v-icon>
                     <template v-slot:loader>
                         <div class="squiggle-loader">
                             <svg viewBox="0 0 100 100">
@@ -273,7 +286,7 @@ const formatDate = (ts: number) => {
                     :title="$t('article.ai_summary')"
                     :class="{ 'btn-pulse': !hasSummary && !summarizeBtnLoading }"
                 >
-                    <v-icon>mdi-text-box-search-outline</v-icon>
+                    <v-icon>{{ mdiTextBoxSearchOutline }}</v-icon>
                     <template v-slot:loader>
                         <div class="squiggle-loader">
                             <svg viewBox="0 0 100 100">
@@ -289,7 +302,7 @@ const formatDate = (ts: number) => {
                     @click="toggleStar(articleDetail.id, articleDetail.isStarred)"
                     :title="$t('article.star')"
                 >
-                    <v-icon>{{ articleDetail.isStarred ? 'mdi-star' : 'mdi-star-outline' }}</v-icon>
+                    <v-icon>{{ articleDetail.isStarred ? mdiStar : mdiStarOutline }}</v-icon>
                 </v-btn>
                 <v-btn
                     icon
@@ -298,12 +311,12 @@ const formatDate = (ts: number) => {
                     @click="updateReadStatus(articleDetail.id, !articleDetail.isRead)"
                     :title="articleDetail.isRead ? $t('article.mark_unread') : $t('article.mark_read')"
                 >
-                    <v-icon>{{ articleDetail.isRead ? 'mdi-check-circle' : 'mdi-circle-outline' }}</v-icon>
+                    <v-icon>{{ articleDetail.isRead ? mdiCheckCircle : mdiCircleOutline }}</v-icon>
                 </v-btn>
                 <v-btn
                     v-if="articleDetail.link"
                     variant="text"
-                    icon="mdi-open-in-new"
+                    :icon="mdiOpenInNew"
                     :href="articleDetail.link"
                     target="_blank"
                     :title="$t('article.open_browser')"
@@ -313,11 +326,11 @@ const formatDate = (ts: number) => {
         
         <div class="d-flex align-center mb-12 text-medium-emphasis py-6 border-y" style="border-color: rgba(var(--v-border-color), 0.08) !important;">
           <span v-if="articleDetail.author" class="d-flex align-center mr-12">
-            <v-icon size="small" class="mr-3">mdi-account-outline</v-icon>
+            <v-icon size="small" class="mr-3">{{ mdiAccountOutline }}</v-icon>
             {{ articleDetail.author }}
           </span>
           <span class="d-flex align-center">
-            <v-icon size="small" class="mr-3">mdi-clock-outline</v-icon>
+            <v-icon size="small" class="mr-3">{{ mdiClockOutline }}</v-icon>
             {{ articleDetail.publishedAt ? formatDate(articleDetail.publishedAt) : '' }}
           </span>
         </div>
@@ -325,7 +338,7 @@ const formatDate = (ts: number) => {
         <ArticleContent :content="stitchedContent" />
       </div>
       <div v-else class="h-100 d-flex flex-column align-center justify-center text-medium-emphasis opacity-60">
-        <v-icon size="64" class="mb-4">mdi-newspaper-variant-outline</v-icon>
+        <v-icon size="64" class="mb-4">{{ mdiNewspaperVariantOutline }}</v-icon>
         <p>{{ $t('article.empty_state') }}</p>
       </div>
     </div>

@@ -5,6 +5,7 @@ use sqlx::SqlitePool;
 use std::collections::HashMap;
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
+use base64::{Engine as _, engine::general_purpose::STANDARD};
 
 pub async fn fetch_feed_preview(url: &str) -> Result<CreateFeedRequest> {
     let client = reqwest::Client::builder()
@@ -37,12 +38,19 @@ pub async fn fetch_feed_preview(url: &str) -> Result<CreateFeedRequest> {
         }
     }
 
+    let icon_base64 = if let Some(ref url) = icon_url {
+        download_icon_base64(&client, url).await
+    } else {
+        None
+    };
+
     Ok(CreateFeedRequest {
         feed_url: url.to_string(),
         site_url,
         title,
         description,
         icon_url,
+        icon_base64,
     })
 }
 
@@ -78,6 +86,30 @@ async fn sniff_icon_from_site(client: &reqwest::Client, site_url: &str) -> Optio
 
     // 3. 保险方案：使用 DuckDuckGo 的图标代理逻辑作为最后兜底
     Some(format!("https://icons.duckduckgo.com/ip3/{}.ico", domain))
+}
+
+/// 发起 HTTP 请求下载图标并转为 Base64 data URL
+async fn download_icon_base64(client: &reqwest::Client, url: &str) -> Option<String> {
+    if let Ok(resp) = client.get(url).send().await {
+        if resp.status().is_success() {
+            let mime = resp.headers()
+                .get(reqwest::header::CONTENT_TYPE)
+                .and_then(|h| h.to_str().ok())
+                .unwrap_or("image/x-icon")
+                .to_string();
+            
+            if let Ok(bytes) = resp.bytes().await {
+                // 限制 64KB 以内的图标，防止数据库膨胀
+                if bytes.len() > 48 * 1024 {
+                    return None;
+                }
+                
+                let encoded = STANDARD.encode(bytes);
+                return Some(format!("data:{};base64,{}", mime, encoded));
+            }
+        }
+    }
+    None
 }
 
 /// 将 HTML 内容转换为简洁的段落级结构
@@ -241,14 +273,14 @@ fn md_inline_to_html(md: &str) -> String {
 
 /// 从指定的 ID 抓取并处理 Feed，更新到数据库
 pub async fn fetch_and_process_feed(db: &SqlitePool, user_id: i64, feed_id: i64) -> Result<()> {
-    tracing::debug!("开始同步 feed: {}", feed_id);
-    // 1. 获取订阅源 URL
-    let feed_rec: (String,) = sqlx::query_as("SELECT feed_url FROM feeds WHERE id = ?")
+    tracing::info!("📡 开始同步 feed ID: {}", feed_id);
+    let (feed_url, icon_url, icon_base64): (String, Option<String>, Option<String>) = 
+        sqlx::query_as("SELECT feed_url, icon_url, icon_base64 FROM feeds WHERE id = ?")
         .bind(feed_id)
         .fetch_one(db)
         .await?;
 
-    tracing::debug!("正在抓取: {}", feed_rec.0);
+    tracing::info!("🌐 正在请求 Feed: {}", feed_url);
 
     // 2. 发起请求
     let client = reqwest::Client::builder()
@@ -261,7 +293,7 @@ pub async fn fetch_and_process_feed(db: &SqlitePool, user_id: i64, feed_id: i64)
     let mut last_err_msg = None;
 
     for attempt in 1..=3 {
-        match client.get(&feed_rec.0).send().await {
+        match client.get(&feed_url).send().await {
             Ok(response) => {
                 let status = response.status();
                 last_status = Some(status.as_u16() as i32);
@@ -307,6 +339,20 @@ pub async fn fetch_and_process_feed(db: &SqlitePool, user_id: i64, feed_id: i64)
 
                     // 3. 处理并同步到数据库
                     process_xml_content(db, &xml_content, user_id, feed_id).await?;
+
+                    // 4. 如果 icon_base64 为空，尝试同步获取一次
+                    if icon_base64.is_none() {
+                        if let Some(ref url) = icon_url {
+                           if let Some(b64) = download_icon_base64(&client, url).await {
+                               let _ = sqlx::query("UPDATE feeds SET icon_base64 = ? WHERE id = ?")
+                                   .bind(b64)
+                                   .bind(feed_id)
+                                   .execute(db)
+                                   .await;
+                           }
+                        }
+                    }
+
                     success = true;
                     break;
                 }

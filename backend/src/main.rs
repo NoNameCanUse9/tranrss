@@ -12,7 +12,7 @@ use axum::{
 };
 use tower_http::trace::TraceLayer;
 
-use sqlx::sqlite::{SqliteConnectOptions, SqlitePool};
+use sqlx::sqlite::{SqliteConnectOptions, SqlitePool, SqliteJournalMode, SqliteSynchronous};
 use std::net::SocketAddr;
 use std::str::FromStr;
 use std::sync::Arc;
@@ -59,7 +59,10 @@ async fn main() -> anyhow::Result<()> {
 
     tracing::info!("📡 正在连接数据库: {}", database_url);
 
-    let opts = SqliteConnectOptions::from_str(&database_url)?.create_if_missing(true);
+    let opts = SqliteConnectOptions::from_str(&database_url)?
+        .journal_mode(SqliteJournalMode::Wal)
+        .synchronous(SqliteSynchronous::Normal)
+        .create_if_missing(true);
     let pool = SqlitePool::connect_with(opts).await?;
 
     // 3. 首次启动自动初始化（建表 + 默认账号）
@@ -87,7 +90,7 @@ async fn main() -> anyhow::Result<()> {
         .route("/users/count", get(get_user_count))
         .nest("/api/user", route::user::router())
         .nest("/api/translate-configs", route::translate_api::router())
-        .nest("/api/subscriptions", route::subscriptions::router())
+        .nest("/api/feeds", route::subscriptions::router())
         .nest("/api/articles", route::articles::router())
         .nest("/api/jobs", route::jobs::router())
         .nest("/api/greader", route::greader::router())
@@ -101,7 +104,9 @@ async fn main() -> anyhow::Result<()> {
     tracing::info!("🚀 TranRSS 启动于 http://{}", addr);
 
     let listener = tokio::net::TcpListener::bind(addr).await?;
-    axum::serve(listener, app).await?;
+    axum::serve(listener, app).await?; 
+
+
 
     Ok(())
 }
@@ -183,14 +188,7 @@ async fn auto_init_db(pool: &SqlitePool) -> anyhow::Result<()> {
         .run(pool)
         .await?;
 
-    // Safe migration for existing databases missing columns (since SQLite doesn't support ADD COLUMN IF NOT EXISTS easily in pure SQL without risking a migration failure)
-    let _ =
-        sqlx::query("ALTER TABLE feeds ADD COLUMN consecutive_fetch_failures INTEGER DEFAULT 0")
-            .execute(pool)
-            .await;
-    let _ = sqlx::query("ALTER TABLE user_setting ADD COLUMN default_api_id INTEGER")
-        .execute(pool)
-        .await;
+    // 数据库迁移由 sqlx::migrate! 处理，此处无需手写 ALTER TABLE
 
     // 如果没有任何用户，自动创建 admin/admin
     let user_count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM users")

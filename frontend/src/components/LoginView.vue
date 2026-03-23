@@ -1,5 +1,13 @@
 <script setup lang="ts">
 import { ref } from 'vue'
+import {
+  mdiTranslate,
+  mdiChevronDown,
+  mdiWeatherSunny,
+  mdiWeatherNight,
+  mdiAccount,
+  mdiLock
+} from '@mdi/js'
 import { useTheme } from 'vuetify'
 import { useI18n } from 'vue-i18n'
 
@@ -89,7 +97,7 @@ const handleSubmit = async () => {
     <div class="theme-toggle d-flex align-center">
       <!-- Compatible Language Select (Native fallback) -->
       <div class="lang-select-wrapper mr-2">
-        <v-icon size="small" class="lang-icon">mdi-translate</v-icon>
+        <v-icon size="small" class="lang-icon">{{ mdiTranslate }}</v-icon>
         <select 
           v-model="locale" 
           class="lang-native-select"
@@ -98,10 +106,10 @@ const handleSubmit = async () => {
           <option value="zh">简体中文</option>
           <option value="en">English</option>
         </select>
-        <v-icon size="small" class="lang-arrow">mdi-chevron-down</v-icon>
+        <v-icon size="small" class="lang-arrow">{{ mdiChevronDown }}</v-icon>
       </div>
       <v-btn icon variant="text" @click="toggleTheme">
-        <v-icon>{{ theme.global.current.value.dark ? 'mdi-weather-sunny' : 'mdi-weather-night' }}</v-icon>
+        <v-icon>{{ theme.global.current.value.dark ? mdiWeatherSunny : mdiWeatherNight }}</v-icon>
       </v-btn>
     </div>
 
@@ -127,7 +135,7 @@ const handleSubmit = async () => {
           v-model="username"
           :label="t('auth.username')"
           variant="outlined"
-          prepend-inner-icon="mdi-account"
+          :prepend-inner-icon="mdiAccount"
           class="mb-2"
           rounded="lg"
         ></v-text-field>
@@ -139,7 +147,7 @@ const handleSubmit = async () => {
           :label="t('auth.password')"
           type="password"
           variant="outlined"
-          prepend-inner-icon="mdi-lock"
+          :prepend-inner-icon="mdiLock"
           class="mb-4"
           rounded="lg"
         ></v-text-field>

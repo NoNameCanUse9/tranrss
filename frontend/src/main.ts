@@ -7,8 +7,7 @@ import i18n from './i18n'
 import { createVuetify } from 'vuetify'
 import * as components from 'vuetify/components'
 import * as directives from 'vuetify/directives'
-import { aliases, mdi } from 'vuetify/iconsets/mdi'
-import '@mdi/font/css/materialdesignicons.css'
+import { aliases, mdi } from 'vuetify/iconsets/mdi-svg'
 
 import { md3 } from 'vuetify/blueprints'
 
@@ -136,4 +135,4 @@ const vuetify = createVuetify({
     }
 })
 
-createApp(App).use(vuetify).use(i18n).mount('#app')
+createApp(App).use(vuetify as any).use(i18n).mount('#app')
