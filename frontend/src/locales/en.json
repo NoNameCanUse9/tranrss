@@ -7,7 +7,9 @@
     "edit": "Edit",
     "confirm": "Confirm",
     "uncategorized": "Uncategorized",
-    "sync_failed": "Sync failed"
+    "sync_failed": "Sync failed",
+    "prev": "Previous",
+    "next": "Next"
   },
   "nav": {
     "home": "Home",

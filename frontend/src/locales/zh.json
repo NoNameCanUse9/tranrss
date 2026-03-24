@@ -7,7 +7,9 @@
     "edit": "编辑",
     "confirm": "确定",
     "uncategorized": "未分类",
-    "sync_failed": "同步失败"
+    "sync_failed": "同步失败",
+    "prev": "上一篇",
+    "next": "下一篇"
   },
   "nav": {
     "home": "首页",

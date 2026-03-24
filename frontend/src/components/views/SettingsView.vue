@@ -197,7 +197,7 @@ const triggerImport = () => {
               </div>
               <v-switch
                 v-model="isDark"
-                color="primary"
+                color="success"
                 hide-details
                 @change="toggleTheme"
               />
@@ -233,7 +233,7 @@ const triggerImport = () => {
                 <p class="text-body-2 font-weight-medium">Google Reader API</p>
                 <p class="text-caption text-medium-emphasis">{{ t('settings.greader_desc') }}</p>
               </div>
-              <v-switch v-model="greaderApi" color="primary" hide-details />
+              <v-switch v-model="greaderApi" color="success" hide-details />
             </div>
             
             <div class="mb-4">
@@ -369,7 +369,7 @@ const triggerImport = () => {
                 <p class="text-body-2 font-weight-medium">{{ t('settings.enable_proxy') }}</p>
                 <p class="text-caption text-medium-emphasis">{{ t('settings.proxy_desc') }}</p>
               </div>
-              <v-switch v-model="proxyEnabled" color="primary" hide-details />
+              <v-switch v-model="proxyEnabled" color="success" hide-details />
             </div>
             <p class="text-body-2 font-weight-medium mb-2" :class="{'text-medium-emphasis': !proxyEnabled}">{{ t('settings.proxy_url') }}</p>
             <v-text-field
@@ -408,3 +408,23 @@ const triggerImport = () => {
     </v-snackbar>
   </div>
 </template>
+<style scoped>
+.settings-view {
+  max-width: 1200px;
+  margin: 0 auto;
+}
+
+.page-header {
+  margin-top: 2rem;
+}
+
+/* 强制开关开启时的颜色，防止主题色太暗导致分辨不出 */
+:deep(.v-selection-control--active .v-selection-control__wrapper),
+:deep(.v-selection-control--active .v-switch__thumb) {
+  color: #22c55e !important; /* 强制滑块为亮绿色 */
+}
+:deep(.v-selection-control--active .v-switch__track) {
+  background-color: #22c55e !important; /* 强制轨道为亮绿色 */
+  opacity: 0.3 !important;
+}
+</style>

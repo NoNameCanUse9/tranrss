@@ -13,7 +13,9 @@ import {
   mdiOpenInNew,
   mdiAccountOutline,
   mdiClockOutline,
-  mdiNewspaperVariantOutline
+  mdiNewspaperVariantOutline,
+  mdiChevronUp,
+  mdiChevronDown
 } from '@mdi/js'
 import ArticleContent from '../ArticleContent.vue'
 
@@ -32,6 +34,7 @@ const articleDetail = ref<any>(null)
 const blocks = ref<any[]>([])
 const stitchedContent = ref('')
 const articleSearch = ref('')
+const contentArea = ref<HTMLElement | null>(null)
 
 const filteredArticles = computed(() => {
   if (!articleSearch.value.trim()) return articles.value
@@ -170,6 +173,36 @@ const selectArticle = (article: any) => {
 const formatDate = (ts: number) => {
   return new Date(ts * 1000).toLocaleString()
 }
+
+const canPrev = computed(() => {
+  const index = filteredArticles.value.findIndex(a => a.id === selectedArticle.value?.id)
+  return index > 0
+})
+
+const canNext = computed(() => {
+  const index = filteredArticles.value.findIndex(a => a.id === selectedArticle.value?.id)
+  return index !== -1 && index < filteredArticles.value.length - 1
+})
+
+const prevArticle = () => {
+  const index = filteredArticles.value.findIndex(a => a.id === selectedArticle.value?.id)
+  if (index > 0) {
+    selectArticle(filteredArticles.value[index - 1])
+  }
+}
+
+const nextArticle = () => {
+  const index = filteredArticles.value.findIndex(a => a.id === selectedArticle.value?.id)
+  if (index !== -1 && index < filteredArticles.value.length - 1) {
+    selectArticle(filteredArticles.value[index + 1])
+  }
+}
+
+watch(selectedArticle, () => {
+  if (contentArea.value) {
+    contentArea.value.scrollTo({ top: 0, behavior: 'smooth' })
+  }
+})
 </script>
 
 <template>
@@ -251,7 +284,10 @@ const formatDate = (ts: number) => {
     </div>
 
     <!-- Article Content -->
-    <div class="article-content flex-grow-1 overflow-y-auto px-6 py-8 custom-scrollbar bg-surface">
+    <div 
+        ref="contentArea"
+        class="article-content flex-grow-1 overflow-y-auto px-6 py-8 custom-scrollbar bg-surface position-relative"
+    >
       <div v-if="selectedArticle && articleDetail" class="mx-auto" style="max-width: 900px;">
         <div class="d-flex align-start justify-space-between mb-2">
             <h1 class="text-h4 font-weight-bold flex-grow-1 mr-4">{{ articleDetail.title }}</h1>
@@ -336,6 +372,34 @@ const formatDate = (ts: number) => {
         </div>
 
         <ArticleContent :content="stitchedContent" />
+
+        <!-- 悬浮导航按钮 -->
+        <div class="floating-nav d-flex flex-column ga-6">
+          <v-btn
+            icon
+            elevation="4"
+            color="surface"
+            :disabled="!canPrev"
+            @click="prevArticle"
+            size="large"
+            class="nav-btn"
+            :title="$t('common.prev')"
+          >
+            <v-icon color="primary">{{ mdiChevronUp }}</v-icon>
+          </v-btn>
+          <v-btn
+            icon
+            elevation="4"
+            color="primary"
+            :disabled="!canNext"
+            @click="nextArticle"
+            size="large"
+            class="nav-btn scale-up"
+            :title="$t('common.next')"
+          >
+            <v-icon>{{ mdiChevronDown }}</v-icon>
+          </v-btn>
+        </div>
       </div>
       <div v-else class="h-100 d-flex flex-column align-center justify-center text-medium-emphasis opacity-60">
         <v-icon size="64" class="mb-4">{{ mdiNewspaperVariantOutline }}</v-icon>
@@ -477,6 +541,29 @@ const formatDate = (ts: number) => {
   overflow: visible;
   transform-origin: center;
   transition: all 0.3s ease;
+}
+
+.floating-nav {
+  position: fixed;
+  bottom: 40px;
+  right: 40px;
+  z-index: 100;
+}
+
+.nav-btn {
+  transition: all 0.3s cubic-bezier(0.34, 1.56, 0.64, 1) !important;
+}
+
+.nav-btn:hover {
+  transform: translateY(-5px);
+}
+
+.nav-btn:active {
+  transform: scale(0.9);
+}
+
+.scale-up {
+    border: 2px solid rgba(var(--v-theme-primary), 0.1);
 }
 </style>
 
