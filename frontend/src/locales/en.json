@@ -9,7 +9,9 @@
     "uncategorized": "Uncategorized",
     "sync_failed": "Sync failed",
     "prev": "Previous",
-    "next": "Next"
+    "next": "Next",
+    "copy": "Copy",
+    "copy_success": "Copied to clipboard"
   },
   "nav": {
     "home": "Home",
@@ -198,6 +200,7 @@
     "queue_limit": "Log Retention Limit",
     "system_features": "Enhanced Features",
     "greader_desc": "Support third-party client synchronization",
+    "greader_url_tip": "GReader API Endpoint (for 3rd party sync)",
     "global_default_api": "Global Default API",
     "global_default_desc": "This configuration will be used when no specific translation or summary API is specified.",
     "select_api_placeholder": "Select API Key",

@@ -9,7 +9,9 @@
     "uncategorized": "未分类",
     "sync_failed": "同步失败",
     "prev": "上一篇",
-    "next": "下一篇"
+    "next": "下一篇",
+    "copy": "复制",
+    "copy_success": "已复制到剪贴板"
   },
   "nav": {
     "home": "首页",
@@ -199,6 +201,7 @@
     "queue_limit": "日志保留数量",
     "system_features": "增强功能",
     "greader_desc": "支持第三方客户端同步",
+    "greader_url_tip": "GReader API 端点 (用于第三方客户端同步)",
     "global_default_api": "全局默认 API",
     "global_default_desc": "当未指定具体翻译或摘要 API 时，将使用此配置。",
     "select_api_placeholder": "选择 API 密钥",

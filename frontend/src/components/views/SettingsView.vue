@@ -15,7 +15,8 @@ import {
   mdiEarth,
   mdiServerNetwork,
   mdiContentSaveOutline,
-  mdiCheckCircleOutline
+  mdiCheckCircleOutline,
+  mdiContentCopy
 } from '@mdi/js'
 
 const { t } = useI18n()
@@ -40,7 +41,14 @@ const importing = ref(false)
 const snackbar = ref(false)
 const snackbarText = ref(t('settings.saved'))
 
+const greaderUrl = ref(`${window.location.origin}/api/greader`)
 const apiConfigs = ref<any[]>([])
+
+const copyToClipboard = (text: string) => {
+  navigator.clipboard.writeText(text)
+  snackbarText.value = t('common.copy_success')
+  snackbar.value = true
+}
 
 const fetchApiConfigs = async () => {
   try {
@@ -235,6 +243,27 @@ const triggerImport = () => {
               </div>
               <v-switch v-model="greaderApi" color="success" hide-details />
             </div>
+
+            <v-expand-transition>
+              <div v-if="greaderApi" class="mt-n2 mb-6">
+                <div class="d-flex align-center border-sm border-opacity-25 rounded-lg px-3 py-2 bg-surface">
+                  <div class="flex-grow-1 overflow-hidden mr-2">
+                    <p class="text-caption font-weight-bold text-primary mb-0">{{ t('settings.greader_url_tip') }}</p>
+                    <code class="text-caption text-truncate d-block">{{ greaderUrl }}</code>
+                  </div>
+                  <v-btn
+                    variant="tonal"
+                    size="small"
+                    color="primary"
+                    :prepend-icon="mdiContentCopy"
+                    class="text-none"
+                    @click="copyToClipboard(greaderUrl)"
+                  >
+                    {{ t('common.copy') }}
+                  </v-btn>
+                </div>
+              </div>
+            </v-expand-transition>
             
             <div class="mb-4">
               <p class="text-body-2 font-weight-medium mb-2">{{ t('settings.global_default_api') }}</p>
@@ -418,13 +447,26 @@ const triggerImport = () => {
   margin-top: 2rem;
 }
 
-/* 强制开关开启时的颜色，防止主题色太暗导致分辨不出 */
-:deep(.v-selection-control--active .v-selection-control__wrapper),
-:deep(.v-selection-control--active .v-switch__thumb) {
-  color: #22c55e !important; /* 强制滑块为亮绿色 */
+/* 强制所有设置页面的开关在开启时显示明显的绿色 */
+.settings-view :deep(.v-switch.v-selection-control--dirty) {
+  --v-selection-control-color: #22c55e !important;
 }
-:deep(.v-selection-control--active .v-switch__track) {
-  background-color: #22c55e !important; /* 强制轨道为亮绿色 */
-  opacity: 0.3 !important;
+
+/* 针对 MD3 蓝图的特殊覆盖，强制滑块和轨道颜色 */
+.settings-view :deep(.v-selection-control--dirty.v-switch--selected .v-switch__track) {
+  background-color: #22c55e !important;
+  border-color: #22c55e !important;
+  opacity: 0.7 !important;
 }
+
+.settings-view :deep(.v-selection-control--dirty.v-switch--selected .v-switch__thumb) {
+  background-color: #ffffff !important; /* 强制滑块为白色 */
+  border-color: #22c55e !important;
+}
+
+/* 兼容深色模式下的亮度 */
+.v-theme--dark .settings-view :deep(.v-selection-control--dirty.v-switch--selected .v-switch__track) {
+  background-color: #4ade80 !important;
+}
+
 </style>
