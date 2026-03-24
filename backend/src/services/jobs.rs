@@ -216,6 +216,7 @@ async fn refresh_feeds_handler(
     _job: RefreshFeedsJob,
     data: Data<Arc<AppState>>,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync + 'static>> {
+    tracing::info!("🕒 Cron: 开始检查需要刷新的 Feed...");
     let due_feeds = sqlx::query_scalar::<_, i64>(
         r#"
         SELECT f.id 
@@ -241,7 +242,9 @@ async fn refresh_feeds_handler(
     .map_err(|e| Box::new(std::io::Error::new(std::io::ErrorKind::Other, e.to_string())) as Box<dyn std::error::Error + Send + Sync + 'static>)?;
 
     let mut storage = data.sync_queue.clone();
+    tracing::info!("🕒 Cron: 找到 {} 个待刷新 Feed", due_feeds.len());
     for fid in due_feeds {
+        tracing::info!("🕒 Cron: 为 Feed {} 调度同步任务", fid);
         let _ = storage
             .push(SyncFeedJob {
                 feed_id: fid,
@@ -436,7 +439,7 @@ pub async fn start_workers(state: Arc<AppState>) -> anyhow::Result<()> {
     });
 
     let state_cron = state.clone();
-    let schedule = Schedule::from_str("0 */5 * * * *")?;
+    let schedule = Schedule::from_str("0 * * * * *")?; // 每分钟运行一次
 
     tokio::spawn(async move {
         Monitor::new()

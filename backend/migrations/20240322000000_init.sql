@@ -81,6 +81,7 @@ CREATE TABLE IF NOT EXISTS articles (
     is_starred INTEGER DEFAULT 0,
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     summary TEXT,
+    crawl_time INTEGER,
     FOREIGN KEY (feed_id) REFERENCES feeds(id) ON DELETE CASCADE
 );
 

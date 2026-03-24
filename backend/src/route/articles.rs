@@ -191,97 +191,17 @@ async fn get_article(
     )
     .bind(id)
     .bind(auth.user_id)
-    .fetch_optional(&state.db)
+    .fetch_one(&state.db)
     .await
-    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
     .unwrap_or(false);
 
-    let mut stitched_content = detail
-        .content_skeleton
-        .as_deref()
-        .unwrap_or_default()
-        .to_string();
-    for block in &blocks {
-        let replacement = if is_need_translated {
-            if let Some(ref trans) = block.trans_text {
-                // 双语模式：原文 + 斜体翻译
-                format!(
-                    "{}<br><em class=\"trans-text\">{}</em>",
-                    block.raw_text, trans
-                )
-            } else {
-                // 尚未翻译，仅显示原文
-                block.raw_text.clone()
-            }
-        } else {
-            // 不需要翻译则直接用原文
-            block.raw_text.clone()
-        };
-        stitched_content =
-            stitched_content.replace(&format!("[[TEXT_{}]]", block.block_index), &replacement);
-    }
-
-    // 如果有翻译内容，注入内联 CSS
-    if is_need_translated && blocks.iter().any(|b| b.trans_text.is_some()) {
-        let inline_style = r#"<style>
-em.trans-text {
-  display: block;
-  font-style: italic;
-  color: inherit;
-  opacity: 0.6;
-  font-size: 0.95em;
-  margin-top: 0.25em;
-  padding-left: 0.75em;
-  border-left: 2px solid #7986CB;
-}
-</style>"#;
-        stitched_content = format!("{}{}", inline_style, stitched_content);
-    }
-
-    // 如果有 AI 生成的摘要，将其以绿色引用块的形式插入文章最前面
-    if let Some(ref summary_text) = detail.summary {
-        if !summary_text.trim().is_empty() {
-            let summary_html = format!(
-                r#"<style>
-.ai-summary {{
-  position: relative;
-  background: linear-gradient(135deg, rgba(34,197,94,0.08) 0%, rgba(16,185,129,0.05) 100%);
-  border-left: 3px solid #22c55e;
-  border-radius: 0 8px 8px 0;
-  padding: 1em 1.2em 1em 1.4em;
-  margin: 0 0 1.8em 0;
-  color: inherit;
-  font-size: 0.97em;
-  line-height: 1.7;
-}}
-.ai-summary::before {{
-  content: '“';
-  display: block;
-  font-size: 2.4em;
-  line-height: 0.8;
-  color: #22c55e;
-  font-family: Georgia, serif;
-  margin-bottom: 0.1em;
-  opacity: 0.85;
-}}
-.ai-summary::after {{
-  content: '”';
-  display: block;
-  font-size: 2.4em;
-  line-height: 0.5;
-  color: #22c55e;
-  font-family: Georgia, serif;
-  text-align: right;
-  margin-top: 0.2em;
-  opacity: 0.85;
-}}
-</style>
-<div class="ai-summary">{}</div>"#,
-                summary_text
-            );
-            stitched_content = format!("{}{}", summary_html, stitched_content);
-        }
-    }
+    // 2. 拼合内容
+    let stitched_content = articles::stitch_article_content(
+        detail.content_skeleton.as_deref().unwrap_or_default(),
+        &blocks,
+        detail.summary.as_deref(),
+        is_need_translated,
+    );
 
     Ok(Json(serde_json::json!({
         "detail": detail,

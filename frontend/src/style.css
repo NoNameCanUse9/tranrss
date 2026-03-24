@@ -316,3 +316,31 @@ h3,
     transform: rotate(360deg);
   }
 }
+
+/* --- Vuetify Switch 增强 (提高开关边缘清晰度) --- */
+.v-switch__track {
+  opacity: 1 !important;
+  background-color: var(--md-sys-color-surface-container-high) !important;
+  border: 1.5px solid var(--md-sys-color-outline) !important;
+  transition: all var(--md-motion-duration-short) ease !important;
+}
+
+.v-selection-control--dirty.v-switch--selected .v-switch__track {
+  background-color: var(--md-sys-color-primary) !important;
+  border-color: var(--md-sys-color-primary) !important;
+}
+
+.v-switch__thumb {
+  background-color: var(--md-sys-color-on-surface-variant) !important;
+  box-shadow: 0 2px 5px rgba(0, 0, 0, 0.2) !important;
+  border: 0.5px solid rgba(var(--md-sys-color-outline-rgb), 0.2) !important;
+  transition: all var(--md-motion-duration-short) ease !important;
+}
+
+.v-selection-control--dirty.v-switch--selected .v-switch__thumb {
+  background-color: var(--md-sys-color-on-primary) !important;
+}
+
+.v-switch:not(.v-selection-control--dirty):hover .v-switch__track {
+  border-color: var(--md-sys-color-primary) !important;
+}

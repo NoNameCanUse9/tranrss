@@ -280,7 +280,7 @@ pub async fn fetch_and_process_feed(db: &SqlitePool, user_id: i64, feed_id: i64)
         .fetch_one(db)
         .await?;
 
-    tracing::info!("🌐 正在请求 Feed: {}", feed_url);
+    tracing::info!("🌐 正在请求 Feed: {} (ID: {})", feed_url, feed_id);
 
     // 2. 发起请求
     let client = reqwest::Client::builder()
@@ -330,8 +330,8 @@ pub async fn fetch_and_process_feed(db: &SqlitePool, user_id: i64, feed_id: i64)
                         .execute(db)
                         .await;
 
-                    tracing::debug!(
-                        "抓取成功 (feed_id={}, attempt={})，开始解析 XML ({} bytes)...",
+                    tracing::info!(
+                        "🚀 抓取成功 (feed_id={}, attempt={})，开始解析 XML ({} bytes)...",
                         feed_id,
                         attempt,
                         xml_content.len()
@@ -426,7 +426,17 @@ fn parse_feed_entries(xml: &str, _feed_id: i64) -> Result<Vec<ParsedArticle>> {
     let mut results = Vec::new();
 
     for entry in feed.entries {
-        let origin_guid = entry.id;
+        let mut origin_guid = entry.id;
+        if origin_guid.is_empty() {
+            // 如果 GUID 为空，尝试使用链接作为 GUID，再不行就用标题
+            origin_guid = entry.links.first().map(|l| l.href.clone())
+                .unwrap_or_else(|| entry.title.as_ref().map(|t| t.content.clone()).unwrap_or_default());
+        }
+
+        if origin_guid.is_empty() {
+            tracing::warn!("(feed_id={}) 文章没有 ID/链接/标题，跳过", _feed_id);
+            continue;
+        }
 
         let mut hasher = DefaultHasher::new();
         origin_guid.hash(&mut hasher);
@@ -472,21 +482,21 @@ pub async fn process_xml_content(
 ) -> Result<()> {
     // 1. 同步解析（不涉及 await，scraper::Html 不会跨越 await 边界）
     let articles = parse_feed_entries(xml, feed_id)?;
-    tracing::debug!(
-        "(feed_id={}) 解析 XML 成功，得到 {} 篇文章",
+    tracing::info!(
+        "📦 (feed_id={}) 解析 XML 成功，得到 {} 篇文章",
         feed_id,
         articles.len()
     );
 
     // 2. 开始事务异步写入数据库
     let mut tx = db.begin().await?;
-    tracing::debug!("(feed_id={}) 数据库事务开启", feed_id);
+    tracing::info!("💾 (feed_id={}) 数据库事务开启", feed_id);
 
     for article in &articles {
         sqlx::query(
             r#"
-            INSERT INTO articles (id, original_guid, feed_id, title, link, author, published_at, content_skeleton)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO articles (id, original_guid, feed_id, title, link, author, published_at, content_skeleton, crawl_time)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, strftime('%s', 'now'))
             ON CONFLICT(original_guid) DO UPDATE SET
                 title = excluded.title,
                 link = excluded.link,
@@ -563,6 +573,6 @@ pub async fn process_xml_content(
         .await?;
 
     tx.commit().await?;
-    tracing::debug!("(feed_id={}) 数据库事务提交成功", feed_id);
+    tracing::info!("✅ (feed_id={}) 数据库事务提交成功，同步文章完成", feed_id);
     Ok(())
 }

@@ -120,3 +120,56 @@ pub async fn mark_read(db: &SqlitePool, user_id: i64, id: i64, read: bool) -> Re
     .await?;
     Ok(())
 }
+
+pub fn stitch_article_content(
+    skeleton: &str,
+    blocks: &[ArticleBlock],
+    summary: Option<&str>,
+    need_translate: bool,
+) -> String {
+    let mut stitched_content = skeleton.to_string();
+    let has_any_trans = blocks.iter().any(|b| b.trans_text.is_some());
+
+    for block in blocks {
+        if block.block_index < 0 {
+            continue;
+        }
+
+        let replacement = if need_translate {
+            if let Some(ref trans) = block.trans_text {
+                // 双语模式：原文 + 斜体翻译 (内联样式以便 GReader 客户端兼容)
+                format!(
+                    "{}<br><em style=\"display:block;font-style:italic;opacity:0.6;font-size:0.95em;margin-top:0.25em;padding-left:0.75em;border-left:2px solid #7986CB;\">{}</em>",
+                    block.raw_text, trans
+                )
+            } else {
+                block.raw_text.clone()
+            }
+        } else {
+            block.raw_text.clone()
+        };
+        stitched_content =
+            stitched_content.replace(&format!("[[TEXT_{}]]", block.block_index), &replacement);
+    }
+
+    // 注入 AI 摘要 (如果存在)
+    if let Some(summary_text) = summary {
+        if !summary_text.trim().is_empty() {
+            let summary_html = format!(
+                r#"<div style="background:rgba(34,197,94,0.08);border-left:3px solid #22c55e;padding:1em;margin-bottom:1.5em;border-radius:0 8px 8px 0;line-height:1.7;">
+                    <strong style="color:#22c55e;display:block;margin-bottom:0.5em;font-size:1.1em;">AI 摘要</strong>
+                    {}
+                </div>"#,
+                summary_text
+            );
+            stitched_content = format!("{}{}", summary_html, stitched_content);
+        }
+    }
+
+    // 如果骨架为空且只有摘要，兜底处理
+    if stitched_content.is_empty() && summary.is_some() {
+        stitched_content = summary.unwrap_or_default().to_string();
+    }
+
+    stitched_content
+}
