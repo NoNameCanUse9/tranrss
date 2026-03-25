@@ -1,0 +1,28 @@
+# Git
+.git
+.github
+
+# Node dependencies
+**/node_modules
+npm-debug.log
+yarn-error.log
+pnpm-debug.log
+
+# Build files
+**/dist
+**/dist-ssr
+**/target
+
+# IDEs
+.vscode
+.idea
+*.swp
+*.swo
+
+# Databases & logs
+*.db
+*.db-shm
+*.db-wal
+*.log
+.env
+.local
