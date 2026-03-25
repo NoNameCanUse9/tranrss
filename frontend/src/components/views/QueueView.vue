@@ -41,6 +41,8 @@ interface BackendJob {
   done_at: number | null
   job_data: JobData
   title_label: string | null
+  feed_id: number | null
+  feed_title: string | null
 }
 
 interface SubJob {
@@ -74,6 +76,7 @@ interface QueueJob {
   }
   articleId?: number
   feedId?: number
+  feedTitle?: string
 }
 
 const jobs = ref<QueueJob[]>([])
@@ -140,12 +143,11 @@ const groupJobs = (rawJobs: any[]): QueueJob[] => {
     }
 
     if (rj.type === 'translate' || rj.type === 'summarize') {
-      // Group by title (which should be the article title)
+      // Group by feedId if available, fallback to title (article title)
       const existingGroup = grouped.find(g => 
         g.isGroup && 
         g.type === rj.type && 
-        g.title === rj.title &&
-        (g.articleId === rj.articleId)
+        (rj.feedId ? g.feedId === rj.feedId : g.title === rj.title)
       )
 
       if (existingGroup) {
@@ -172,9 +174,10 @@ const groupJobs = (rawJobs: any[]): QueueJob[] => {
         continue
       }
 
-      // Create new group for this article task
+      // Create new group for this feed/article task
       grouped.push({
         ...rj,
+        title: rj.feedTitle || rj.title, // Use feed title as card title
         titles: [rj.title],
         groupedIds: [rj.id],
         isGroup: true,
@@ -296,7 +299,8 @@ const mapBackendJob = (bj: BackendJob): QueueJob => {
     duration,
     error: bj.last_error,
     articleId: bj.job_data.article_id,
-    feedId: bj.job_data.feed_id,
+    feedId: bj.feed_id || bj.job_data.feed_id,
+    feedTitle: bj.feed_title,
   } as unknown as any // using 'any' mapping bridge for groupJobs
 }
 
@@ -495,48 +499,31 @@ const clearCompleted = async () => {
               <v-icon color="white" size="18">{{ typeInfo(job.type).icon }}</v-icon>
             </v-avatar>
 
-            <div class="flex-1 min-w-0">
-              <div class="d-flex align-center justify-space-between gap-3">
-                <div v-if="job.isGroup" class="d-flex align-center gap-4 flex-wrap flex-1 min-w-0">
-                  <span class="text-h6 font-weight-bold mr-4 text-truncate" style="max-width: 50%;">{{ job.title }}</span>
-                  <v-chip size="x-small" variant="tonal" class="mr-2">{{ job.type === 'sync' ? `${job.groupedIds.length}${ $t('queue.unit_source') }` : `${job.groupedIds.length}${ $t('queue.unit_segment') }` }}</v-chip>
-                  <div class="d-flex align-center gap-4">
-                    <span v-if="job.stats?.done" class="d-flex align-center text-success text-body-2 font-weight-medium">
-                      <v-icon size="16" class="mr-1">{{ mdiCheckCircle }}</v-icon>{{ $t('queue.stat_done') }}: {{ job.stats.done }}
-                    </span>
-                    <span v-if="job.stats?.failed" class="d-flex align-center text-error text-body-2 font-weight-medium">
-                      <v-icon size="16" class="mr-1">{{ mdiAlertCircle }}</v-icon>{{ $t('queue.stat_failed') }}: {{ job.stats.failed }}
-                    </span>
-                    <span v-if="job.stats?.pending" class="d-flex align-center text-warning text-body-2 font-weight-medium">
-                      <v-icon size="16" class="mr-1">{{ mdiClockOutline }}</v-icon>{{ $t('queue.stat_pending') }}: {{ job.stats.pending }}
-                    </span>
-                    <span v-if="job.stats?.running" class="d-flex align-center text-primary text-body-2 font-weight-medium">
-                      <v-icon size="16" class="mr-1 mdi-spin">{{ mdiLoading }}</v-icon>{{ $t('queue.stat_running') }}: {{ job.stats.running }}
-                    </span>
-                  </div>
-                </div>
-                <div v-else class="text-body-2 font-weight-semibold flex-1 min-w-0" style="word-break: break-all;">
-                  <span class="d-block text-truncate pb-1">{{ job.title }}</span>
-                </div>
+            <div class="flex-1 min-w-0 d-flex flex-column">
+              <!-- 第一行：标题和主要的聚合统计 -->
+              <div class="d-flex align-center gap-2 mb-1">
+                <span class="text-h6 font-weight-bold text-truncate" style="max-width: 300px;">{{ job.title }}</span>
+                <v-chip size="x-small" variant="tonal" class="flex-shrink-0">{{ job.type === 'sync' ? `${job.groupedIds.length}${ $t('queue.unit_source') }` : `${job.titles.length}${ $t('queue.unit_article') }` }}</v-chip>
                 
-                <v-chip
-                  v-if="!job.isGroup"
-                  :color="statusInfo(job.status).color"
-                  size="x-small"
-                  variant="tonal"
-                  class="text-none flex-shrink-0"
-                >
-                  {{ statusInfo(job.status).label }}
-                </v-chip>
-                <div v-else class="flex-shrink-0 d-flex align-center">
-                  <v-btn v-if="job.stats?.failed" size="small" variant="tonal" @click.stop="retryJob({ groupedIds: job.subJobs?.filter(s => s.status === 'failed').map(s => s.id) || [] } as any)" color="error" class="px-3 mr-4 text-none rounded-pill">
-                    <v-icon start :icon="mdiRefresh" />{{ $t('queue.retry_failed') }}
-                  </v-btn>
-                  <v-icon color="medium-emphasis" size="24">{{ job.expanded ? mdiChevronUp : mdiChevronDown }}</v-icon>
+                <!-- 统计数据放在标题行，但使用 flex-grow 占据中间空间并不行，这里直接放 -->
+                <div v-if="job.isGroup" class="d-flex align-center gap-4 ml-4 flex-nowrap">
+                  <span v-if="job.stats?.done" class="d-flex align-center text-success text-body-2 font-weight-medium">
+                    <v-icon size="16" class="mr-1">{{ mdiCheckCircle }}</v-icon>{{ job.stats.done }}
+                  </span>
+                  <span v-if="job.stats?.failed" class="d-flex align-center text-error text-body-2 font-weight-medium">
+                    <v-icon size="16" class="mr-1">{{ mdiAlertCircle }}</v-icon>{{ job.stats.failed }}
+                  </span>
+                  <span v-if="job.stats?.pending" class="d-flex align-center text-warning text-body-2 font-weight-medium">
+                    <v-icon size="16" class="mr-1">{{ mdiClockOutline }}</v-icon>{{ job.stats.pending }}
+                  </span>
+                  <span v-if="job.stats?.running" class="d-flex align-center text-primary text-body-2 font-weight-medium">
+                    <v-icon size="16" class="mr-1 mdi-spin">{{ mdiLoading }}</v-icon>{{ job.stats.running }}
+                  </span>
                 </div>
               </div>
-              
-              <div class="d-flex align-center gap-3 mt-2 text-caption text-medium-emphasis">
+
+              <!-- 第二行：详细信息、类型及可能的错误摘要 -->
+              <div class="d-flex align-center gap-3 text-caption text-medium-emphasis">
                 <span v-if="!job.isGroup" class="d-flex align-center">
                   <v-icon size="14" class="mr-1">{{ mdiIdentifier }}</v-icon>{{ job.subscription }}
                 </span>
@@ -546,11 +533,30 @@ const clearCompleted = async () => {
                 
                 <span class="d-flex align-center">
                   <v-icon size="14" class="mr-1">{{ mdiClockOutline }}</v-icon>{{ job.startedAt }}
-                  <v-tooltip v-if="job.duration" activator="parent" location="top">{{ $t('queue.duration', { d: job.duration }) }}</v-tooltip>
                 </span>
                 <v-chip :color="typeInfo(job.type).color" size="x-small" variant="tonal" class="text-none">
                   {{ typeInfo(job.type).label }}
                 </v-chip>
+                <span v-if="job.error" class="text-error ml-1 text-truncate" style="max-width: 300px;">({{ job.error }})</span>
+              </div>
+            </div>
+
+            <!-- 最右侧动作：绝对靠右对齐 -->
+            <div class="flex-shrink-0 d-flex align-center ml-auto pl-4">
+              <v-chip
+                v-if="!job.isGroup"
+                :color="statusInfo(job.status).color"
+                size="x-small"
+                variant="tonal"
+                class="text-none"
+              >
+                {{ statusInfo(job.status).label }}
+              </v-chip>
+              <div v-else class="d-flex align-center">
+                <v-btn v-if="job.stats?.failed" size="small" variant="tonal" @click.stop="retryJob({ groupedIds: job.subJobs?.filter(s => s.status === 'failed').map(s => s.id) || [] } as any)" color="error" class="px-3 mr-4 text-none rounded-pill">
+                  <v-icon start :icon="mdiRefresh" />{{ $t('queue.retry_failed') }}
+                </v-btn>
+                <v-icon color="medium-emphasis" size="28">{{ job.expanded ? mdiChevronUp : mdiChevronDown }}</v-icon>
               </div>
             </div>
           </div>
@@ -598,10 +604,11 @@ const clearCompleted = async () => {
               <div v-for="sub in job.subJobs" :key="sub.id" class="d-flex align-center justify-space-between bg-surface pa-2 rounded-lg border-thin">
                 <div class="d-flex align-center gap-2 min-w-0 flex-1">
                   <v-icon :color="statusInfo(sub.status).color" size="18" :class="{ 'mdi-spin': sub.status === 'running' }">{{ statusInfo(sub.status).icon }}</v-icon>
-                  <span class="text-caption text-truncate font-weight-medium">{{ sub.title }}</span>
+                  <span class="text-caption text-truncate font-weight-medium flex-1">{{ sub.title }}</span>
+                  <span v-if="sub.error" class="text-caption text-error text-truncate ml-2 max-w-sm" style="max-width: 300px;">{{ sub.error }}</span>
                 </div>
                 <div class="d-flex align-center gap-2">
-                  <v-tooltip :text="$t('queue.view_error')" location="top">
+                  <v-tooltip v-if="sub.error" :text="$t('queue.view_error')" location="top">
                     <template v-slot:activator="{ props }">
                       <v-btn v-bind="props" icon variant="text" size="small" color="error" density="compact">
                         <v-icon size="16">{{ mdiAlertCircle }}</v-icon>

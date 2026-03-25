@@ -11,5 +11,9 @@
   },
   "devDependencies": {
     "vite-plugin-vue-inspector": "^5.4.0"
+  },
+  "dependencies": {
+    "echarts": "^6.0.0",
+    "vue-echarts": "^8.0.1"
   }
 }

@@ -61,7 +61,7 @@
   --md-motion-easing-emphasized-decelerate: cubic-bezier(0.05, 0.7, 0.1, 1.0);
   --md-motion-easing-emphasized-accelerate: cubic-bezier(0.3, 0.0, 0.8, 0.15);
   --md-motion-easing-standard: cubic-bezier(0.2, 0.0, 0, 1.0);
-  
+
   --md-motion-duration-short: 150ms;
   --md-motion-duration-medium: 400ms;
   --md-motion-duration-long: 700ms;
@@ -172,11 +172,13 @@ body {
 .line-clamp-desc {
   display: -webkit-box !important;
   -webkit-box-orient: vertical !important;
-  -webkit-line-clamp: 2 !important; /* 限制2行 */
+  -webkit-line-clamp: 2 !important;
+  /* 限制2行 */
   line-clamp: 2 !important;
   overflow: hidden !important;
   text-overflow: ellipsis !important;
-  height: 2.8em !important; /* 统一高度，防止一行和两行的卡片高度不一 */
+  height: 2.8em !important;
+  /* 统一高度，防止一行和两行的卡片高度不一 */
 }
 
 /* Material Design 3 表现力样式 (Expressive Styles) */
@@ -220,7 +222,7 @@ h3,
 .sub-card {
   background-color: var(--md-sys-color-surface-container) !important;
   border-radius: 32px !important;
-  transition: 
+  transition:
     background-color var(--md-motion-duration-short) linear,
     transform var(--md-motion-duration-medium) var(--md-motion-easing-emphasized),
     box-shadow var(--md-motion-duration-medium) var(--md-motion-easing-emphasized) !important;
@@ -238,7 +240,8 @@ h3,
 }
 
 .sub-card:active {
-  transform: scale(0.96); /* MD3 Spring click feedback */
+  transform: scale(0.96);
+  /* MD3 Spring click feedback */
   transition-duration: 100ms !important;
 }
 
@@ -251,11 +254,12 @@ h3,
 /* --- Material Design 3 Expressive (MD3 E) 按钮强化 --- */
 .v-btn {
   /* 基础动画继承 MD3 强调型曲线 */
-  transition: 
+  transition:
     transform var(--md-motion-duration-medium) var(--md-motion-easing-emphasized),
     box-shadow var(--md-motion-duration-medium) var(--md-motion-easing-emphasized),
     background-color 0.2s ease !important;
-  text-transform: none !important; /* MD3 不推荐全大写 */
+  text-transform: none !important;
+  /* MD3 不推荐全大写 */
   letter-spacing: 0.02em !important;
   font-weight: 500 !important;
 }
@@ -263,7 +267,8 @@ h3,
 /* 按下时的“塌陷”反馈 - 表现力核心 */
 .v-btn:active {
   transform: scale(0.92) !important;
-  transition-duration: 80ms !important; /* 响应必须极快 */
+  transition-duration: 80ms !important;
+  /* 响应必须极快 */
 }
 
 /* Filled / Tonal 按钮在悬停时的“升起”感 */
@@ -312,38 +317,44 @@ h3,
   from {
     transform: rotate(0deg);
   }
+
   to {
     transform: rotate(360deg);
   }
 }
 
-/* --- Vuetify Switch 增强 (提高开关边缘清晰度) --- */
-.v-switch__track {
+/* --- Vuetify Switch 增强 (最强优先级覆盖) --- */
+/* 1. 默认状态 (未选中/关闭时) */
+.v-switch .v-switch__track {
   opacity: 1 !important;
   background-color: var(--md-sys-color-surface-container-high) !important;
   border: 1.5px solid var(--md-sys-color-outline) !important;
   transition: all var(--md-motion-duration-short) ease !important;
 }
 
-.v-selection-control--dirty.v-switch--selected .v-switch__track {
-  background-color: #22c55e !important; /* 开启状态背景绿色 */
-  border-color: #22c55e !important;
-  opacity: 1 !important; /* 开启状态下轨道不透明 */
-}
-
-.v-switch__thumb {
+.v-switch .v-switch__thumb {
   background-color: var(--md-sys-color-on-surface-variant) !important;
   box-shadow: 0 2px 5px rgba(0, 0, 0, 0.2) !important;
   border: 0.5px solid rgba(var(--md-sys-color-outline-rgb), 0.2) !important;
   transition: all var(--md-motion-duration-short) ease !important;
 }
 
-/* 兼容不同版本的圆点类名 */
-.v-selection-control--dirty.v-switch--selected .v-switch__thumb,
-.v-selection-control--dirty.v-switch--selected .v-selection-control__input {
-  background-color: #ffffff !important; /* 开启状态下圆点强制白色 */
+/* 2. 选中状态 (开启时) - 只要满足 dirty 条件且属于 switch 及其子组件就强制变色 */
+.v-switch .v-selection-control--dirty .v-switch__track,
+.v-selection-control--dirty.v-switch .v-switch__track {
+  background-color: #22c55e !important;
+  border-color: #22c55e !important;
+  color: #22c55e !important;
 }
 
+.v-switch .v-selection-control--dirty .v-switch__thumb,
+.v-selection-control--dirty.v-switch .v-switch__thumb {
+  background-color: #ffffff !important;
+  border-color: #ffffff !important;
+}
+
+/* 3. 悬停反馈 (仅针对未选中状态) */
 .v-switch:not(.v-selection-control--dirty):hover .v-switch__track {
   border-color: var(--md-sys-color-primary) !important;
+  background-color: var(--md-sys-color-surface-container-highest) !important;
 }

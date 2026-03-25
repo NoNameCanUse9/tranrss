@@ -107,6 +107,9 @@ onMounted(() => {
   setInterval(fetchActiveJobsCount, 30000)
 })
 
+const unreadCount = computed(() => subscriptions.value.reduce((acc, sub) => acc + sub.unreadCount, 0))
+const starredCount = computed(() => subscriptions.value.reduce((acc, sub) => acc + sub.starredCount, 0))
+
 const groupedSubscriptions = computed(() => {
   const groups: Record<string, any[]> = {}
   subscriptions.value.forEach(sub => {
@@ -199,21 +202,29 @@ const fetchActiveJobsCount = async () => {
           </template>
 
           <v-list-item 
-            :title="$t('nav.unread')" 
             :prepend-icon="mdiCircleMedium" 
             density="compact" 
             class="pl-6 mb-1 text-body-2" 
             :active="activeTab === 0 && filterRead === false" 
             @click="selectFeed(undefined, false)" 
-          />
+          >
+            <v-list-item-title>{{ $t('nav.unread') }}</v-list-item-title>
+            <template #append v-if="unreadCount > 0">
+              <v-badge :content="unreadCount" color="primary" inline />
+            </template>
+          </v-list-item>
           <v-list-item 
-            :title="$t('nav.starred')" 
             :prepend-icon="mdiStarOutline" 
             density="compact" 
             class="pl-6 mb-1 text-body-2" 
             :active="activeTab === 0 && filterStarred === true" 
             @click="selectFeed(undefined, undefined, true)" 
-          />
+          >
+            <v-list-item-title>{{ $t('nav.starred') }}</v-list-item-title>
+            <template #append v-if="starredCount > 0">
+              <v-badge :content="starredCount" color="primary" inline />
+            </template>
+          </v-list-item>
 
           <v-list-group v-for="(subs, cat) in groupedSubscriptions" :key="cat" :value="cat">
             <template #activator="{ props }">
@@ -227,7 +238,11 @@ const fetchActiveJobsCount = async () => {
               class="pl-10 text-caption rounded-lg mb-1"
               :active="activeTab === 0 && selectedFeedId === sub.feedId"
               @click="selectFeed(sub.feedId)"
-            />
+            >
+              <template #append v-if="sub.unreadCount > 0">
+                <span class="text-caption text-medium-emphasis">{{ sub.unreadCount }}</span>
+              </template>
+            </v-list-item>
           </v-list-group>
         </v-list-group>
 
@@ -341,19 +356,27 @@ const fetchActiveJobsCount = async () => {
           <!-- Sub-items (shown only when expanded AND articlesExpanded is true) -->
           <template v-if="drawerOpen && articlesExpanded">
             <v-list-item 
-              :title="$t('nav.unread')" 
               :prepend-icon="mdiCircleMedium"              density="compact" 
               class="pl-10 mb-1 text-body-2 rounded-lg" 
               :active="activeTab === 0 && filterRead === false" 
               @click="selectFeed(undefined, false)" 
-            />
+            >
+              <v-list-item-title>{{ $t('nav.unread') }}</v-list-item-title>
+              <template #append v-if="unreadCount > 0">
+                <v-badge :content="unreadCount" color="primary" inline />
+              </template>
+            </v-list-item>
             <v-list-item 
-              :title="$t('nav.starred')" 
               :prepend-icon="mdiStarOutline"              density="compact" 
               class="pl-10 mb-1 text-body-2 rounded-lg" 
               :active="activeTab === 0 && filterStarred === true" 
               @click="selectFeed(undefined, undefined, true)" 
-            />
+            >
+              <v-list-item-title>{{ $t('nav.starred') }}</v-list-item-title>
+              <template #append v-if="starredCount > 0">
+                <v-badge :content="starredCount" color="primary" inline />
+              </template>
+            </v-list-item>
 
             <template v-for="(subs, cat) in groupedSubscriptions" :key="cat">
               <v-list-item :title="cat" density="compact" class="text-caption opacity-80 pl-6" />
@@ -365,7 +388,11 @@ const fetchActiveJobsCount = async () => {
                 class="pl-10 text-caption rounded-lg mb-1"
                 :active="activeTab === 0 && selectedFeedId === sub.feedId"
                 @click="selectFeed(sub.feedId)"
-              />
+              >
+                <template #append v-if="sub.unreadCount > 0">
+                  <span class="text-caption text-medium-emphasis">{{ sub.unreadCount }}</span>
+                </template>
+              </v-list-item>
             </template>
           </template>
         </div>

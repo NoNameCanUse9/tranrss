@@ -82,7 +82,13 @@
     "timeout_label": "Timeout",
     "unit_seconds": "seconds",
     "ai_model_params": "AI Model Parameters",
-    "general_policy": "General Execution Policy"
+    "general_policy": "General Execution Policy",
+    "usage_title": "OpenAI Type Token Statistics",
+    "total_tokens": "Total Tokens Used",
+    "prompt_tokens_label": "Prompt Tokens",
+    "completion_tokens_label": "Completion Tokens",
+    "usage_by_model": "Usage by Model Distribution",
+    "no_usage_data": "No Token Usage Data Yet"
   },
   "queue": {
     "title": "Execution Logs",
@@ -108,7 +114,8 @@
     "view_error": "View Error",
     "duration": "Duration {d}",
     "unit_source": "source(s)",
-    "unit_segment": "segment(s)"
+    "unit_segment": "segment(s)",
+    "unit_article": "article(s)"
   },
   "sub": {
     "title": "Feeds",
@@ -152,6 +159,8 @@
     "delete_msg": "Are you sure you want to delete the subscription '{name}'? Related article data will also be removed.",
     "sync": "Sync",
     "delete": "Delete",
+    "lang_zh": "Chinese",
+    "lang_en": "English",
     "lang_ja": "Japanese",
     "lang_fr": "French",
     "lang_de": "German",

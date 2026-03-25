@@ -12,6 +12,8 @@ pub struct SubscriptionDetail {
     pub url: String,
     pub category: String,
     pub article_count: i64,
+    pub unread_count: i64,
+    pub starred_count: i64,
     pub last_sync: Option<DateTime<Utc>>,
     pub status: String,
     pub target_language: Option<String>,

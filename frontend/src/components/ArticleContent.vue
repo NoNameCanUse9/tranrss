@@ -10,13 +10,23 @@
  * 您可以在此组件的 <style> 块中自由修改 .trans-text 的样式，
  * 所有文章的翻译展示效果都会同步变化。
  */
-defineProps<{
+const props = defineProps<{
   content: string
+  customStyle?: string
 }>()
 </script>
 
 <template>
-  <div class="article-content-body" v-html="content" />
+  <div class="article-content-body-wrapper">
+    <!-- Inject user custom style for translated text with high specificity -->
+    <component :is="'style'" v-if="customStyle">
+      /* 增加 ID 选择器前缀以提升优先级，确保覆盖组件默认 style */
+      #app .article-content-body em.trans-text {
+        {{ customStyle }}
+      }
+    </component>
+    <div class="article-content-body" v-html="content" />
+  </div>
 </template>
 
 <style scoped>
@@ -61,16 +71,9 @@ defineProps<{
 }
 
 /* =============================================
-   ✏️ 翻译样式 - 在这里自定义翻译的展示方式
+   ✏️ 翻译样式 - 已移至数据库管理，此处留空用于兼容
    ============================================= */
 .article-content-body :deep(em.trans-text) {
-  display: block;
-  font-style: italic;
-  color: rgb(var(--v-theme-on-surface));
-  opacity: 0.6;
-  font-size: 0.95em;
-  margin-top: 0.3rem;
-  padding-left: 0.75rem;
-  border-left: 2px solid rgba(var(--v-theme-primary), 0.4);
+  /* 默认样式现由数据库 custom_trans_style 提供并通过动态 <style> 注入 */
 }
 </style>

@@ -788,10 +788,14 @@ const handleUrlBlur = async () => {
                       <v-select 
                         v-model="form.targetLanguage" 
                         :items="[
-                          { title: `简体中文 (${t('sub.lang_zh') || 'Chinese'})`, value: 'Chinese' },
-                          { title: `英语 (${t('sub.lang_en') || 'English'})`, value: 'English' },
-                          { title: `${t('sub.lang_ja') || '日语'} (Japanese)`, value: 'Japanese' },
-                          { title: `${t('sub.lang_fr') || '法语'} (French)`, value: 'French' }
+                          { title: t('sub.lang_zh'), value: 'Chinese' },
+                          { title: t('sub.lang_en'), value: 'English' },
+                          { title: t('sub.lang_ja'), value: 'Japanese' },
+                          { title: t('sub.lang_fr'), value: 'French' },
+                          { title: t('sub.lang_de'), value: 'German' },
+                          { title: t('sub.lang_es'), value: 'Spanish' },
+                          { title: t('sub.lang_ru'), value: 'Russian' },
+                          { title: t('sub.lang_ko'), value: 'Korean' }
                         ]" 
                         :label="$t('sub.target_lang')" 
                         variant="outlined" 

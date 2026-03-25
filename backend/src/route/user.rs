@@ -60,8 +60,15 @@ async fn register(
 
     let user_id = res.last_insert_rowid();
 
-    sqlx::query("INSERT INTO user_setting (user_id) VALUES (?)")
+    sqlx::query("INSERT INTO user_setting (user_id, custom_trans_style) VALUES (?, ?)")
         .bind(user_id)
+        .bind("display: block;
+font-style: italic;
+opacity: 0.6;
+font-size: 0.95em;
+margin-top: 0.3rem;
+padding-left: 0.75rem;
+border-left: 2px solid rgba(var(--v-theme-primary), 0.4);")
         .execute(&mut *tx)
         .await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
@@ -190,7 +197,7 @@ async fn get_setting(
     State(state): State<Arc<AppState>>,
     auth_user: AuthUser,
 ) -> Result<Json<UserSetting>, (StatusCode, String)> {
-    let setting: UserSetting = sqlx::query_as("SELECT translate_api_id, summary_api_id, default_api_id, greader_api, api_proxy, api_proxy_url, app_mode, user_id, log_num_limit FROM user_setting WHERE user_id = ?")
+    let setting: UserSetting = sqlx::query_as("SELECT translate_api_id, summary_api_id, default_api_id, greader_api, api_proxy, api_proxy_url, app_mode, user_id, log_num_limit, custom_trans_style FROM user_setting WHERE user_id = ?")
         .bind(auth_user.user_id)
         .fetch_one(&state.db)
         .await
@@ -208,7 +215,7 @@ async fn update_setting(
         .map_err(|e| (StatusCode::BAD_REQUEST, format!("Invalid JSON: {}", e)))?;
 
     sqlx::query(
-        "UPDATE user_setting SET translate_api_id = ?, summary_api_id = ?, default_api_id = ?, greader_api = ?, api_proxy = ?, api_proxy_url = ?, app_mode = ?, log_num_limit = ? WHERE user_id = ?"
+        "UPDATE user_setting SET translate_api_id = ?, summary_api_id = ?, default_api_id = ?, greader_api = ?, api_proxy = ?, api_proxy_url = ?, app_mode = ?, log_num_limit = ?, custom_trans_style = ? WHERE user_id = ?"
     )
     .bind(payload.translate_api_id)
     .bind(payload.summary_api_id)
@@ -218,6 +225,7 @@ async fn update_setting(
     .bind(&payload.api_proxy_url)
     .bind(payload.app_mode)
     .bind(payload.log_num_limit)
+    .bind(&payload.custom_trans_style)
     .bind(auth_user.user_id)
     .execute(&state.db)
     .await

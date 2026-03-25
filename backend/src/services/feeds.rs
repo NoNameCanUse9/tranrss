@@ -137,30 +137,60 @@ fn extract_blocks_from_html(raw_html: &str) -> (String, HashMap<usize, String>) 
 
     for para in &paragraphs {
         // 判断段落类型并提取内容
-        let (wrapper_open, wrapper_close, content) = detect_block_type(para);
+        let (wrapper_open, wrapper_close, _content) = detect_block_type(para);
 
-        // 图片等非文本元素：直接写入骨架，不作为可翻译 block
+        // 如果 detect_block_type 已经识别出整个段落就是一个图片块 ( wrapper_open 为空)
+        // 则直接按照原有逻辑处理（写入骨架，不作为翻译块）
         if wrapper_open.is_empty() && wrapper_close.is_empty() {
-            skeleton.push_str(content.as_str());
+            skeleton.push_str(para);
             skeleton.push('\n');
             continue;
         }
 
-        // 过滤过短的噪音
-        if content.chars().count() < 10 {
-            skeleton.push_str(&format!("{}{}{}\n", wrapper_open, content, wrapper_close));
-            continue;
+        // 使用正则提取所有图片并保持其相对于文本的顺序
+        let re_img = regex::Regex::new(r"!\[.*?\]\(.*?\)").unwrap();
+        let mut last_pos = 0;
+        let mut current_para_skeleton = String::new();
+        current_para_skeleton.push_str(&wrapper_open);
+        
+        for mat in re_img.find_iter(para) {
+            let start = mat.start();
+            let end = mat.end();
+            
+            // 处理图片前的文本
+            let before = &para[last_pos..start];
+            if before.chars().filter(|c| !c.is_whitespace()).count() >= 5 {
+                let html_content = md_inline_to_html(before.trim());
+                blocks.insert(counter, html_content);
+                current_para_skeleton.push_str(&format!("[[TEXT_{}]]", counter));
+                counter += 1;
+            } else if !before.is_empty() {
+                // 如果文本太短或是纯空格，转义为 HTML 后直接放入骨架
+                current_para_skeleton.push_str(&md_inline_to_html(before));
+            }
+            
+            // 将图片代码直接转为 HTML 并放入骨架（不翻译）
+            let img_markdown = &para[start..end];
+            let img_html = md_inline_to_html(img_markdown);
+            current_para_skeleton.push_str(&img_html);
+            
+            last_pos = end;
         }
-
-        // 将段落文本内容（Markdown）转回 HTML
-        let html_content = md_inline_to_html(&content);
-
-        blocks.insert(counter, html_content);
-        skeleton.push_str(&format!(
-            "{}[[TEXT_{}]]{}\n",
-            wrapper_open, counter, wrapper_close
-        ));
-        counter += 1;
+        
+        // 处理最后剩下的文本
+        let remaining = &para[last_pos..];
+        if remaining.chars().filter(|c| !c.is_whitespace()).count() >= 5 {
+            let html_content = md_inline_to_html(remaining.trim());
+            blocks.insert(counter, html_content);
+            current_para_skeleton.push_str(&format!("[[TEXT_{}]]", counter));
+            counter += 1;
+        } else if !remaining.is_empty() {
+            current_para_skeleton.push_str(&md_inline_to_html(remaining));
+        }
+        
+        current_para_skeleton.push_str(&wrapper_close);
+        skeleton.push_str(&current_para_skeleton);
+        skeleton.push('\n');
     }
 
     (skeleton.trim_end().to_string(), blocks)
@@ -299,7 +329,7 @@ pub async fn fetch_and_process_feed(db: &SqlitePool, user_id: i64, feed_id: i64)
                 last_status = Some(status.as_u16() as i32);
 
                 if !status.is_success() {
-                    last_err_msg = Some(format!("HTTP Error: {}", status));
+                    last_err_msg = Some(format!("HTTP {} - Feed 获取失败 ({})", status.as_u16(), status.canonical_reason().unwrap_or("Unknown")));
                     if attempt < 3 {
                         tokio::time::sleep(std::time::Duration::from_secs(2)).await;
                         continue;

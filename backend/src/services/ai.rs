@@ -9,7 +9,9 @@ use std::time::Duration;
 
 #[derive(Clone)]
 pub struct AiService {
+    db: sqlx::SqlitePool,
     client: Client,
+    pub user_id: i64,
     pub target_lang: String,
     pub model: String,
     pub config: ApiConfig,
@@ -46,6 +48,14 @@ struct OpenaiRequest {
 #[derive(Deserialize)]
 struct OpenaiResponse {
     choices: Vec<OpenaiChoice>,
+    usage: Option<OpenaiUsage>,
+}
+
+#[derive(Deserialize, Serialize, Clone, Debug)]
+pub struct OpenaiUsage {
+    pub prompt_tokens: u32,
+    pub completion_tokens: u32,
+    pub total_tokens: u32,
 }
 
 #[derive(Deserialize)]
@@ -54,7 +64,7 @@ struct OpenaiChoice {
 }
 
 impl AiService {
-    pub fn new(target_lang: String, model: String, config: ApiConfig) -> Self {
+    pub fn new(db: sqlx::SqlitePool, user_id: i64, target_lang: String, model: String, config: ApiConfig) -> Self {
         // 使用数据库中配置的超时时间
         let timeout_secs = config.timeout_seconds as u64;
 
@@ -64,10 +74,30 @@ impl AiService {
             .expect("Failed to create reqwest client");
 
         Self {
+            db,
             client,
+            user_id,
             target_lang,
             model,
             config,
+        }
+    }
+
+    async fn log_api_usage(&self, usage: OpenaiUsage) {
+        let res = sqlx::query(
+            "INSERT INTO api_usage (user_id, api_config_id, model, prompt_tokens, completion_tokens, total_tokens) VALUES (?, ?, ?, ?, ?, ?)"
+        )
+        .bind(self.user_id)
+        .bind(self.config.id)
+        .bind(&self.model)
+        .bind(usage.prompt_tokens)
+        .bind(usage.completion_tokens)
+        .bind(usage.total_tokens)
+        .execute(&self.db)
+        .await;
+
+        if let Err(e) = res {
+            tracing::error!("Failed to log API usage: {:?}", e);
         }
     }
 
@@ -295,11 +325,14 @@ impl AiService {
             .base_url
             .as_deref()
             .unwrap_or("https://api.openai.com/v1/");
-        let api_key = self
+            
+        let encrypted_key = self
             .config
             .api_key
             .as_deref()
             .ok_or_else(|| anyhow!("未配置 API Key"))?;
+            
+        let api_key = crate::utils::crypto::decrypt_safe(encrypted_key);
 
         let mut full_url = base_url.to_string();
         if !full_url.ends_with("/chat/completions") {
@@ -333,7 +366,18 @@ impl AiService {
             .send()
             .await?;
 
-        let body: OpenaiResponse = response.json().await?;
+        if !response.status().is_success() {
+            let status = response.status();
+            let err_text = response.text().await.unwrap_or_default();
+            return Err(anyhow!("HTTP {} - OpenAI API 错误: {}", status.as_u16(), err_text));
+        }
+
+        let body: OpenaiResponse = response.json().await.context("解析 OpenAI 摘要响应失败")?;
+
+        if let Some(usage) = body.usage {
+            self.log_api_usage(usage).await;
+        }
+
         let content = body
             .choices
             .get(0)
@@ -388,7 +432,8 @@ impl AiService {
             .await?;
 
         if !response.status().is_success() {
-            return Err(anyhow!("DeepLX API 请求失败: {}", response.status()));
+            let status = response.status();
+            return Err(anyhow!("HTTP {} - DeepLX API 错误: {}", status.as_u16(), status.canonical_reason().unwrap_or("Unknown")));
         }
 
         let body: DeepLXResponse = response.json().await?;
@@ -485,11 +530,13 @@ impl AiService {
             .as_deref()
             .ok_or_else(|| anyhow::anyhow!("OpenAI 翻译配置缺失：base_url 未设置"))?;
 
-        let api_key = self
+        let encrypted_key = self
             .config
             .api_key
             .as_deref()
             .ok_or_else(|| anyhow!("未配置 OpenAI API Key"))?;
+
+        let api_key = crate::utils::crypto::decrypt_safe(encrypted_key);
 
         let mut full_url = base_url.to_string();
         if !full_url.ends_with("/chat/completions") {
@@ -550,10 +597,14 @@ impl AiService {
         if !response.status().is_success() {
             let status = response.status();
             let err_text = response.text().await.unwrap_or_default();
-            return Err(anyhow!("OpenAI API 请求失败: {}, {}", status, err_text));
+            return Err(anyhow!("HTTP {} - OpenAI API 请求失败: {}", status.as_u16(), err_text));
         }
 
         let body: OpenaiResponse = response.json().await.context("解析 OpenAI 响应失败")?;
+
+        if let Some(usage) = body.usage {
+            self.log_api_usage(usage).await;
+        }
 
         let translated_content = body
             .choices

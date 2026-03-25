@@ -35,6 +35,7 @@ const blocks = ref<any[]>([])
 const stitchedContent = ref('')
 const articleSearch = ref('')
 const contentArea = ref<HTMLElement | null>(null)
+const customTransStyle = ref('')
 
 const filteredArticles = computed(() => {
   if (!articleSearch.value.trim()) return articles.value
@@ -156,7 +157,24 @@ const summarizeArticle = async (id: number) => {
   }
 }
 
-onMounted(fetchArticles)
+const fetchUserSettings = async () => {
+    try {
+        const res = await fetch('/api/user/setting', {
+            headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
+        })
+        if (res.ok) {
+            const data = await res.json()
+            customTransStyle.value = data.custom_trans_style || ''
+        }
+    } catch (e) {
+        console.error('Failed to fetch user settings', e)
+    }
+}
+
+onMounted(() => {
+  fetchArticles()
+  fetchUserSettings()
+})
 watch(() => [props.feedId, props.isRead, props.isStarred], () => {
   articleSearch.value = ''
   fetchArticles()
@@ -371,7 +389,7 @@ watch(selectedArticle, () => {
           </span>
         </div>
 
-        <ArticleContent :content="stitchedContent" />
+        <ArticleContent :content="stitchedContent" :custom-style="customTransStyle" />
 
         <!-- 悬浮导航按钮 -->
         <div class="floating-nav d-flex flex-column ga-6">

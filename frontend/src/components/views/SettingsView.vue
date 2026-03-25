@@ -35,6 +35,7 @@ const greaderApi = ref(false)
 const translateApiId = ref<number | null>(null)
 const summaryApiId = ref<number | null>(null)
 const defaultApiId = ref<number | null>(null)
+const customTransStyle = ref('')
 
 const saving = ref(false)
 const importing = ref(false)
@@ -81,6 +82,7 @@ const loadSettings = async () => {
       if (data.translate_api_id) translateApiId.value = data.translate_api_id
       if (data.summary_api_id) summaryApiId.value = data.summary_api_id
       if (data.default_api_id) defaultApiId.value = data.default_api_id
+      if (data.custom_trans_style) customTransStyle.value = data.custom_trans_style
     }
   } catch (e) {
     console.error('Failed to load settings', e)
@@ -110,6 +112,7 @@ const saveSettings = async () => {
         translate_api_id: translateApiId.value,
         summary_api_id: summaryApiId.value,
         default_api_id: defaultApiId.value,
+        custom_trans_style: customTransStyle.value,
       })
     })
     
@@ -223,6 +226,39 @@ const triggerImport = () => {
               :prepend-inner-icon="mdiDatabaseClock"
               color="primary"
             />
+          </v-card-text>
+        </v-card>
+
+      <!-- 翻译样式设置 -->
+      <v-card rounded="xl" variant="flat" color="surface-variant" class="mb-6">
+          <v-card-item class="pa-6 pb-4">
+            <template #prepend>
+              <v-icon color="primary" class="mr-2">{{ mdiTranslate }}</v-icon>
+            </template>
+            <v-card-title class="text-h6 font-weight-bold">翻译样式自定义 (CSS)</v-card-title>
+          </v-card-item>
+          <v-divider />
+          <v-card-text class="pa-6">
+            <p class="text-body-2 font-weight-medium mb-2">已应用到 .trans-text 类的 CSS 样式</p>
+            <v-textarea
+              v-model="customTransStyle"
+              placeholder="例如: display: block; font-style: italic; opacity: 0.6;"
+              variant="outlined"
+              density="comfortable"
+              rounded="lg"
+              auto-grow
+              rows="5"
+              color="primary"
+              bg-color="surface"
+              style="font-family: monospace;"
+            >
+              <template #prepend-inner>
+                <v-icon color="medium-emphasis" class="mr-1">{{ mdiPaletteOutline }}</v-icon>
+              </template>
+            </v-textarea>
+            <p class="text-caption text-medium-emphasis mt-2">
+              提示：这是针对译文文本块的行内样式。可以使用标准的 CSS 属性，如 color, font-size, margin 等。
+            </p>
           </v-card-text>
         </v-card>
 

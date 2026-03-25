@@ -27,10 +27,10 @@ CREATE TABLE IF NOT EXISTS folders (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     title TEXT NOT NULL,
     user_id INTEGER NOT NULL,
-    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+    FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE
 );
 
-CREATE UNIQUE INDEX IF NOT EXISTS idx_folders_user_title ON folders(user_id, title);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_folders_user_title ON folders (user_id, title);
 
 -- subscriptions 表
 CREATE TABLE IF NOT EXISTS subscriptions (
@@ -45,12 +45,12 @@ CREATE TABLE IF NOT EXISTS subscriptions (
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     num INTEGER DEFAULT 200,
     refresh_interval INTEGER DEFAULT 30,
-    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
-    FOREIGN KEY (feed_id) REFERENCES feeds(id) ON DELETE CASCADE,
-    FOREIGN KEY (folder_id) REFERENCES folders(id) ON DELETE SET NULL
+    FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE,
+    FOREIGN KEY (feed_id) REFERENCES feeds (id) ON DELETE CASCADE,
+    FOREIGN KEY (folder_id) REFERENCES folders (id) ON DELETE SET NULL
 );
 
-CREATE INDEX IF NOT EXISTS idx_subscriptions_user_id ON subscriptions(user_id);
+CREATE INDEX IF NOT EXISTS idx_subscriptions_user_id ON subscriptions (user_id);
 
 -- api_configs 表
 CREATE TABLE IF NOT EXISTS api_configs (
@@ -64,7 +64,7 @@ CREATE TABLE IF NOT EXISTS api_configs (
     retry_count INTEGER DEFAULT 3,
     retry_interval_ms INTEGER DEFAULT 1000,
     retry_enabled BOOLEAN DEFAULT 1,
-    user_id INTEGER REFERENCES users(id) ON DELETE CASCADE
+    user_id INTEGER REFERENCES users (id) ON DELETE CASCADE
 );
 
 -- articles 表
@@ -82,11 +82,12 @@ CREATE TABLE IF NOT EXISTS articles (
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     summary TEXT,
     crawl_time INTEGER,
-    FOREIGN KEY (feed_id) REFERENCES feeds(id) ON DELETE CASCADE
+    FOREIGN KEY (feed_id) REFERENCES feeds (id) ON DELETE CASCADE
 );
 
-CREATE INDEX IF NOT EXISTS idx_articles_feed_unread ON articles(feed_id, is_read);
-CREATE INDEX IF NOT EXISTS articles_feed_id ON articles(feed_id);
+CREATE INDEX IF NOT EXISTS idx_articles_feed_unread ON articles (feed_id, is_read);
+
+CREATE INDEX IF NOT EXISTS articles_feed_id ON articles (feed_id);
 
 -- article_blocks 表
 CREATE TABLE IF NOT EXISTS article_blocks (
@@ -95,14 +96,22 @@ CREATE TABLE IF NOT EXISTS article_blocks (
     block_index INTEGER NOT NULL,
     raw_text TEXT NOT NULL,
     trans_text TEXT,
-    PRIMARY KEY (user_id, article_id, block_index),
-    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
-    FOREIGN KEY (article_id) REFERENCES articles(id) ON DELETE CASCADE
+    PRIMARY KEY (
+        user_id,
+        article_id,
+        block_index
+    ),
+    FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE,
+    FOREIGN KEY (article_id) REFERENCES articles (id) ON DELETE CASCADE
 );
 
-CREATE INDEX IF NOT EXISTS idx_article_blocks_lookup ON article_blocks(user_id, article_id);
-CREATE INDEX IF NOT EXISTS idx_blocks_article_ordered ON article_blocks(article_id, block_index);
-CREATE INDEX IF NOT EXISTS idx_blocks_untranslated ON article_blocks(user_id) WHERE trans_text IS NULL;
+CREATE INDEX IF NOT EXISTS idx_article_blocks_lookup ON article_blocks (user_id, article_id);
+
+CREATE INDEX IF NOT EXISTS idx_blocks_article_ordered ON article_blocks (article_id, block_index);
+
+CREATE INDEX IF NOT EXISTS idx_blocks_untranslated ON article_blocks (user_id)
+WHERE
+    trans_text IS NULL;
 
 -- user_setting 表
 CREATE TABLE IF NOT EXISTS user_setting (
@@ -116,7 +125,14 @@ CREATE TABLE IF NOT EXISTS user_setting (
     api_proxy_url TEXT,
     app_mode BOOLEAN DEFAULT 0,
     log_num_limit INTEGER DEFAULT 300,
-    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+    custom_trans_style TEXT DEFAULT 'display: block;
+font-style: italic;
+opacity: 0.6;
+font-size: 0.95em;
+margin-top: 0.3rem;
+padding-left: 0.75rem;
+border-left: 2px solid rgba(var(--v-theme-primary), 0.4);',
+    FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE
 );
 
 -- inactive_feeds 表
@@ -126,8 +142,8 @@ CREATE TABLE IF NOT EXISTS inactive_feeds (
     reason TEXT,
     disabled_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     PRIMARY KEY (user_id, feed_id),
-    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
-    FOREIGN KEY (feed_id) REFERENCES feeds(id) ON DELETE CASCADE
+    FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE,
+    FOREIGN KEY (feed_id) REFERENCES feeds (id) ON DELETE CASCADE
 );
 
 -- Apalis SQL Jobs table (frame-default name in 0.7.4)
@@ -139,9 +155,12 @@ CREATE TABLE IF NOT EXISTS Workers (
     layers TEXT,
     last_seen INTEGER NOT NULL DEFAULT (strftime('%s', 'now'))
 );
-CREATE INDEX IF NOT EXISTS Idx   ON Workers(id);
-CREATE INDEX IF NOT EXISTS WTIdx ON Workers(worker_type);
-CREATE INDEX IF NOT EXISTS LSIdx ON Workers(last_seen);
+
+CREATE INDEX IF NOT EXISTS Idx ON Workers (id);
+
+CREATE INDEX IF NOT EXISTS WTIdx ON Workers (worker_type);
+
+CREATE INDEX IF NOT EXISTS LSIdx ON Workers (last_seen);
 
 -- Apalis Jobs table (schema must match apalis-sql 0.7.4 exactly)
 CREATE TABLE IF NOT EXISTS Jobs (
@@ -157,9 +176,28 @@ CREATE TABLE IF NOT EXISTS Jobs (
     lock_by TEXT,
     done_at INTEGER,
     priority INTEGER NOT NULL DEFAULT 0,
-    FOREIGN KEY(lock_by) REFERENCES Workers(id)
+    FOREIGN KEY (lock_by) REFERENCES Workers (id)
 );
-CREATE INDEX IF NOT EXISTS TIdx  ON Jobs(id);
-CREATE INDEX IF NOT EXISTS SIdx  ON Jobs(status);
-CREATE INDEX IF NOT EXISTS LIdx  ON Jobs(lock_by);
-CREATE INDEX IF NOT EXISTS JTIdx ON Jobs(job_type);
+-- Add api_usage table to track token usage
+CREATE TABLE IF NOT EXISTS api_usage (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER NOT NULL,
+    api_config_id INTEGER NOT NULL,
+    model TEXT NOT NULL,
+    prompt_tokens INTEGER NOT NULL,
+    completion_tokens INTEGER NOT NULL,
+    total_tokens INTEGER NOT NULL,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE,
+    FOREIGN KEY (api_config_id) REFERENCES api_configs (id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS TIdx ON Jobs (id);
+
+CREATE INDEX IF NOT EXISTS SIdx ON Jobs (status);
+
+CREATE INDEX IF NOT EXISTS LIdx ON Jobs (lock_by);
+
+CREATE INDEX IF NOT EXISTS JTIdx ON Jobs (job_type);
+
+CREATE INDEX IF NOT EXISTS idx_api_usage_user_config ON api_usage (user_id, api_config_id);

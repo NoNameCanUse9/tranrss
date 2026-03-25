@@ -20,6 +20,7 @@ use std::sync::Arc;
 mod model;
 mod route;
 mod services;
+mod utils;
 
 use apalis_sql::sqlite::SqliteStorage;
 use services::jobs::{
@@ -55,7 +56,7 @@ async fn main() -> anyhow::Result<()> {
 
     // 2. 数据库连接池初始化
     let database_url =
-        std::env::var("DATABASE_URL").unwrap_or_else(|_| "sqlite:../rssdata.db".to_string());
+        std::env::var("DATABASE_URL").unwrap_or_else(|_| "sqlite:/app/data/data.database".to_string());
 
     tracing::info!("📡 正在连接数据库: {}", database_url);
 
@@ -205,8 +206,15 @@ async fn auto_init_db(pool: &SqlitePool) -> anyhow::Result<()> {
         .fetch_one(pool)
         .await?;
 
-        sqlx::query("INSERT INTO user_setting (user_id) VALUES (?)")
+        sqlx::query("INSERT INTO user_setting (user_id, custom_trans_style) VALUES (?, ?)")
             .bind(user_id)
+            .bind("display: block;
+font-style: italic;
+opacity: 0.6;
+font-size: 0.95em;
+margin-top: 0.3rem;
+padding-left: 0.75rem;
+border-left: 2px solid rgba(var(--v-theme-primary), 0.4);")
             .execute(pool)
             .await?;
 

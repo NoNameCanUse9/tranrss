@@ -282,7 +282,7 @@ pub async fn get_ai_service_for_user(db: &SqlitePool, user_id: i64) -> Result<Ai
         .and_then(|v| v.as_str())
         .unwrap_or("Chinese")
         .to_string();
-    Ok(AiService::new(target_lang, model, config))
+    Ok(AiService::new(db.clone(), user_id, target_lang, model, config))
 }
 
 /// 为总结任务获取 AI 服务，使用 summary_api_id
@@ -311,7 +311,7 @@ async fn get_summary_ai_service_for_user(db: &SqlitePool, user_id: i64) -> Resul
         .and_then(|v| v.as_str())
         .unwrap_or("Chinese")
         .to_string();
-    Ok(AiService::new(target_lang, model, config))
+    Ok(AiService::new(db.clone(), user_id, target_lang, model, config))
 }
 
 /// 获取用户默认的 AI 服务配置
@@ -335,7 +335,7 @@ pub async fn get_default_ai_service_for_user(db: &SqlitePool, user_id: i64) -> R
         .and_then(|v| v.as_str())
         .unwrap_or("Chinese")
         .to_string();
-    Ok(AiService::new(target_lang, model, config))
+    Ok(AiService::new(db.clone(), user_id, target_lang, model, config))
 }
 
 

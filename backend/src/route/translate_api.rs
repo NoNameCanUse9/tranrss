@@ -13,6 +13,8 @@ use std::sync::Arc;
 pub fn router() -> Router<Arc<AppState>> {
     Router::new()
         .route("/", get(list_apis).post(create_api))
+        .route("/usage", get(get_usage))
+        .route("/usage/history", get(get_usage_history))
         .route("/{id}", get(get_api).put(update_api).delete(delete_api))
 }
 
@@ -84,4 +86,25 @@ async fn delete_api(
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
     Ok(StatusCode::NO_CONTENT)
+}
+
+async fn get_usage(
+    State(state): State<Arc<AppState>>,
+    auth: AuthUser,
+) -> Result<Json<crate::model::api_usage::ApiUsageStats>, (StatusCode, String)> {
+    let stats = api::get_usage_summary(&state.db, auth.user_id)
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+
+    Ok(Json(stats))
+}
+async fn get_usage_history(
+    State(state): State<Arc<AppState>>,
+    auth: AuthUser,
+) -> Result<Json<Vec<crate::model::api_usage::TimeSeriesUsage>>, (StatusCode, String)> {
+    let history = api::get_usage_history(&state.db, auth.user_id)
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+
+    Ok(Json(history))
 }

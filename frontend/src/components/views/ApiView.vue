@@ -22,8 +22,33 @@ import {
   mdiSpeedometer,
   mdiCogOutline,
   mdiClockOutline,
-  mdiTimerOutline
+  mdiTimerOutline,
+  mdiChartDonut,
+  mdiChartTimelineVariant,
+  mdiPoll
 } from '@mdi/js'
+import { use } from 'echarts/core'
+import { CanvasRenderer } from 'echarts/renderers'
+import { PieChart, BarChart, LineChart } from 'echarts/charts'
+import {
+  TitleComponent,
+  TooltipComponent,
+  LegendComponent,
+  GridComponent
+} from 'echarts/components'
+import VChart from 'vue-echarts'
+import { computed } from 'vue'
+
+use([
+  CanvasRenderer,
+  PieChart,
+  BarChart,
+  LineChart,
+  TitleComponent,
+  TooltipComponent,
+  LegendComponent,
+  GridComponent
+])
 
 const { t } = useI18n()
 
@@ -43,7 +68,35 @@ interface ApiConfig {
 const apiConfigs = ref<ApiConfig[]>([])
 const userSettings = ref<any>(null)
 const loading = ref(false)
+const statsLoading = ref(false)
 const saving = ref(false)
+
+interface UsageStats {
+  total_prompt_tokens: number
+  total_completion_tokens: number
+  total_tokens: number
+  usage_by_model: {
+    model: string
+    prompt_tokens: number
+    completion_tokens: number
+    total_tokens: number
+  }[]
+}
+
+interface TimeSeriesUsage {
+  date: string
+  api_config_id: number
+  model: string
+  prompt_tokens: number
+  completion_tokens: number
+  total_tokens: number
+}
+
+const usageStats = ref<UsageStats | null>(null)
+const usageHistory = ref<TimeSeriesUsage[]>([])
+const selectedFilterApi = ref<number | null>(null)
+const selectedFilterModel = ref<string>('全部模型')
+const selectedRange = ref('all')
 
 const dialog = ref(false)
 const deleteDialog = ref(false)
@@ -51,6 +104,7 @@ const selectedConfig = ref<ApiConfig | null>(null)
 const showToken = ref<Record<number, boolean>>({})
 const detailDialog = ref(false)
 const detailConfig = ref<ApiConfig | null>(null)
+const statsDialog = ref(false)
 
 const openDetail = (config: ApiConfig) => {
   detailConfig.value = config
@@ -69,7 +123,7 @@ const form = ref({
   api_type: 'openai',
   api_key: '',
   base_url: '',
-  settings: { max_tokens: 20480 } as Record<string, any>,
+  settings: { model: 'gpt-4o-mini', max_tokens: 20480, rpm: 3 } as Record<string, any>,
   timeout_seconds: 180,
   retry_count: 3,
   retry_interval_ms: 1000,
@@ -112,9 +166,40 @@ const fetchUserSettings = async () => {
   }
 }
 
+const fetchUsageStats = async () => {
+  statsLoading.value = true
+  try {
+    const res = await fetch('/api/translate-configs/usage', {
+      headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` }
+    })
+    if (res.ok) {
+      usageStats.value = await res.json()
+    }
+  } catch (e) {
+    console.error('获取使用统计失败:', e)
+  } finally {
+    statsLoading.value = false
+  }
+}
+
+const fetchUsageHistory = async () => {
+  try {
+    const res = await fetch('/api/translate-configs/usage/history', {
+      headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` }
+    })
+    if (res.ok) {
+      usageHistory.value = await res.json()
+    }
+  } catch (e) {
+    console.error('获取使用历史失败:', e)
+  }
+}
+
 onMounted(() => {
   fetchConfigs()
   fetchUserSettings()
+  fetchUsageStats()
+  fetchUsageHistory()
 })
 
 // 获取提供商的 UI 信息
@@ -134,7 +219,7 @@ const openAddDialog = () => {
     api_type: 'openai', 
     api_key: '', 
     base_url: '', 
-    settings: { max_tokens: 20480 },
+    settings: { model: 'gpt-4o-mini', max_tokens: 20480, rpm: 3 },
     timeout_seconds: 180,
     retry_count: 3,
     retry_interval_ms: 1000,
@@ -151,7 +236,11 @@ const openEditDialog = (config: ApiConfig) => {
     api_type: config.api_type, 
     api_key: config.api_key || '', 
     base_url: config.base_url || '', 
-    settings: { ...config.settings as Record<string, any> },
+    settings: { 
+      model: (config.settings as any).model || 'gpt-4o-mini',
+      max_tokens: (config.settings as any).max_tokens || 20480,
+      rpm: (config.settings as any).rpm || 3 
+    },
     timeout_seconds: config.timeout_seconds,
     retry_count: config.retry_count,
     retry_interval_ms: config.retry_interval_ms,
@@ -236,6 +325,90 @@ const fetchModels = async () => {
     fetchingModels.value = false
   }
 }
+
+const availableModelsList = computed(() => {
+  const models = new Set(usageHistory.value.map(h => h.model))
+  return ['全部模型', ...Array.from(models)]
+})
+
+const lineOption = computed(() => {
+  if (!usageHistory.value.length) return {}
+  
+  let filtered = [...usageHistory.value]
+  if (selectedFilterApi.value !== null) {
+    filtered = filtered.filter(h => h.api_config_id === selectedFilterApi.value)
+  }
+  if (selectedFilterModel.value !== '全部模型') {
+    filtered = filtered.filter(h => h.model === selectedFilterModel.value)
+  }
+  
+  // Simple range filtering based on last N days for simplicity
+  if (selectedRange.value !== 'all') {
+    const now = new Date()
+    let days = 7
+    if (selectedRange.value === 'month') days = 30
+    if (selectedRange.value === 'year') days = 365
+    
+    const cutoffDate = new Date(now.getTime() - days * 24 * 60 * 60 * 1000)
+    const cutoffStr = cutoffDate.toISOString().split('T')[0] || ''
+    filtered = filtered.filter(h => h.date >= cutoffStr)
+  }
+  
+  const groupedByDate: Record<string, number> = {}
+  filtered.forEach(h => {
+    groupedByDate[h.date] = (groupedByDate[h.date] || 0) + h.total_tokens
+  })
+  
+  const sortedDates = Object.keys(groupedByDate).sort()
+  const data = sortedDates.map(d => groupedByDate[d])
+  
+  return {
+    tooltip: { trigger: 'axis' },
+    xAxis: { type: 'category', data: sortedDates, axisLabel: { rotate: sortedDates.length > 10 ? 45 : 0 } },
+    yAxis: { type: 'value' },
+    series: [
+      {
+        data: data,
+        type: 'line',
+        smooth: true,
+        areaStyle: {
+          color: {
+            type: 'linear', x: 0, y: 0, x2: 0, y2: 1,
+            colorStops: [
+              { offset: 0, color: 'rgba(16, 163, 127, 0.3)' },
+              { offset: 1, color: 'rgba(16, 163, 127, 0)' }
+            ]
+          }
+        },
+        itemStyle: { color: '#10a37f' },
+        lineStyle: { width: 3 }
+      }
+    ]
+  }
+})
+
+const pieOption = computed(() => {
+  if (!usageStats.value) return {}
+  return {
+    tooltip: { trigger: 'item', formatter: '{b}: {c} ({d}%)' },
+    legend: { bottom: '0', left: 'center', icon: 'circle', textStyle: { fontSize: 10 } },
+    series: [
+      {
+        name: 'Model Usage',
+        type: 'pie',
+        radius: ['45%', '65%'],
+        avoidLabelOverlap: false,
+        itemStyle: { borderRadius: 8, borderColor: '#fff', borderWidth: 2 },
+        label: { show: false },
+        emphasis: { label: { show: true, fontSize: '14', fontWeight: 'bold' } },
+        data: usageStats.value.usage_by_model.map(item => ({
+          value: item.total_tokens,
+          name: item.model
+        }))
+      }
+    ]
+  }
+})
 </script>
 
 <template>
@@ -245,19 +418,109 @@ const fetchModels = async () => {
         <h2 class="text-h5 font-weight-bold">{{ $t('api.title') }}</h2>
         <p class="text-body-2 text-medium-emphasis mt-1">{{ $t('api.subtitle') }}</p>
       </div>
-      <v-btn
-        color="primary"
-        rounded="pill"
-        elevation="0"
-        class="text-none font-weight-bold"
-        @click="openAddDialog"
-      >
-        <v-icon start>{{ mdiPlus }}</v-icon>
-        {{ $t('api.add_btn') }}
-      </v-btn>
+      <div class="d-flex align-center gap-3">
+        <!-- Token Detailed Stats Button -->
+        <v-btn
+          v-if="usageStats"
+          variant="tonal"
+          color="primary"
+          rounded="pill"
+          class="text-none font-weight-bold"
+          @click="statsDialog = true"
+        >
+          <v-icon start>{{ mdiPoll }}</v-icon>
+          Token 详情统计
+        </v-btn>
+
+        <v-btn
+          color="primary"
+          rounded="pill"
+          elevation="0"
+          class="text-none font-weight-bold"
+          @click="openAddDialog"
+        >
+          <v-icon start>{{ mdiPlus }}</v-icon>
+          {{ $t('api.add_btn') }}
+        </v-btn>
+      </div>
     </div>
 
-    <!-- 空状态 -->
+    <!-- Token Usage Stats Section -->
+    <v-row v-if="usageStats && usageStats.total_tokens > 0" id="token-usage-section" class="mb-8">
+      <v-col cols="12">
+        <v-card rounded="xl" variant="flat" color="surface-variant" class="pa-6 border-thin shadow-premium">
+          <div class="d-flex align-center gap-3 mb-6">
+            <v-avatar color="primary" variant="tonal" size="48">
+              <v-icon color="primary">{{ mdiChartDonut }}</v-icon>
+            </v-avatar>
+            <div>
+              <h3 class="text-h6 font-weight-bold">{{ $t('api.usage_title') }}</h3>
+              <p class="text-caption text-medium-emphasis">基于 OpenAI 类型接口的 Tokens 实时统计</p>
+            </div>
+          </div>
+          
+          <v-row>
+            <v-col cols="12" sm="4">
+              <div class="pa-4 rounded-xl bg-surface border-thin text-center h-100 d-flex flex-column justify-center">
+                <p class="text-caption text-medium-emphasis mb-1 font-weight-medium">{{ $t('api.total_tokens') }}</p>
+                <p class="text-h4 font-weight-black text-primary">{{ usageStats.total_tokens.toLocaleString() }}</p>
+              </div>
+            </v-col>
+            <v-col cols="12" sm="4">
+              <div class="pa-4 rounded-xl bg-surface border-thin text-center h-100 d-flex flex-column justify-center">
+                <p class="text-caption text-medium-emphasis mb-1 font-weight-medium">{{ $t('api.prompt_tokens_label') }}</p>
+                <p class="text-h4 font-weight-black">{{ usageStats.total_prompt_tokens.toLocaleString() }}</p>
+              </div>
+            </v-col>
+            <v-col cols="12" sm="4">
+              <div class="pa-4 rounded-xl bg-surface border-thin text-center h-100 d-flex flex-column justify-center">
+                <p class="text-caption text-medium-emphasis mb-1 font-weight-medium">{{ $t('api.completion_tokens_label') }}</p>
+                <p class="text-h4 font-weight-black">{{ usageStats.total_completion_tokens.toLocaleString() }}</p>
+              </div>
+            </v-col>
+          </v-row>
+
+          <div class="mt-8">
+            <p class="text-subtitle-2 font-weight-bold mb-4 d-flex align-center">
+              <v-icon size="18" class="mr-2">{{ mdiChartTimelineVariant }}</v-icon>
+              {{ $t('api.usage_by_model') }}
+            </p>
+            <div class="model-usage-list rounded-xl overflow-hidden border-thin bg-surface">
+              <v-list class="pa-0">
+                <v-list-item v-for="(item, index) in usageStats.usage_by_model" :key="item.model" :class="{'border-b-thin': index !== usageStats.usage_by_model.length - 1}" class="py-4 px-6">
+                  <template v-slot:prepend>
+                    <v-avatar color="primary" variant="tonal" size="36" class="mr-4">
+                      <v-icon size="20">{{ mdiBrain }}</v-icon>
+                    </v-avatar>
+                  </template>
+                  <v-list-item-title class="font-weight-bold text-subtitle-1">{{ item.model }}</v-list-item-title>
+                  <v-list-item-subtitle class="mt-1">
+                    <v-progress-linear
+                      :model-value="(item.total_tokens / usageStats.total_tokens * 100)"
+                      color="primary"
+                      height="6"
+                      rounded
+                      class="mt-1"
+                      style="width: 150px"
+                    ></v-progress-linear>
+                  </v-list-item-subtitle>
+                  <template v-slot:append>
+                    <div class="text-right">
+                      <p class="text-h6 font-weight-bold mb-0">{{ item.total_tokens.toLocaleString() }} <span class="text-caption font-weight-medium text-medium-emphasis">Tokens</span></p>
+                      <p class="text-caption text-medium-emphasis">
+                        {{ item.prompt_tokens.toLocaleString() }} (In) / {{ item.completion_tokens.toLocaleString() }} (Out)
+                      </p>
+                    </div>
+                  </template>
+                </v-list-item>
+              </v-list>
+            </div>
+          </div>
+        </v-card>
+      </v-col>
+    </v-row>
+
+    <!-- 密钥列表 -->
     <v-card v-if="apiConfigs.length === 0" rounded="xl" variant="tonal" color="surface-variant" class="text-center pa-12">
       <v-icon size="64" color="primary" class="mb-4">{{ mdiKeyOutline }}</v-icon>
       <h3 class="text-h6 mb-2">{{ $t('api.empty_title') }}</h3>
@@ -622,6 +885,96 @@ const fetchModels = async () => {
       </v-card>
     </v-dialog>
 
+    <!-- Token Usage Stats Dialog (ECharts) -->
+    <v-dialog v-model="statsDialog" width="90%" max-width="1200" scrollable>
+      <v-card rounded="xl" class="pa-6">
+        <div class="d-flex align-center justify-space-between mb-6">
+          <div class="d-flex align-center gap-3">
+            <v-avatar color="primary" variant="tonal" size="40">
+              <v-icon color="primary">{{ mdiPoll }}</v-icon>
+            </v-avatar>
+            <h3 class="text-h6 font-weight-bold">Token 消耗统计分析</h3>
+          </div>
+          <v-btn :icon="mdiClose" variant="text" @click="statsDialog = false"></v-btn>
+        </div>
+
+        <v-card-text class="pa-0 custom-scrollbar">
+          <!-- Filters -->
+          <div class="d-flex flex-wrap gap-3 mb-6 align-center">
+            <v-select
+              v-model="selectedFilterApi"
+              :items="[{ name: '全部 API', id: null }, ...apiConfigs]"
+              item-title="name"
+              item-value="id"
+              placeholder="API 筛选"
+              variant="outlined"
+              density="comfortable"
+              hide-details
+              style="width: 220px"
+              rounded="lg"
+            />
+            <v-select
+              v-model="selectedFilterModel"
+              :items="availableModelsList"
+              placeholder="模型筛选"
+              variant="outlined"
+              density="comfortable"
+              hide-details
+              style="width: 220px"
+              rounded="lg"
+            />
+            <v-spacer />
+            <v-btn-toggle
+              v-model="selectedRange"
+              color="primary"
+              variant="tonal"
+              density="compact"
+              mandatory
+              rounded="lg"
+            >
+              <v-btn value="week" size="small">周</v-btn>
+              <v-btn value="month" size="small">月</v-btn>
+              <v-btn value="year" size="small">年</v-btn>
+              <v-btn value="all" size="small">全部</v-btn>
+            </v-btn-toggle>
+          </div>
+
+          <v-row>
+            <v-col cols="12" lg="8">
+              <v-card variant="flat" border class="pa-4 h-100 rounded-xl">
+                <p class="text-subtitle-2 font-weight-bold mb-4 d-flex align-center">
+                  <v-icon size="18" class="mr-2" color="primary">{{ mdiChartTimelineVariant }}</v-icon>
+                  消耗历史趋势
+                </p>
+                <div style="height: 400px;">
+                  <v-chart class="chart" :option="lineOption" autoresize />
+                </div>
+              </v-card>
+            </v-col>
+            <v-col cols="12" lg="4">
+              <div class="d-flex flex-column gap-4 h-100">
+                <v-card variant="flat" border class="pa-4 rounded-xl flex-grow-1 d-flex flex-column">
+                  <p class="text-subtitle-2 font-weight-bold mb-4">按模型分布</p>
+                  <div class="flex-grow-1" style="min-height: 300px;">
+                    <v-chart class="chart" :option="pieOption" autoresize />
+                  </div>
+                </v-card>
+              </div>
+            </v-col>
+          </v-row>
+
+          <v-row class="text-center mt-6">
+            <v-col v-if="usageStats">
+              <v-card variant="tonal" color="primary" class="pa-6 rounded-xl">
+                <p class="text-subtitle-2 mb-2 font-weight-bold">所有服务的总计消耗 (Tokens)</p>
+                <p class="text-h2 font-weight-black">{{ usageStats.total_tokens.toLocaleString() }}</p>
+              </v-card>
+            </v-col>
+          </v-row>
+        </v-card-text>
+      </v-card>
+    </v-dialog>
+
     <!-- 删除确认 -->
     <v-dialog v-model="deleteDialog" max-width="360">
       <v-card rounded="xl">
@@ -710,6 +1063,7 @@ const fetchModels = async () => {
 .gradient-text {
   background: linear-gradient(135deg, var(--v-theme-primary) 0%, #2c3e50 100%);
   -webkit-background-clip: text;
+  background-clip: text;
   -webkit-text-fill-color: transparent;
 }
 .shadow-premium {
@@ -719,5 +1073,12 @@ const fetchModels = async () => {
   letter-spacing: 0.5px;
   text-transform: none;
   background: linear-gradient(135deg, var(--v-theme-primary) 0%, var(--v-theme-secondary) 100%) !important;
+}
+.cursor-pointer {
+  cursor: pointer;
+}
+.chart {
+  height: 300px;
+  width: 100%;
 }
 </style>

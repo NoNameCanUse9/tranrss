@@ -654,7 +654,7 @@ struct StreamItemsContentsForm {
     #[serde(rename = "i", alias = "i[]", default)]
     ids: Vec<String>,
     #[serde(default)]
-    t: Option<String>,
+    _t: Option<String>,
 }
 
 async fn stream_items_contents(

@@ -82,7 +82,13 @@
     "timeout_label": "超时时间",
     "unit_seconds": "秒",
     "ai_model_params": "AI 模型参数",
-    "general_policy": "通用运行策略"
+    "general_policy": "通用运行策略",
+    "usage_title": "OpenAI 类型 Token 统计",
+    "total_tokens": "总消耗代币",
+    "prompt_tokens_label": "提示代币",
+    "completion_tokens_label": "生成代币",
+    "usage_by_model": "消耗按模型分布",
+    "no_usage_data": "暂无 Token 消耗数据"
   },
   "queue": {
     "title": "运行日志",
@@ -108,7 +114,8 @@
     "view_error": "查看错误",
     "duration": "耗时 {d}",
     "unit_source": "个源",
-    "unit_segment": "个片段"
+    "unit_segment": "个片段",
+    "unit_article": "个文章"
   },
   "sub": {
     "title": "订阅源",
@@ -153,6 +160,8 @@
     "delete_msg": "确定要删除订阅「{name}」吗？相关文章数据将一并删除。",
     "sync": "同步",
     "delete": "删除",
+    "lang_zh": "简体中文",
+    "lang_en": "英语",
     "lang_ja": "日语",
     "lang_fr": "法语",
     "lang_de": "德语",

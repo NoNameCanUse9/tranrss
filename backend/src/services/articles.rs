@@ -128,7 +128,6 @@ pub fn stitch_article_content(
     need_translate: bool,
 ) -> String {
     let mut stitched_content = skeleton.to_string();
-    let has_any_trans = blocks.iter().any(|b| b.trans_text.is_some());
 
     for block in blocks {
         if block.block_index < 0 {

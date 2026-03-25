@@ -51,6 +51,7 @@ pub struct UpdateUserSettingRequest {
     pub api_proxy_url: Option<String>,
     pub app_mode: Option<bool>,
     pub log_num_limit: Option<i32>,
+    pub custom_trans_style: Option<String>,
 }
 
 #[derive(Serialize, Deserialize, sqlx::FromRow)]
@@ -64,4 +65,5 @@ pub struct UserSetting {
     pub app_mode: Option<bool>,
     pub user_id: i64,
     pub log_num_limit: Option<i32>,
+    pub custom_trans_style: Option<String>,
 }
