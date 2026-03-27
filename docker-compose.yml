@@ -1,0 +1,13 @@
+services:
+  tranrss:
+    image: ghcr.io/nonamecanuse9/tranrss:latest
+    container_name: tranrss
+    restart: always
+    ports:
+      - "8000:8000"
+    volumes:
+      - "./data:/app/data"
+    environment:
+      - DATABASE_URL=sqlite:/app/data/data.database
+      - API_ENCRYPTION_KEY=564754yrtyhsrtyhserygsergrrgrsgfffs
+      - TZ=Asia/Shanghai # 设置时区

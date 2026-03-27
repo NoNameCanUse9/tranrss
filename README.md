@@ -13,24 +13,30 @@ TranRSS 是一款基于 AI 驱动的现代 RSS 阅读器。它不仅具备传统
 
 ## 🚀 快速开始
 
-### 使用 Docker (推荐)
-
-最简单的方式是使用 GitHub Container Registry (GHCR) 托管的镜像：
+### 使用 Docker (推荐方式一)
 
 ```bash
-
 docker run -d \
   --name tranrss \
   -p 8000:8000 \
-  -v /你的宿主机目录/data:/app/data \
+  --restart always \
+  -v ./data:/app/data \
   -e DATABASE_URL=sqlite:/app/data/data.database \
   -e API_ENCRYPTION_KEY=你的加密密钥 \
   ghcr.io/nonamecanuse9/tranrss:latest
 ```
 
-> [!IMPORTANT]
-> - **持久化映射**：推荐直接映射 `/app/data` 目录以兼容 SQLite 的 WAL 模式临时文件。
+### 使用 Docker Compose (推荐方式二)
 
+项目根目录下已提供 `docker-compose.yml`，你可以直接运行：
+
+```bash
+docker compose up -d
+```
+
+> [!IMPORTANT]
+> - **持久化映射**：推荐直接映射 `./data` 或 `/app/data` 目录以兼容 SQLite 的 WAL 模式临时文件。
+> - **端口说明**：Docker 镜像已开启 `embed-frontend`，访问 **8000** 即可完成全部操作（前端单独开发的调试端口为 8001）。
 
 ### 环境变量
 
