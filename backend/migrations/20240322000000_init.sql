@@ -75,15 +75,17 @@ CREATE TABLE IF NOT EXISTS articles (
     title TEXT NOT NULL,
     link TEXT,
     author TEXT,
-    published_at INTEGER,
+    published_at INTEGER DEFAULT (strftime('%s', 'now')),
     content_skeleton TEXT,
     is_read INTEGER DEFAULT 0,
     is_starred INTEGER DEFAULT 0,
-    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at INTEGER DEFAULT (strftime('%s', 'now')),
     summary TEXT,
-    crawl_time INTEGER,
+    crawl_time INTEGER DEFAULT (strftime('%s', 'now')),
     FOREIGN KEY (feed_id) REFERENCES feeds (id) ON DELETE CASCADE
 );
+
+CREATE INDEX IF NOT EXISTS idx_articles_published ON articles (published_at DESC);
 
 CREATE INDEX IF NOT EXISTS idx_articles_feed_unread ON articles (feed_id, is_read);
 
@@ -105,7 +107,7 @@ CREATE TABLE IF NOT EXISTS article_blocks (
     FOREIGN KEY (article_id) REFERENCES articles (id) ON DELETE CASCADE
 );
 
-CREATE INDEX IF NOT EXISTS idx_article_blocks_lookup ON article_blocks (user_id, article_id);
+-- idx_article_blocks_lookup is redundant as the PRIMARY KEY (user_id, article_id, block_index) already covers it.
 
 CREATE INDEX IF NOT EXISTS idx_blocks_article_ordered ON article_blocks (article_id, block_index);
 
@@ -192,6 +194,11 @@ CREATE TABLE IF NOT EXISTS api_usage (
     FOREIGN KEY (api_config_id) REFERENCES api_configs (id) ON DELETE CASCADE
 );
 
+CREATE TABLE IF NOT EXISTS system_config (
+    key TEXT PRIMARY KEY,
+    value TEXT NOT NULL
+);
+
 CREATE INDEX IF NOT EXISTS TIdx ON Jobs (id);
 
 CREATE INDEX IF NOT EXISTS SIdx ON Jobs (status);
@@ -201,3 +208,26 @@ CREATE INDEX IF NOT EXISTS LIdx ON Jobs (lock_by);
 CREATE INDEX IF NOT EXISTS JTIdx ON Jobs (job_type);
 
 CREATE INDEX IF NOT EXISTS idx_api_usage_user_config ON api_usage (user_id, api_config_id);
+
+-- ---------------------------------------------------------
+-- 性能优化索引
+-- ---------------------------------------------------------
+
+-- 优化“进入某个源”时的文章列表加载速度 (覆盖排序和过滤)
+CREATE INDEX IF NOT EXISTS idx_articles_feed_published ON articles (feed_id, published_at DESC);
+
+-- 优化“查看未读/置顶”列表
+CREATE INDEX IF NOT EXISTS idx_articles_read_published ON articles (is_read, published_at DESC);
+CREATE INDEX IF NOT EXISTS idx_articles_starred_published ON articles (is_starred, published_at DESC);
+
+-- 优化背景同步任务：快速通过 feed_id 找到所有订阅用户
+CREATE INDEX IF NOT EXISTS idx_subscriptions_feed_user ON subscriptions (feed_id, user_id);
+
+-- 优化文章块查询（虽然主键已涵盖此顺序，但增加显式索引有助于复杂查询优化）
+CREATE INDEX IF NOT EXISTS idx_article_blocks_meta ON article_blocks (article_id, user_id);
+
+-- 优化爬虫调度：优先查找待更新的源
+CREATE INDEX IF NOT EXISTS idx_feeds_fetch_priority ON feeds (last_fetched_at ASC, consecutive_fetch_failures DESC);
+
+-- 优化用量统计查询速度
+CREATE INDEX IF NOT EXISTS idx_api_usage_created ON api_usage (created_at DESC);

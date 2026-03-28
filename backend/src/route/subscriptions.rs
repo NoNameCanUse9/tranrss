@@ -73,7 +73,10 @@ async fn activate_inactive_feeds(
     auth: AuthUser,
     Json(payload): Json<ActivateRequest>,
 ) -> Result<StatusCode, (StatusCode, String)> {
-    let mut tx = state.db.begin().await
+    let mut tx = state
+        .db
+        .begin()
+        .await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
     for fid in payload.feed_ids {
@@ -86,21 +89,26 @@ async fn activate_inactive_feeds(
             .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
         // 重置失败计数
-        sqlx::query("UPDATE feeds SET consecutive_fetch_failures = 0, last_error = NULL WHERE id = ?")
-            .bind(fid)
-            .execute(&mut *tx)
-            .await
-            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
-            
+        sqlx::query(
+            "UPDATE feeds SET consecutive_fetch_failures = 0, last_error = NULL WHERE id = ?",
+        )
+        .bind(fid)
+        .execute(&mut *tx)
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+
         // 立即触发一次同步任务以尝试恢复
         let mut storage = state.sync_queue.clone();
-        let _ = storage.push(SyncFeedJob {
-            feed_id: fid,
-            initiator_user_id: Some(auth.user_id),
-        }).await;
+        let _ = storage
+            .push(SyncFeedJob {
+                feed_id: fid,
+                initiator_user_id: Some(auth.user_id),
+            })
+            .await;
     }
 
-    tx.commit().await
+    tx.commit()
+        .await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
     Ok(StatusCode::OK)
@@ -156,9 +164,24 @@ async fn update_subscription(
     Path(id): Path<i64>,
     Json(payload): Json<UpdateSubscriptionRequest>,
 ) -> Result<StatusCode, (StatusCode, String)> {
+    // 1. 获取 feed_id 以便后续触发任务
+    let feed_id = subscription::get_feed_id_by_subscription(&state.db, auth.user_id, id)
+        .await
+        .map_err(|e| (StatusCode::NOT_FOUND, e.to_string()))?;
+
+    // 2. 执行更新
     subscription::update_subscription(&state.db, auth.user_id, id, payload)
         .await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+
+    // 3. 立即触发同步任务以应用新配置（如开启 AI 翻译/简报）
+    let mut storage = state.sync_queue.clone();
+    let _ = storage
+        .push(SyncFeedJob {
+            feed_id,
+            initiator_user_id: Some(auth.user_id),
+        })
+        .await;
 
     Ok(StatusCode::OK)
 }
@@ -354,14 +377,14 @@ async fn import_opml(
     // In a real app, use quick-xml or similar
     let re_outline = regex::Regex::new(r#"<outline[^>]+xmlUrl=["']([^"']+)["'][^>]*>"#).unwrap();
     let re_title = regex::Regex::new(r#"title=["']([^"']+)["']"#).unwrap();
-    // For handling folders: this is tricky with regex. 
+    // For handling folders: this is tricky with regex.
     // Let's just import all as top-level for now or try to match category if present
-    
+
     let mut count = 0;
     for cap in re_outline.captures_iter(&content) {
         let url = &cap[1];
         let title = re_title.captures(&cap[0]).map(|c| c[1].to_string());
-        
+
         let payload = CreateSubscriptionRequest {
             feed_url: url.to_string(),
             folder_id: None,
@@ -378,19 +401,26 @@ async fn import_opml(
             refresh_interval: Some(30),
         };
 
-        if let Ok((_sub_id, feed_id)) = subscription::create_subscription(&state.db, auth.user_id, payload).await {
+        if let Ok((_sub_id, feed_id)) =
+            subscription::create_subscription(&state.db, auth.user_id, payload).await
+        {
             // Queue sync
             let mut storage = state.sync_queue.clone();
-            let _ = storage.push(SyncFeedJob {
-                feed_id,
-                initiator_user_id: Some(auth.user_id),
-            }).await;
+            let _ = storage
+                .push(SyncFeedJob {
+                    feed_id,
+                    initiator_user_id: Some(auth.user_id),
+                })
+                .await;
             count += 1;
         }
     }
 
     if count == 0 {
-        return Err((StatusCode::BAD_REQUEST, "No subscriptions found in OPML".to_string()));
+        return Err((
+            StatusCode::BAD_REQUEST,
+            "No subscriptions found in OPML".to_string(),
+        ));
     }
 
     Ok(StatusCode::OK)

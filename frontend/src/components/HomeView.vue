@@ -45,6 +45,15 @@ const mobileDrawer = ref(false)
 const drawerOpen = ref(true)
 const articlesExpanded = ref(true) // manual expand state for articles group
 const openedGroups = ref(['articles'])
+const collapsedCategories = ref<string[]>([]) // track collapsed custom categories
+
+const toggleCategory = (cat: string) => {
+  if (collapsedCategories.value.includes(cat)) {
+    collapsedCategories.value = collapsedCategories.value.filter(c => c !== cat)
+  } else {
+    collapsedCategories.value.push(cat)
+  }
+}
 
 const toggleTheme = () => {
   isDark.value = !isDark.value
@@ -93,6 +102,10 @@ const fetchSubscriptions = async () => {
     const response = await fetch('/api/feeds', {
       headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` }
     })
+    if (response.status === 401) {
+      logout()
+      return
+    }
     if (response.ok) {
       subscriptions.value = await response.json()
     }
@@ -133,7 +146,8 @@ const selectFeed = (feedId?: number, isRead?: boolean, isStarred?: boolean) => {
 const logout = () => {
   localStorage.removeItem('token')
   localStorage.removeItem('username')
-  emit('logout')
+  // 使用 reload 是最稳妥的退出方式，确保所有内存状态清空
+  window.location.reload()
 }
 
 const fetchActiveJobsCount = async () => {
@@ -141,6 +155,10 @@ const fetchActiveJobsCount = async () => {
     const response = await fetch('/api/jobs', {
       headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` }
     })
+    if (response.status === 401) {
+      logout()
+      return
+    }
     if (response.ok) {
       const data: { status: string }[] = await response.json()
       // Only count active or failing tasks
@@ -379,20 +397,34 @@ const fetchActiveJobsCount = async () => {
             </v-list-item>
 
             <template v-for="(subs, cat) in groupedSubscriptions" :key="cat">
-              <v-list-item :title="cat" density="compact" class="text-caption opacity-80 pl-6" />
-              <v-list-item
-                v-for="sub in subs"
-                :key="sub.id"
-                :title="sub.title"
-                density="compact"
-                class="pl-10 text-caption rounded-lg mb-1"
-                :active="activeTab === 0 && selectedFeedId === sub.feedId"
-                @click="selectFeed(sub.feedId)"
+              <!-- Custom Category Header with Expand/Collapse -->
+              <v-list-item 
+                density="compact" 
+                class="text-caption opacity-80 pl-6 cursor-pointer rounded-lg mb-1" 
+                @click="toggleCategory(cat as string)"
               >
-                <template #append v-if="sub.unreadCount > 0">
-                  <span class="text-caption text-medium-emphasis">{{ sub.unreadCount }}</span>
-                </template>
+                <div class="d-flex align-center justify-space-between w-100">
+                  <span class="text-truncate">{{ cat }}</span>
+                  <v-icon size="14">{{ collapsedCategories.includes(cat as string) ? mdiChevronDown : mdiChevronUp }}</v-icon>
+                </div>
               </v-list-item>
+              
+              <!-- Subscriptions list in the category -->
+              <template v-if="!collapsedCategories.includes(cat as string)">
+                <v-list-item
+                  v-for="sub in subs"
+                  :key="sub.id"
+                  :title="sub.title"
+                  density="compact"
+                  class="pl-10 text-caption rounded-lg mb-1"
+                  :active="activeTab === 0 && selectedFeedId === sub.feedId"
+                  @click="selectFeed(sub.feedId)"
+                >
+                  <template #append v-if="sub.unreadCount > 0">
+                    <span class="text-caption text-medium-emphasis">{{ sub.unreadCount }}</span>
+                  </template>
+                </v-list-item>
+              </template>
             </template>
           </template>
         </div>

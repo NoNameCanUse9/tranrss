@@ -1,15 +1,15 @@
 use crate::AppState;
 use crate::model::user::User;
 use crate::services::auth::{self, AuthUser};
+use axum::http::header::CONTENT_TYPE;
 use axum::{
     Form, Json, Router,
-    extract::{Path, Query, State},
     body::Bytes,
-    http::{StatusCode, HeaderMap},
+    extract::{Path, Query, State},
+    http::{HeaderMap, StatusCode},
     response::IntoResponse,
     routing::{get, post},
 };
-use axum::http::header::CONTENT_TYPE;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
@@ -33,14 +33,20 @@ pub fn router() -> Router<Arc<AppState>> {
         // Content
         .route("/reader/api/0/stream/contents/{*id}", get(stream_contents))
         .route("/reader/api/0/stream/items/ids", get(stream_items_ids))
-        .route("/reader/api/0/stream/items/contents", get(stream_items_contents).post(stream_items_contents))
+        .route(
+            "/reader/api/0/stream/items/contents",
+            get(stream_items_contents).post(stream_items_contents),
+        )
         // Actions
         .route("/reader/api/0/edit-tag", post(edit_tag))
         .route("/reader/api/0/mark-all-as-read", post(mark_all_as_read))
         .route("/reader/api/0/disable-tag", post(disable_tag))
         .route("/reader/api/0/rename-tag", post(rename_tag))
         // Subscription actions
-        .route("/reader/api/0/subscription/quickadd", post(subscription_quickadd))
+        .route(
+            "/reader/api/0/subscription/quickadd",
+            post(subscription_quickadd),
+        )
         .route("/reader/api/0/subscription/edit", post(subscription_edit))
 }
 
@@ -179,27 +185,29 @@ async fn subscription_list(
 
     let subscriptions = rows
         .into_iter()
-        .map(|(feed_id, feed_url, title, site_url, icon_url, folder_title)| {
-            let mut categories = Vec::new();
-            if let Some(ft) = folder_title {
-                categories.push(GReaderCategory {
-                    id: format!("user/{}/label/{}", auth.user_id, ft),
-                    label: ft,
-                });
-            }
-            let html_url = site_url.clone().unwrap_or_default();
-            let icon = icon_url.unwrap_or_default();
-            GReaderSubscription {
-                id: format!("feed/{}", feed_id),
-                title,
-                categories,
-                sortid: format!("{:08x}", feed_id),
-                firstitemmsec: "0".to_string(),
-                url: feed_url,
-                html_url,
-                icon_url: icon,
-            }
-        })
+        .map(
+            |(feed_id, feed_url, title, site_url, icon_url, folder_title)| {
+                let mut categories = Vec::new();
+                if let Some(ft) = folder_title {
+                    categories.push(GReaderCategory {
+                        id: format!("user/{}/label/{}", auth.user_id, ft),
+                        label: ft,
+                    });
+                }
+                let html_url = site_url.clone().unwrap_or_default();
+                let icon = icon_url.unwrap_or_default();
+                GReaderSubscription {
+                    id: format!("feed/{}", feed_id),
+                    title,
+                    categories,
+                    sortid: format!("{:08x}", feed_id),
+                    firstitemmsec: "0".to_string(),
+                    url: feed_url,
+                    html_url,
+                    icon_url: icon,
+                }
+            },
+        )
         .collect();
 
     Ok(Json(GReaderSubscriptionList { subscriptions }))
@@ -256,14 +264,14 @@ async fn tag_list(
 
 #[derive(Deserialize)]
 struct StreamQuery {
-    s: Option<String>,    // Stream ID
-    n: Option<i64>,       // Number of items
-    xt: Option<String>,   // Exclude target
-    it: Option<String>,   // Include target
-    r: Option<String>,    // Order: "o" for oldest first
-    ot: Option<i64>,      // Newer than timestamp
-    nt: Option<i64>,      // Older than timestamp
-    c: Option<String>,    // Continuation token
+    s: Option<String>,  // Stream ID
+    n: Option<i64>,     // Number of items
+    xt: Option<String>, // Exclude target
+    it: Option<String>, // Include target
+    r: Option<String>,  // Order: "o" for oldest first
+    ot: Option<i64>,    // Newer than timestamp
+    nt: Option<i64>,    // Older than timestamp
+    c: Option<String>,  // Continuation token
     #[allow(dead_code)]
     output: Option<String>,
 }
@@ -402,47 +410,78 @@ async fn stream_contents(
         &rows[..]
     };
 
-    let items: Vec<GReaderItem> = rows.iter().map(|(id, title, link, author, pub_at, crawl_time, is_read, is_starred, feed_id, feed_title, site_url, skeleton, summary, _updated_at)| {
-        let ct = crawl_time.unwrap_or(0);
-        let ts = pub_at.unwrap_or(ct); // Fallback to crawl_time if published_at is NULL
+    let items: Vec<GReaderItem> = rows
+        .iter()
+        .map(
+            |(
+                id,
+                title,
+                link,
+                author,
+                pub_at,
+                crawl_time,
+                is_read,
+                is_starred,
+                feed_id,
+                feed_title,
+                site_url,
+                skeleton,
+                summary,
+                _updated_at,
+            )| {
+                let ct = crawl_time.unwrap_or(0);
+                let ts = pub_at.unwrap_or(ct); // Fallback to crawl_time if published_at is NULL
 
-        let mut categories = vec![STATE_READING_LIST.to_string()];
-        if *is_read {
-            categories.push(STATE_READ.to_string());
-        } else {
-            categories.push(STATE_KEPT_UNREAD.to_string());
-            // 最近抓取的文章标记为 fresh（24小时内）
-            if ct > chrono::Utc::now().timestamp() - 86400 {
-                categories.push(STATE_FRESH.to_string());
-            }
-        }
-        if *is_starred {
-            categories.push(STATE_STARRED.to_string());
-        }
+                let mut categories = vec![STATE_READING_LIST.to_string()];
+                if *is_read {
+                    categories.push(STATE_READ.to_string());
+                } else {
+                    categories.push(STATE_KEPT_UNREAD.to_string());
+                    // 最近抓取的文章标记为 fresh（24小时内）
+                    if ct > chrono::Utc::now().timestamp() - 86400 {
+                        categories.push(STATE_FRESH.to_string());
+                    }
+                }
+                if *is_starred {
+                    categories.push(STATE_STARRED.to_string());
+                }
 
-        let content_text = skeleton.clone().or_else(|| summary.clone()).unwrap_or_default();
-        let link_str = link.clone().unwrap_or_default();
+                let content_text = skeleton
+                    .clone()
+                    .or_else(|| summary.clone())
+                    .unwrap_or_default();
+                let link_str = link.clone().unwrap_or_default();
 
-        GReaderItem {
-            id: item_id_to_greader(*id),
-            crawl_time_msec: (ct * 1000).to_string(),
-            timestamp_usec: (ts * 1_000_000).to_string(),
-            published: ts,
-            updated: ts,
-            title: title.clone(),
-            canonical: vec![GReaderLink { href: link_str.clone() }],
-            alternate: vec![GReaderLink { href: link_str }],
-            summary: GReaderContent { direction: "ltr".into(), content: content_text.clone() },
-            content: Some(GReaderContent { direction: "ltr".into(), content: content_text }),
-            author: author.clone().unwrap_or_default(),
-            categories,
-            origin: GReaderOrigin {
-                stream_id: format!("feed/{}", feed_id),
-                title: feed_title.clone(),
-                html_url: site_url.clone().unwrap_or_default(),
+                GReaderItem {
+                    id: item_id_to_greader(*id),
+                    crawl_time_msec: (ct * 1000).to_string(),
+                    timestamp_usec: (ts * 1_000_000).to_string(),
+                    published: ts,
+                    updated: ts,
+                    title: title.clone(),
+                    canonical: vec![GReaderLink {
+                        href: link_str.clone(),
+                    }],
+                    alternate: vec![GReaderLink { href: link_str }],
+                    summary: GReaderContent {
+                        direction: "ltr".into(),
+                        content: content_text.clone(),
+                    },
+                    content: Some(GReaderContent {
+                        direction: "ltr".into(),
+                        content: content_text,
+                    }),
+                    author: author.clone().unwrap_or_default(),
+                    categories,
+                    origin: GReaderOrigin {
+                        stream_id: format!("feed/{}", feed_id),
+                        title: feed_title.clone(),
+                        html_url: site_url.clone().unwrap_or_default(),
+                    },
+                }
             },
-        }
-    }).collect();
+        )
+        .collect();
 
     let continuation = if has_more {
         Some(encode_continuation(offset + limit))
@@ -476,7 +515,12 @@ fn resolve_stream_title(stream_id: &str) -> String {
     }
 }
 
-fn apply_stream_filters(query_str: &mut String, stream_id: &str, params: &StreamQuery, user_id: i64) {
+fn apply_stream_filters(
+    query_str: &mut String,
+    stream_id: &str,
+    params: &StreamQuery,
+    user_id: i64,
+) {
     // 按 stream_id 过滤
     let s = params.s.as_deref().unwrap_or(stream_id);
     if s.starts_with("feed/") {
@@ -511,18 +555,32 @@ fn apply_stream_filters(query_str: &mut String, stream_id: &str, params: &Stream
     // ot = oldest time：只取比此时间戳**更新**的文章
     if let Some(ot) = params.ot {
         // GReader 协议中 ot 可能是秒、毫秒或微秒，这里做自适应
-        let ot_sec = if ot > 10_000_000_000_000 { ot / 1_000_000 }
-                    else if ot > 10_000_000_000 { ot / 1000 }
-                    else { ot };
-        query_str.push_str(&format!(" AND COALESCE(a.published_at, a.crawl_time) >= {}", ot_sec));
+        let ot_sec = if ot > 10_000_000_000_000 {
+            ot / 1_000_000
+        } else if ot > 10_000_000_000 {
+            ot / 1000
+        } else {
+            ot
+        };
+        query_str.push_str(&format!(
+            " AND COALESCE(a.published_at, a.crawl_time) >= {}",
+            ot_sec
+        ));
     }
 
     // nt = newest time：只取此时间戳**之前**的文章
     if let Some(nt) = params.nt {
-        let nt_sec = if nt > 10_000_000_000_000 { nt / 1_000_000 }
-                    else if nt > 10_000_000_000 { nt / 1000 }
-                    else { nt };
-        query_str.push_str(&format!(" AND COALESCE(a.published_at, a.crawl_time) <= {}", nt_sec));
+        let nt_sec = if nt > 10_000_000_000_000 {
+            nt / 1_000_000
+        } else if nt > 10_000_000_000 {
+            nt / 1000
+        } else {
+            nt
+        };
+        query_str.push_str(&format!(
+            " AND COALESCE(a.published_at, a.crawl_time) <= {}",
+            nt_sec
+        ));
     }
 
     let _ = user_id;
@@ -594,18 +652,32 @@ async fn stream_items_ids(
 
     // ot = oldest time: 返回比此时间戳**更新**的文章
     if let Some(ot) = params.ot {
-        let ot_sec = if ot > 10_000_000_000_000 { ot / 1_000_000 }
-                    else if ot > 10_000_000_000 { ot / 1000 }
-                    else { ot };
-        query_str.push_str(&format!(" AND COALESCE(a.published_at, a.crawl_time) >= {}", ot_sec));
+        let ot_sec = if ot > 10_000_000_000_000 {
+            ot / 1_000_000
+        } else if ot > 10_000_000_000 {
+            ot / 1000
+        } else {
+            ot
+        };
+        query_str.push_str(&format!(
+            " AND COALESCE(a.published_at, a.crawl_time) >= {}",
+            ot_sec
+        ));
     }
 
     // nt = newest time: 返回比此时间戳**之前**的文章
     if let Some(nt) = params.nt {
-        let nt_sec = if nt > 10_000_000_000_000 { nt / 1_000_000 }
-                    else if nt > 10_000_000_000 { nt / 1000 }
-                    else { nt };
-        query_str.push_str(&format!(" AND COALESCE(a.published_at, a.crawl_time) <= {}", nt_sec));
+        let nt_sec = if nt > 10_000_000_000_000 {
+            nt / 1_000_000
+        } else if nt > 10_000_000_000 {
+            nt / 1000
+        } else {
+            nt
+        };
+        query_str.push_str(&format!(
+            " AND COALESCE(a.published_at, a.crawl_time) <= {}",
+            nt_sec
+        ));
     }
 
     if params.r.as_deref() == Some("o") {
@@ -623,7 +695,11 @@ async fn stream_items_ids(
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
     let has_more = rows.len() as i64 > limit;
-    let rows = if has_more { &rows[..limit as usize] } else { &rows[..] };
+    let rows = if has_more {
+        &rows[..limit as usize]
+    } else {
+        &rows[..]
+    };
 
     let item_refs = rows
         .iter()
@@ -643,7 +719,10 @@ async fn stream_items_ids(
         None
     };
 
-    Ok(Json(GReaderStreamIds { item_refs, continuation }))
+    Ok(Json(GReaderStreamIds {
+        item_refs,
+        continuation,
+    }))
 }
 
 // --- Stream Items Contents (POST) ---
@@ -668,7 +747,8 @@ async fn stream_items_contents(
 
     // 尝试从 Body 解析 ID (支持 Form 和 JSON)
     if !body.is_empty() {
-        let ct = headers.get(CONTENT_TYPE)
+        let ct = headers
+            .get(CONTENT_TYPE)
             .and_then(|v| v.to_str().ok())
             .unwrap_or("");
 
@@ -692,9 +772,7 @@ async fn stream_items_contents(
         }
     }
 
-    let item_ids: Vec<i64> = ids.iter()
-        .filter_map(|s| greader_to_item_id(s))
-        .collect();
+    let item_ids: Vec<i64> = ids.iter().filter_map(|s| greader_to_item_id(s)).collect();
 
     if item_ids.is_empty() {
         return Ok(Json(GReaderStreamContents {
@@ -708,7 +786,12 @@ async fn stream_items_contents(
     }
 
     // 构建 IN 子句
-    let placeholders = item_ids.iter().enumerate().map(|(i, _)| format!("?{}", i + 2)).collect::<Vec<_>>().join(",");
+    let placeholders = item_ids
+        .iter()
+        .enumerate()
+        .map(|(i, _)| format!("?{}", i + 2))
+        .collect::<Vec<_>>()
+        .join(",");
     let query_str = format!(
         r#"
         SELECT 
@@ -724,13 +807,34 @@ async fn stream_items_contents(
         placeholders
     );
 
-    let mut q = sqlx::query_as::<_, (i64, String, Option<String>, Option<String>, Option<i64>, Option<i64>, bool, bool, i64, String, Option<String>, String, String, bool, Option<String>)>(&query_str)
-        .bind(auth.user_id);
+    let mut q = sqlx::query_as::<
+        _,
+        (
+            i64,
+            String,
+            Option<String>,
+            Option<String>,
+            Option<i64>,
+            Option<i64>,
+            bool,
+            bool,
+            i64,
+            String,
+            Option<String>,
+            String,
+            String,
+            bool,
+            Option<String>,
+        ),
+    >(&query_str)
+    .bind(auth.user_id);
     for id in &item_ids {
         q = q.bind(id);
     }
 
-    let rows = q.fetch_all(&state.db).await
+    let rows = q
+        .fetch_all(&state.db)
+        .await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
     // 批量拉取所有文章的 Blocks
@@ -738,12 +842,14 @@ async fn stream_items_contents(
         "SELECT article_id, block_index, raw_text, trans_text FROM article_blocks WHERE user_id = ?1 AND article_id IN ({}) ORDER BY article_id, block_index ASC",
         placeholders
     );
-    let mut bq = sqlx::query_as::<_, crate::model::articles::ArticleBlock>(&block_query)
-        .bind(auth.user_id);
+    let mut bq =
+        sqlx::query_as::<_, crate::model::articles::ArticleBlock>(&block_query).bind(auth.user_id);
     for id in &item_ids {
         bq = bq.bind(id);
     }
-    let all_blocks = bq.fetch_all(&state.db).await
+    let all_blocks = bq
+        .fetch_all(&state.db)
+        .await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
     // 组织 Blocks 数据以便拼合
@@ -753,53 +859,92 @@ async fn stream_items_contents(
         blocks_map.entry(block.article_id).or_default().push(block);
     }
 
-    let items = rows.into_iter().map(|(id, mut title, link, author, pub_at, crawl_time, is_read, is_starred, feed_id, feed_title, site_url, skeleton, summary, need_translate, _target_lang)| {
-        let ct = crawl_time.unwrap_or(0);
-        let ts = pub_at.unwrap_or(ct);
-        
-        // 1. 处理标题翻译 (block_index = -1)
-        if let Some(article_blocks) = blocks_map.get(&id) {
-            if let Some(block) = article_blocks.iter().find(|b| b.block_index == -1) {
-                if let Some(ref trans_title) = block.trans_text {
-                    title = trans_title.clone();
+    let items = rows
+        .into_iter()
+        .map(
+            |(
+                id,
+                mut title,
+                link,
+                author,
+                pub_at,
+                crawl_time,
+                is_read,
+                is_starred,
+                feed_id,
+                feed_title,
+                site_url,
+                skeleton,
+                summary,
+                need_translate,
+                _target_lang,
+            )| {
+                let ct = crawl_time.unwrap_or(0);
+                let ts = pub_at.unwrap_or(ct);
+
+                // 1. 处理标题翻译 (block_index = -1)
+                if let Some(article_blocks) = blocks_map.get(&id) {
+                    if let Some(block) = article_blocks.iter().find(|b| b.block_index == -1) {
+                        if let Some(ref trans_title) = block.trans_text {
+                            title = trans_title.clone();
+                        }
+                    }
                 }
-            }
-        }
 
-        // 2. 统一调用 Service 层进行拼合
-        let content_html = crate::services::articles::stitch_article_content(
-            &skeleton,
-            blocks_map.get(&id).map(|v| v.as_slice()).unwrap_or(&[]),
-            if summary.trim().is_empty() { None } else { Some(&summary) },
-            need_translate,
-        );
+                // 2. 统一调用 Service 层进行拼合
+                let content_html = crate::services::articles::stitch_article_content(
+                    &skeleton,
+                    blocks_map.get(&id).map(|v| v.as_slice()).unwrap_or(&[]),
+                    if summary.trim().is_empty() {
+                        None
+                    } else {
+                        Some(&summary)
+                    },
+                    need_translate,
+                );
 
-        let mut categories = vec![STATE_READING_LIST.to_string()];
-        if is_read { categories.push(STATE_READ.to_string()); } else { categories.push(STATE_KEPT_UNREAD.to_string()); }
-        if is_starred { categories.push(STATE_STARRED.to_string()); }
-        
-        let link_str = link.unwrap_or_default();
-        
-        GReaderItem {
-            id: item_id_to_greader(id),
-            crawl_time_msec: (ct * 1000).to_string(),
-            timestamp_usec: (ts * 1_000_000).to_string(),
-            published: ts,
-            updated: ts,
-            title,
-            canonical: vec![GReaderLink { href: link_str.clone() }],
-            alternate: vec![GReaderLink { href: link_str }],
-            summary: GReaderContent { direction: "ltr".into(), content: content_html.clone() },
-            content: Some(GReaderContent { direction: "ltr".into(), content: content_html }),
-            author: author.unwrap_or_default(),
-            categories,
-            origin: GReaderOrigin {
-                stream_id: format!("feed/{}", feed_id),
-                title: feed_title,
-                html_url: site_url.unwrap_or_default(),
+                let mut categories = vec![STATE_READING_LIST.to_string()];
+                if is_read {
+                    categories.push(STATE_READ.to_string());
+                } else {
+                    categories.push(STATE_KEPT_UNREAD.to_string());
+                }
+                if is_starred {
+                    categories.push(STATE_STARRED.to_string());
+                }
+
+                let link_str = link.unwrap_or_default();
+
+                GReaderItem {
+                    id: item_id_to_greader(id),
+                    crawl_time_msec: (ct * 1000).to_string(),
+                    timestamp_usec: (ts * 1_000_000).to_string(),
+                    published: ts,
+                    updated: ts,
+                    title,
+                    canonical: vec![GReaderLink {
+                        href: link_str.clone(),
+                    }],
+                    alternate: vec![GReaderLink { href: link_str }],
+                    summary: GReaderContent {
+                        direction: "ltr".into(),
+                        content: content_html.clone(),
+                    },
+                    content: Some(GReaderContent {
+                        direction: "ltr".into(),
+                        content: content_html,
+                    }),
+                    author: author.unwrap_or_default(),
+                    categories,
+                    origin: GReaderOrigin {
+                        stream_id: format!("feed/{}", feed_id),
+                        title: feed_title,
+                        html_url: site_url.unwrap_or_default(),
+                    },
+                }
             },
-        }
-    }).collect();
+        )
+        .collect();
 
     Ok(Json(GReaderStreamContents {
         id: STATE_READING_LIST.to_string(),
@@ -811,19 +956,18 @@ async fn stream_items_contents(
     }))
 }
 
-
 // --- Action Handlers ---
 
 #[derive(Deserialize, Default)]
 struct EditTagForm {
     #[serde(default)]
-    i: Vec<String>,          // Item IDs (GReader 格式)
+    i: Vec<String>, // Item IDs (GReader 格式)
     #[serde(default)]
-    a: Option<Vec<String>>,  // Add tags
+    a: Option<Vec<String>>, // Add tags
     #[serde(default)]
-    r: Option<Vec<String>>,  // Remove tags
+    r: Option<Vec<String>>, // Remove tags
     #[allow(dead_code)]
-    s: Option<String>,       // Stream ID (可选)
+    s: Option<String>, // Stream ID (可选)
 }
 
 async fn edit_tag(
@@ -842,11 +986,17 @@ async fn edit_tag(
                 sqlx::query("UPDATE articles SET is_read = 1 WHERE id = ? AND feed_id IN (SELECT feed_id FROM subscriptions WHERE user_id = ?)")
                     .bind(item_id).bind(auth.user_id).execute(&state.db).await.ok();
             }
-            if add_tags.iter().any(|t| t.contains("state/com.google/starred")) {
+            if add_tags
+                .iter()
+                .any(|t| t.contains("state/com.google/starred"))
+            {
                 sqlx::query("UPDATE articles SET is_starred = 1 WHERE id = ? AND feed_id IN (SELECT feed_id FROM subscriptions WHERE user_id = ?)")
                     .bind(item_id).bind(auth.user_id).execute(&state.db).await.ok();
             }
-            if add_tags.iter().any(|t| t.contains("state/com.google/kept-unread")) {
+            if add_tags
+                .iter()
+                .any(|t| t.contains("state/com.google/kept-unread"))
+            {
                 sqlx::query("UPDATE articles SET is_read = 0 WHERE id = ? AND feed_id IN (SELECT feed_id FROM subscriptions WHERE user_id = ?)")
                     .bind(item_id).bind(auth.user_id).execute(&state.db).await.ok();
             }
@@ -857,7 +1007,10 @@ async fn edit_tag(
                 sqlx::query("UPDATE articles SET is_read = 0 WHERE id = ? AND feed_id IN (SELECT feed_id FROM subscriptions WHERE user_id = ?)")
                     .bind(item_id).bind(auth.user_id).execute(&state.db).await.ok();
             }
-            if rem_tags.iter().any(|t| t.contains("state/com.google/starred")) {
+            if rem_tags
+                .iter()
+                .any(|t| t.contains("state/com.google/starred"))
+            {
                 sqlx::query("UPDATE articles SET is_starred = 0 WHERE id = ? AND feed_id IN (SELECT feed_id FROM subscriptions WHERE user_id = ?)")
                     .bind(item_id).bind(auth.user_id).execute(&state.db).await.ok();
             }
@@ -872,7 +1025,7 @@ async fn edit_tag(
 #[derive(Deserialize)]
 struct MarkAllAsReadForm {
     #[serde(default)]
-    s: String,       // Stream ID
+    s: String, // Stream ID
     #[serde(default)]
     ts: Option<i64>, // 时间戳：只标记此时间之前的文章
 }
@@ -895,9 +1048,13 @@ async fn mark_all_as_read(
     }
 
     if let Some(ts) = payload.ts {
-        let ts_sec = if ts > 10_000_000_000_000 { ts / 1_000_000 }
-                    else if ts > 10_000_000_000 { ts / 1000 }
-                    else { ts };
+        let ts_sec = if ts > 10_000_000_000_000 {
+            ts / 1_000_000
+        } else if ts > 10_000_000_000 {
+            ts / 1000
+        } else {
+            ts
+        };
         query_str.push_str(&format!(" AND published_at <= {}", ts_sec));
     }
 
@@ -958,9 +1115,9 @@ async fn subscription_quickadd(
 #[derive(Deserialize, Default)]
 struct SubscriptionEditForm {
     #[serde(default)]
-    ac: String,      // action: edit / unsubscribe
+    ac: String, // action: edit / unsubscribe
     #[serde(default)]
-    s: String,       // feed stream id
+    s: String, // feed stream id
     #[serde(default)]
     t: Option<String>, // title
     #[serde(default)]
@@ -987,19 +1144,23 @@ async fn subscription_edit(
             .bind(auth.user_id)
             .bind(feed_id)
             .execute(&state.db)
-            .await.ok();
+            .await
+            .ok();
         return Ok("OK");
     }
 
     if payload.ac == "edit" {
         if let Some(title) = payload.t {
             if !title.is_empty() {
-                sqlx::query("UPDATE subscriptions SET custom_title = ? WHERE user_id = ? AND feed_id = ?")
-                    .bind(title)
-                    .bind(auth.user_id)
-                    .bind(feed_id)
-                    .execute(&state.db)
-                    .await.ok();
+                sqlx::query(
+                    "UPDATE subscriptions SET custom_title = ? WHERE user_id = ? AND feed_id = ?",
+                )
+                .bind(title)
+                .bind(auth.user_id)
+                .bind(feed_id)
+                .execute(&state.db)
+                .await
+                .ok();
             }
         }
 
@@ -1010,25 +1171,31 @@ async fn subscription_edit(
                     .bind(label)
                     .fetch_one(&state.db)
                     .await;
-                
+
                 if let Ok((folder_id,)) = folder_rec {
-                    sqlx::query("UPDATE subscriptions SET folder_id = ? WHERE user_id = ? AND feed_id = ?")
-                        .bind(folder_id)
-                        .bind(auth.user_id)
-                        .bind(feed_id)
-                        .execute(&state.db)
-                        .await.ok();
-                }
-            }
-        } else if let Some(folder_id_str) = payload.r {
-             if folder_id_str.contains("/label/") {
-                // If removing folder, we just set folder_id to NULL
-                sqlx::query("UPDATE subscriptions SET folder_id = NULL WHERE user_id = ? AND feed_id = ?")
+                    sqlx::query(
+                        "UPDATE subscriptions SET folder_id = ? WHERE user_id = ? AND feed_id = ?",
+                    )
+                    .bind(folder_id)
                     .bind(auth.user_id)
                     .bind(feed_id)
                     .execute(&state.db)
-                    .await.ok();
-             }
+                    .await
+                    .ok();
+                }
+            }
+        } else if let Some(folder_id_str) = payload.r {
+            if folder_id_str.contains("/label/") {
+                // If removing folder, we just set folder_id to NULL
+                sqlx::query(
+                    "UPDATE subscriptions SET folder_id = NULL WHERE user_id = ? AND feed_id = ?",
+                )
+                .bind(auth.user_id)
+                .bind(feed_id)
+                .execute(&state.db)
+                .await
+                .ok();
+            }
         }
     }
 
@@ -1050,24 +1217,29 @@ async fn disable_tag(
 ) -> Result<impl IntoResponse, (StatusCode, String)> {
     if let Some(label) = payload.s.split("/label/").last() {
         // Delete folder
-        let folder_rec: Result<(i64,), _> = sqlx::query_as("SELECT id FROM folders WHERE user_id = ? AND title = ?")
-            .bind(auth.user_id)
-            .bind(label)
-            .fetch_one(&state.db)
-            .await;
-        
-        if let Ok((folder_id,)) = folder_rec {
-            sqlx::query("UPDATE subscriptions SET folder_id = NULL WHERE user_id = ? AND folder_id = ?")
+        let folder_rec: Result<(i64,), _> =
+            sqlx::query_as("SELECT id FROM folders WHERE user_id = ? AND title = ?")
                 .bind(auth.user_id)
-                .bind(folder_id)
-                .execute(&state.db)
-                .await.ok();
-            
+                .bind(label)
+                .fetch_one(&state.db)
+                .await;
+
+        if let Ok((folder_id,)) = folder_rec {
+            sqlx::query(
+                "UPDATE subscriptions SET folder_id = NULL WHERE user_id = ? AND folder_id = ?",
+            )
+            .bind(auth.user_id)
+            .bind(folder_id)
+            .execute(&state.db)
+            .await
+            .ok();
+
             sqlx::query("DELETE FROM folders WHERE id = ? AND user_id = ?")
                 .bind(folder_id)
                 .bind(auth.user_id)
                 .execute(&state.db)
-                .await.ok();
+                .await
+                .ok();
         }
     }
     Ok("OK")
@@ -1086,14 +1258,17 @@ async fn rename_tag(
     auth: AuthUser,
     Form(payload): Form<RenameTagForm>,
 ) -> Result<impl IntoResponse, (StatusCode, String)> {
-    if let (Some(old_label), Some(new_label)) = (payload.s.split("/label/").last(), payload.dest.split("/label/").last()) {
+    if let (Some(old_label), Some(new_label)) = (
+        payload.s.split("/label/").last(),
+        payload.dest.split("/label/").last(),
+    ) {
         sqlx::query("UPDATE folders SET title = ? WHERE user_id = ? AND title = ?")
             .bind(new_label)
             .bind(auth.user_id)
             .bind(old_label)
             .execute(&state.db)
-            .await.ok();
+            .await
+            .ok();
     }
     Ok("OK")
 }
-

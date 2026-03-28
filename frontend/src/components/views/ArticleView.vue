@@ -57,6 +57,11 @@ const fetchArticles = async () => {
     const res = await fetch('/api/articles?' + params.toString(), {
       headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` }
     })
+    if (res.status === 401) {
+      localStorage.removeItem('token');
+      window.location.reload();
+      return;
+    }
     articles.value = await res.json()
   } finally {
     loading.value = false

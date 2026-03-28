@@ -56,6 +56,11 @@ const fetchApiConfigs = async () => {
     const res = await fetch('/api/translate-configs', {
       headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
     })
+    if (res.status === 401) {
+      localStorage.removeItem('token');
+      window.location.reload();
+      return;
+    }
     if (res.ok) {
       apiConfigs.value = await res.json()
     }
@@ -69,6 +74,11 @@ const loadSettings = async () => {
     const res = await fetch('/api/user/setting', {
       headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
     })
+    if (res.status === 401) {
+      localStorage.removeItem('token');
+      window.location.reload();
+      return;
+    }
     if (res.ok) {
       const data = await res.json()
       if (data.app_mode !== undefined && data.app_mode !== null) {

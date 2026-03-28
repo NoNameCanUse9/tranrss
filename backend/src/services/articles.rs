@@ -134,19 +134,32 @@ pub fn stitch_article_content(
             continue;
         }
 
+        let raw_text = block.raw_text.trim();
+
         let replacement = if need_translate {
-            if let Some(ref trans) = block.trans_text {
-                // 双语模式：原文 + 斜体翻译 (内联样式以便 GReader 客户端兼容)
-                format!(
-                    "{}<br><em style=\"display:block;font-style:italic;opacity:0.6;font-size:0.95em;margin-top:0.25em;padding-left:0.75em;border-left:2px solid #7986CB;\">{}</em>",
-                    block.raw_text, trans
-                )
+            if let Some(trans) = &block.trans_text {
+                let trans_text = trans.trim();
+
+                if raw_text.is_empty() && trans_text.is_empty() {
+                    String::new()
+                } else if raw_text.is_empty() {
+                    format!(
+                        "<em style=\"display:block;font-style:italic;opacity:0.8;margin-top:0.25em;padding-left:0.75em;border-left:2px solid #7986CB;\">{}</em>",
+                        trans_text
+                    )
+                } else {
+                    format!(
+                        "{}<br><em style=\"display:block;font-style:italic;opacity:0.6;font-size:0.95em;margin-top:0.25em;padding-left:0.75em;border-left:2px solid #7986CB;\">{}</em>",
+                        raw_text, trans_text
+                    )
+                }
             } else {
-                block.raw_text.clone()
+                raw_text.to_string()
             }
         } else {
-            block.raw_text.clone()
+            raw_text.to_string()
         };
+
         stitched_content =
             stitched_content.replace(&format!("[[TEXT_{}]]", block.block_index), &replacement);
     }

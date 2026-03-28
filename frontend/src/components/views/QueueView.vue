@@ -223,6 +223,11 @@ const fetchJobs = async () => {
     const response = await fetch('/api/jobs', {
       headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` }
     })
+    if (response.status === 401) {
+       localStorage.removeItem('token')
+       location.reload()
+       return
+    }
     if (response.ok) {
       const data: BackendJob[] = await response.json()
       const mapped = data.map(mapBackendJob)
@@ -378,10 +383,15 @@ const statusInfo = (status: string): { color: string; label: string; icon: strin
 const retryJob = async (job: QueueJob) => {
   try {
     for (const id of job.groupedIds) {
-      await fetch(`/api/jobs/${id}/retry`, {
+      const res = await fetch(`/api/jobs/${id}/retry`, {
         method: 'POST',
         headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` }
       })
+      if (res.status === 401) {
+        localStorage.removeItem('token')
+        location.reload()
+        return
+      }
     }
     fetchJobs()
   } catch (e) {
@@ -395,6 +405,11 @@ const clearCompleted = async () => {
       method: 'POST',
       headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` }
     })
+    if (res.status === 401) {
+       localStorage.removeItem('token')
+       location.reload()
+       return
+    }
     if (res.ok) {
       fetchJobs()
     }

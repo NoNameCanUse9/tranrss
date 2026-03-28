@@ -76,14 +76,26 @@ async fn sync_feed_handler(
         })?;
 
     // 同步开启下游任务 (翻译/摘要)
-    // 策略：仅对最近 1 小时更新的文章中、且由于刚同步产生的新文章触发任务。
-    // 为了防止“爆发式”IO（如几天没开后一次性同步几百篇），这里对每个 Feed 每次同步自动触发的任务数做限制 (LIMIT 20)。
-    let subscribers = sqlx::query(
-        "SELECT user_id, need_translate, need_summary FROM subscriptions WHERE feed_id = ?",
-    )
-    .bind(job.feed_id)
-    .fetch_all(&data.db)
-    .await?;
+    // 策略：如果是手动同步（存在 initiator_user_id），则放宽时间限制进行“补课”模式。
+    // 如果是后台自动同步，则仅对最近 1 小时内的新文章触发任务，防止过度消耗。
+    let initiator_user_id = job.initiator_user_id;
+    let is_manual = initiator_user_id.is_some();
+    let is_manual_int = if is_manual { 1 } else { 0 };
+
+    let subscribers = if let Some(uid) = initiator_user_id {
+        // 手动模式：仅同步发起者的订阅设置
+        sqlx::query("SELECT user_id, need_translate, need_summary FROM subscriptions WHERE feed_id = ? AND user_id = ?")
+            .bind(job.feed_id)
+            .bind(uid)
+            .fetch_all(&data.db)
+            .await?
+    } else {
+        // 后台模式：同步该 Feed 的所有订阅者
+        sqlx::query("SELECT user_id, need_translate, need_summary FROM subscriptions WHERE feed_id = ?")
+            .bind(job.feed_id)
+            .fetch_all(&data.db)
+            .await?
+    };
 
     for sub in subscribers {
         let sub_user_id: i64 = sub.get("user_id");
@@ -95,7 +107,7 @@ async fn sync_feed_handler(
                 r#"
                 SELECT a.id FROM articles a
                 WHERE a.feed_id = ? 
-                  AND a.updated_at > datetime('now', '-1 hour')
+                  AND (? = 1 OR a.updated_at > datetime('now', '-1 hour'))
                   AND NOT EXISTS (
                       SELECT 1 FROM article_blocks b 
                       WHERE b.article_id = a.id AND b.user_id = ? AND b.trans_text IS NOT NULL
@@ -103,8 +115,8 @@ async fn sync_feed_handler(
                   AND NOT EXISTS (
                       SELECT 1 FROM Jobs j
                       WHERE j.job_type LIKE '%TranslateArticleJob%'
-                        AND j.job LIKE '%"article_id":' || a.id || '%'
-                        AND j.job LIKE '%"user_id":' || ? || '%'
+                        AND json_extract(j.job, '$.article_id') = a.id
+                        AND json_extract(j.job, '$.user_id') = ?
                         AND j.status IN ('Pending', 'Running', 'Killed')
                   )
                 ORDER BY a.published_at DESC
@@ -112,6 +124,7 @@ async fn sync_feed_handler(
                 "#,
             )
             .bind(job.feed_id)
+            .bind(is_manual_int)
             .bind(sub_user_id)
             .bind(sub_user_id)
             .fetch_all(&data.db)
@@ -133,13 +146,13 @@ async fn sync_feed_handler(
                 r#"
                 SELECT a.id FROM articles a
                 WHERE a.feed_id = ? 
-                  AND a.updated_at > datetime('now', '-1 hour')
+                  AND (? = 1 OR a.updated_at > datetime('now', '-1 hour'))
                   AND a.summary IS NULL
                   AND NOT EXISTS (
                       SELECT 1 FROM Jobs j 
                       WHERE j.job_type LIKE '%SummarizeArticleJob%'
-                        AND j.job LIKE '%"article_id":' || a.id || '%'
-                        AND j.job LIKE '%"user_id":' || ? || '%'
+                        AND json_extract(j.job, '$.article_id') = a.id
+                        AND json_extract(j.job, '$.user_id') = ?
                         AND j.status IN ('Pending', 'Running', 'Killed')
                   )
                 ORDER BY a.published_at DESC
@@ -147,6 +160,7 @@ async fn sync_feed_handler(
                 "#,
             )
             .bind(job.feed_id)
+            .bind(is_manual_int)
             .bind(sub_user_id)
             .fetch_all(&data.db)
             .await?;
@@ -162,7 +176,7 @@ async fn sync_feed_handler(
             }
         }
     }
-    tracing::info!("✅ 同步任务处理完成: [FeedID: {}]", job.feed_id);
+    tracing::info!("✅ 同步任务分发完成: [FeedID: {}], UserTrigger: {}", job.feed_id, is_manual);
     Ok(())
 }
 
@@ -392,6 +406,14 @@ pub async fn start_workers(state: Arc<AppState>) -> anyhow::Result<()> {
 
     let state_sync = state.clone();
     let storage_sync = state.sync_queue.clone();
+    let state_trans = state.clone();
+    let storage_trans = state.translate_queue.clone();
+    let state_sum = state.clone();
+    let storage_sum = state.summarize_queue.clone();
+    
+    let state_cron = state.clone();
+    let schedule = Schedule::from_str("0 * * * * *")?; // 每分钟运行一次
+
     tokio::spawn(async move {
         Monitor::new()
             .register(
@@ -401,31 +423,13 @@ pub async fn start_workers(state: Arc<AppState>) -> anyhow::Result<()> {
                     .backend(storage_sync)
                     .build_fn(sync_feed_handler),
             )
-            .run()
-            .await
-            .expect("Sync monitor failed");
-    });
-
-    let state_trans = state.clone();
-    let storage_trans = state.translate_queue.clone();
-    tokio::spawn(async move {
-        Monitor::new()
             .register(
                 WorkerBuilder::new("translate-worker")
-                    .concurrency(1)
+                    .concurrency(1) // SQLite 建议保持较低并发以减少锁竞争
                     .data(state_trans)
                     .backend(storage_trans)
                     .build_fn(translate_article_handler),
             )
-            .run()
-            .await
-            .expect("Translate monitor failed");
-    });
-
-    let state_sum = state.clone();
-    let storage_sum = state.summarize_queue.clone();
-    tokio::spawn(async move {
-        Monitor::new()
             .register(
                 WorkerBuilder::new("summarize-worker")
                     .concurrency(1)
@@ -433,16 +437,6 @@ pub async fn start_workers(state: Arc<AppState>) -> anyhow::Result<()> {
                     .backend(storage_sum)
                     .build_fn(summarize_article_handler),
             )
-            .run()
-            .await
-            .expect("Summarize monitor failed");
-    });
-
-    let state_cron = state.clone();
-    let schedule = Schedule::from_str("0 * * * * *")?; // 每分钟运行一次
-
-    tokio::spawn(async move {
-        Monitor::new()
             .register(
                 WorkerBuilder::new("cron-worker")
                     .data(state_cron)
@@ -451,7 +445,7 @@ pub async fn start_workers(state: Arc<AppState>) -> anyhow::Result<()> {
             )
             .run()
             .await
-            .expect("Cron monitor failed");
+            .expect("Jobs monitor failed");
     });
 
     Ok(())

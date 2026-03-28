@@ -29,6 +29,7 @@ pub fn router() -> Router<Arc<AppState>> {
 
 async fn clear_completed(
     State(state): State<Arc<AppState>>,
+    _auth: AuthUser,
 ) -> Result<StatusCode, (StatusCode, String)> {
     sqlx::query("DELETE FROM Jobs WHERE status = 'Done'")
         .execute(&state.db)
@@ -39,6 +40,7 @@ async fn clear_completed(
 
 async fn retry_job(
     State(state): State<Arc<AppState>>,
+    _auth: AuthUser,
     axum::extract::Path(id): axum::extract::Path<String>,
 ) -> Result<StatusCode, (StatusCode, String)> {
     sqlx::query("UPDATE Jobs SET status = 'Pending', attempts = 0, last_error = NULL, run_at = (strftime('%s', 'now')) WHERE id = ?")
@@ -59,7 +61,6 @@ async fn get_jobs(
             .bind(auth.user_id)
             .fetch_one(&state.db)
             .await
-            .unwrap_or(Some(300))
             .unwrap_or(300);
 
     // 2. 获取任务日志

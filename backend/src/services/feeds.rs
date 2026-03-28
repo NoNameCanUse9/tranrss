@@ -1,11 +1,13 @@
 use crate::model::feed::CreateFeedRequest;
 use anyhow::Result;
+use base64::{Engine as _, engine::general_purpose::STANDARD};
 use feed_rs::parser;
 use sqlx::SqlitePool;
 use std::collections::HashMap;
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
-use base64::{Engine as _, engine::general_purpose::STANDARD};
+use scraper::{Html, Node};
+use ego_tree::NodeRef;
 
 pub async fn fetch_feed_preview(url: &str) -> Result<CreateFeedRequest> {
     let client = reqwest::Client::builder()
@@ -92,18 +94,19 @@ async fn sniff_icon_from_site(client: &reqwest::Client, site_url: &str) -> Optio
 async fn download_icon_base64(client: &reqwest::Client, url: &str) -> Option<String> {
     if let Ok(resp) = client.get(url).send().await {
         if resp.status().is_success() {
-            let mime = resp.headers()
+            let mime = resp
+                .headers()
                 .get(reqwest::header::CONTENT_TYPE)
                 .and_then(|h| h.to_str().ok())
                 .unwrap_or("image/x-icon")
                 .to_string();
-            
+
             if let Ok(bytes) = resp.bytes().await {
                 // 限制 64KB 以内的图标，防止数据库膨胀
                 if bytes.len() > 48 * 1024 {
                     return None;
                 }
-                
+
                 let encoded = STANDARD.encode(bytes);
                 return Some(format!("data:{};base64,{}", mime, encoded));
             }
@@ -114,201 +117,193 @@ async fn download_icon_base64(client: &reqwest::Client, url: &str) -> Option<Str
 
 /// 将 HTML 内容转换为简洁的段落级结构
 ///
-/// 流程：HTML → Markdown（中间层）→ 识别段落 → 每段转回 HTML
-///
 /// 返回 (skeleton, blocks):
-/// - skeleton: 简洁的 HTML，段落位置用 [[TEXT_N]] 占位
-/// - blocks: HashMap<index, 段落纯 HTML 内容>
+/// - skeleton: HTML骨架，段落位置用 [[TEXT_N]] 占位
+/// - blocks: HashMap<index, HTML片段内容>
 fn extract_blocks_from_html(raw_html: &str) -> (String, HashMap<usize, String>) {
-    // 1. HTML → Markdown（仅作为中间层，用于识别段落边界和简化结构）
-    let markdown = html2md::parse_html(raw_html);
-
-    // 2. 按空行分段
-    let paragraphs: Vec<&str> = markdown
-        .split("\n\n")
-        .map(|s| s.trim())
-        .filter(|s| !s.is_empty())
-        .collect();
-
-    // 3. 构建 HTML 骨架和文本块
+    let fragment = Html::parse_fragment(raw_html);
     let mut skeleton = String::new();
     let mut blocks = HashMap::new();
     let mut counter = 0;
+    let mut acc = String::new();
 
-    for para in &paragraphs {
-        // 判断段落类型并提取内容
-        let (wrapper_open, wrapper_close, _content) = detect_block_type(para);
-
-        // 如果 detect_block_type 已经识别出整个段落就是一个图片块 ( wrapper_open 为空)
-        // 则直接按照原有逻辑处理（写入骨架，不作为翻译块）
-        if wrapper_open.is_empty() && wrapper_close.is_empty() {
-            skeleton.push_str(para);
-            skeleton.push('\n');
-            continue;
-        }
-
-        // 使用正则提取所有图片并保持其相对于文本的顺序
-        let re_img = regex::Regex::new(r"!\[.*?\]\(.*?\)").unwrap();
-        let mut last_pos = 0;
-        let mut current_para_skeleton = String::new();
-        current_para_skeleton.push_str(&wrapper_open);
-        
-        for mat in re_img.find_iter(para) {
-            let start = mat.start();
-            let end = mat.end();
-            
-            // 处理图片前的文本
-            let before = &para[last_pos..start];
-            if before.chars().filter(|c| !c.is_whitespace()).count() >= 5 {
-                let html_content = md_inline_to_html(before.trim());
-                blocks.insert(counter, html_content);
-                current_para_skeleton.push_str(&format!("[[TEXT_{}]]", counter));
-                counter += 1;
-            } else if !before.is_empty() {
-                // 如果文本太短或是纯空格，转义为 HTML 后直接放入骨架
-                current_para_skeleton.push_str(&md_inline_to_html(before));
+    // Html::parse_fragment automatically wraps the content in html > body
+    let html_node = fragment.tree.root().children().find(|c| c.value().as_element().map_or(false, |e| e.name() == "html"));
+    if let Some(html) = html_node {
+        let body_node = html.children().find(|c| c.value().as_element().map_or(false, |e| e.name() == "body"));
+        if let Some(body) = body_node {
+            for child in body.children() {
+                process_node(child, &mut skeleton, &mut blocks, &mut counter, &mut acc);
             }
-            
-            // 将图片代码直接转为 HTML 并放入骨架（不翻译）
-            let img_markdown = &para[start..end];
-            let img_html = md_inline_to_html(img_markdown);
-            current_para_skeleton.push_str(&img_html);
-            
-            last_pos = end;
         }
-        
-        // 处理最后剩下的文本
-        let remaining = &para[last_pos..];
-        if remaining.chars().filter(|c| !c.is_whitespace()).count() >= 5 {
-            let html_content = md_inline_to_html(remaining.trim());
-            blocks.insert(counter, html_content);
-            current_para_skeleton.push_str(&format!("[[TEXT_{}]]", counter));
-            counter += 1;
-        } else if !remaining.is_empty() {
-            current_para_skeleton.push_str(&md_inline_to_html(remaining));
-        }
-        
-        current_para_skeleton.push_str(&wrapper_close);
-        skeleton.push_str(&current_para_skeleton);
-        skeleton.push('\n');
     }
-
-    (skeleton.trim_end().to_string(), blocks)
+    
+    flush_acc(&mut acc, &mut skeleton, &mut blocks, &mut counter);
+    (skeleton.trim().to_string(), blocks)
 }
 
-/// 从 Markdown 段落语法判断块类型，返回 (开标签, 闭标签, 内容文本)
-fn detect_block_type(para: &str) -> (String, String, String) {
-    // 标题: # ~ ######
-    if let Some(rest) = para.strip_prefix("######") {
-        return (
-            "<h6>".into(),
-            "</h6>".into(),
-            rest.trim_matches(|c: char| c == '#' || c == ' ')
-                .to_string(),
-        );
+fn flush_acc(
+    acc: &mut String,
+    skeleton: &mut String,
+    blocks: &mut HashMap<usize, String>,
+    counter: &mut usize,
+) {
+    if acc.is_empty() {
+        return;
     }
-    if let Some(rest) = para.strip_prefix("#####") {
-        return (
-            "<h5>".into(),
-            "</h5>".into(),
-            rest.trim_matches(|c: char| c == '#' || c == ' ')
-                .to_string(),
-        );
-    }
-    if let Some(rest) = para.strip_prefix("####") {
-        return (
-            "<h4>".into(),
-            "</h4>".into(),
-            rest.trim_matches(|c: char| c == '#' || c == ' ')
-                .to_string(),
-        );
-    }
-    if let Some(rest) = para.strip_prefix("###") {
-        return (
-            "<h3>".into(),
-            "</h3>".into(),
-            rest.trim_matches(|c: char| c == '#' || c == ' ')
-                .to_string(),
-        );
-    }
-    if let Some(rest) = para.strip_prefix("##") {
-        return (
-            "<h2>".into(),
-            "</h2>".into(),
-            rest.trim_matches(|c: char| c == '#' || c == ' ')
-                .to_string(),
-        );
-    }
-    if let Some(rest) = para.strip_prefix("# ") {
-        return (
-            "<h1>".into(),
-            "</h1>".into(),
-            rest.trim_end_matches('#').trim().to_string(),
-        );
-    }
-
-    // 引用块: >
-    if let Some(rest) = para.strip_prefix("> ") {
-        return (
-            "<blockquote><p>".into(),
-            "</p></blockquote>".into(),
-            rest.to_string(),
-        );
-    }
-
-    // 图片: ![alt](src)
-    if para.starts_with("![") {
-        // 直接用 pulldown-cmark 把整个 Markdown 图片转成 <img> HTML
-        let img_html = md_inline_to_html(para);
-        return (String::new(), String::new(), img_html);
-    }
-
-    // 分隔线: --- / *** / ___
-    if para == "---" || para == "***" || para == "___" {
-        return (String::new(), String::new(), "<hr>".to_string());
-    }
-
-    // 列表项: - / * / 1.
-    if para.starts_with("- ") || para.starts_with("* ") {
-        let rest = &para[2..];
-        return ("<li>".into(), "</li>".into(), rest.to_string());
-    }
-    if para.len() > 2 && para.chars().next().map_or(false, |c| c.is_ascii_digit()) {
-        if let Some(rest) = para.split_once(". ") {
-            return ("<li>".into(), "</li>".into(), rest.1.to_string());
-        }
-    }
-
-    // 默认：普通段落
-    ("<p>".into(), "</p>".into(), para.to_string())
-}
-
-/// 将 Markdown 内联格式转换为 HTML
-/// 处理 **bold**, *italic*, [link](url), `code` 等
-fn md_inline_to_html(md: &str) -> String {
-    use pulldown_cmark::{Options, Parser, html};
-    let parser = Parser::new_ext(md, Options::all());
-    let mut html_output = String::new();
-    html::push_html(&mut html_output, parser);
-    // pulldown-cmark 会自动包裹 <p>，但我们在骨架中已经有包裹标签，
-    // 所以需要去掉最外层的 <p></p>
-    let trimmed = html_output.trim();
-    let result = if trimmed.starts_with("<p>") && trimmed.ends_with("</p>") {
-        trimmed[3..trimmed.len() - 4].to_string()
+    let t = acc.trim();
+    if !t.is_empty() {
+        skeleton.push_str(&format!("[[TEXT_{}]]\n", *counter));
+        blocks.insert(*counter, acc.clone());
+        *counter += 1;
     } else {
-        trimmed.to_string()
-    };
-    result
+        skeleton.push_str(acc);
+    }
+    acc.clear();
+}
+
+fn open_tag(elem: &scraper::node::Element) -> String {
+    let mut attrs_str = String::new();
+    for (k, v) in elem.attrs() {
+        let escaped_v = v.replace("\"", "&quot;");
+        attrs_str.push_str(&format!(" {}=\"{}\"", k, escaped_v));
+    }
+    format!("<{}{}>", elem.name(), attrs_str)
+}
+
+fn process_node<'a>(
+    node: NodeRef<'a, Node>,
+    skeleton: &mut String,
+    blocks: &mut HashMap<usize, String>,
+    counter: &mut usize,
+    acc: &mut String,
+) {
+    match node.value() {
+        Node::Document | Node::Fragment => {
+            for child in node.children() {
+                process_node(child, skeleton, blocks, counter, acc);
+            }
+            flush_acc(acc, skeleton, blocks, counter);
+        }
+        Node::Text(text) => {
+            let escaped = text.text.replace('<', "&lt;").replace('>', "&gt;");
+            acc.push_str(&escaped);
+        }
+        Node::Element(elem) => {
+            let tag = elem.name();
+            if tag == "script" || tag == "style" || tag == "noscript" || tag == "iframe" || tag == "svg" || tag == "form" {
+                return;
+            }
+
+            if is_pure_image_element(node) {
+                flush_acc(acc, skeleton, blocks, counter);
+                serialize_as_is(node, skeleton);
+                skeleton.push('\n');
+                return;
+            }
+
+            let is_block = [
+                "p", "div", "h1", "h2", "h3", "h4", "h5", "h6", "ul", "ol", "li", "blockquote",
+                "table", "tr", "td", "figure", "header", "footer", "main", "article", "section",
+            ]
+            .contains(&tag);
+            
+            let is_void = [
+                "area", "base", "br", "col", "embed", "hr", "img", "input", "link", "meta",
+                "param", "source", "track", "wbr",
+            ]
+            .contains(&tag);
+
+            if is_block || has_image_descendant(node) || is_void {
+                flush_acc(acc, skeleton, blocks, counter);
+                skeleton.push_str(&open_tag(elem));
+                if !is_void {
+                    for child in node.children() {
+                        process_node(child, skeleton, blocks, counter, acc);
+                    }
+                    flush_acc(acc, skeleton, blocks, counter);
+                    skeleton.push_str(&format!("</{}>\n", tag));
+                }
+            } else {
+                serialize_as_is(node, acc);
+            }
+        }
+        _ => {}
+    }
+}
+
+fn is_pure_image_element(node: NodeRef<Node>) -> bool {
+    if let Node::Element(elem) = node.value() {
+        let tag = elem.name();
+        if tag == "img" {
+            return true;
+        }
+        if tag == "figure" {
+            return node.children().any(|c| is_pure_image_element(c));
+        }
+        if tag == "a" {
+            let mut has_img = false;
+            let mut has_other = false;
+            for child in node.children() {
+                match child.value() {
+                    Node::Element(e) if e.name() == "img" => has_img = true,
+                    Node::Text(t) if t.text.trim().is_empty() => continue,
+                    _ => has_other = true,
+                }
+            }
+            return has_img && !has_other;
+        }
+    }
+    false
+}
+
+fn has_image_descendant(node: NodeRef<Node>) -> bool {
+    for child in node.children() {
+        if let Node::Element(elem) = child.value() {
+            if elem.name() == "img" {
+                return true;
+            }
+        }
+        if has_image_descendant(child) {
+            return true;
+        }
+    }
+    false
+}
+
+fn serialize_as_is(node: NodeRef<Node>, out: &mut String) {
+    match node.value() {
+        Node::Element(elem) => {
+            let tag_name = elem.name();
+            out.push_str(&open_tag(elem));
+            let is_void = [
+                "area", "base", "br", "col", "embed", "hr", "img", "input", "link", "meta",
+                "param", "source", "track", "wbr",
+            ]
+            .contains(&tag_name);
+
+            if !is_void {
+                for child in node.children() {
+                    serialize_as_is(child, out);
+                }
+                out.push_str(&format!("</{}>", tag_name));
+            }
+        }
+        Node::Text(text) => {
+            out.push_str(&text.text.replace('<', "&lt;").replace('>', "&gt;"));
+        }
+        _ => {}
+    }
 }
 
 /// 从指定的 ID 抓取并处理 Feed，更新到数据库
 pub async fn fetch_and_process_feed(db: &SqlitePool, user_id: i64, feed_id: i64) -> Result<()> {
     tracing::info!("📡 开始同步 feed ID: {}", feed_id);
-    let (feed_url, icon_url, icon_base64): (String, Option<String>, Option<String>) = 
+    let (feed_url, icon_url, icon_base64): (String, Option<String>, Option<String>) =
         sqlx::query_as("SELECT feed_url, icon_url, icon_base64 FROM feeds WHERE id = ?")
-        .bind(feed_id)
-        .fetch_one(db)
-        .await?;
+            .bind(feed_id)
+            .fetch_one(db)
+            .await?;
 
     tracing::info!("🌐 正在请求 Feed: {} (ID: {})", feed_url, feed_id);
 
@@ -329,7 +324,11 @@ pub async fn fetch_and_process_feed(db: &SqlitePool, user_id: i64, feed_id: i64)
                 last_status = Some(status.as_u16() as i32);
 
                 if !status.is_success() {
-                    last_err_msg = Some(format!("HTTP {} - Feed 获取失败 ({})", status.as_u16(), status.canonical_reason().unwrap_or("Unknown")));
+                    last_err_msg = Some(format!(
+                        "HTTP {} - Feed 获取失败 ({})",
+                        status.as_u16(),
+                        status.canonical_reason().unwrap_or("Unknown")
+                    ));
                     if attempt < 3 {
                         tokio::time::sleep(std::time::Duration::from_secs(2)).await;
                         continue;
@@ -354,11 +353,12 @@ pub async fn fetch_and_process_feed(db: &SqlitePool, user_id: i64, feed_id: i64)
                         .await?;
 
                     // 如果曾被拉黑，现在复活了，则从拉黑名单移除
-                    let _ = sqlx::query("DELETE FROM inactive_feeds WHERE user_id = ? AND feed_id = ?")
-                        .bind(user_id)
-                        .bind(feed_id)
-                        .execute(db)
-                        .await;
+                    let _ =
+                        sqlx::query("DELETE FROM inactive_feeds WHERE user_id = ? AND feed_id = ?")
+                            .bind(user_id)
+                            .bind(feed_id)
+                            .execute(db)
+                            .await;
 
                     tracing::info!(
                         "🚀 抓取成功 (feed_id={}, attempt={})，开始解析 XML ({} bytes)...",
@@ -373,13 +373,14 @@ pub async fn fetch_and_process_feed(db: &SqlitePool, user_id: i64, feed_id: i64)
                     // 4. 如果 icon_base64 为空，尝试同步获取一次
                     if icon_base64.is_none() {
                         if let Some(ref url) = icon_url {
-                           if let Some(b64) = download_icon_base64(&client, url).await {
-                               let _ = sqlx::query("UPDATE feeds SET icon_base64 = ? WHERE id = ?")
-                                   .bind(b64)
-                                   .bind(feed_id)
-                                   .execute(db)
-                                   .await;
-                           }
+                            if let Some(b64) = download_icon_base64(&client, url).await {
+                                let _ =
+                                    sqlx::query("UPDATE feeds SET icon_base64 = ? WHERE id = ?")
+                                        .bind(b64)
+                                        .bind(feed_id)
+                                        .execute(db)
+                                        .await;
+                            }
                         }
                     }
 
@@ -416,22 +417,29 @@ pub async fn fetch_and_process_feed(db: &SqlitePool, user_id: i64, feed_id: i64)
                 WHERE id = ? 
                   AND datetime('now') > datetime(IFNULL(last_fetched_at, created_at), '+2 days')
             )
-            "#
+            "#,
         )
         .bind(feed_id)
         .fetch_one(db)
         .await?;
 
         if should_disable.0 {
-            let _ = sqlx::query("INSERT OR IGNORE INTO inactive_feeds (user_id, feed_id, reason) VALUES (?, ?, ?)")
-                .bind(user_id)
-                .bind(feed_id)
-                .bind(format!("连续超过2天抓取失败: {}", last_err_msg.as_deref().unwrap_or("未知错误")))
-                .execute(db)
-                .await;
+            let _ = sqlx::query(
+                "INSERT OR IGNORE INTO inactive_feeds (user_id, feed_id, reason) VALUES (?, ?, ?)",
+            )
+            .bind(user_id)
+            .bind(feed_id)
+            .bind(format!(
+                "连续超过2天抓取失败: {}",
+                last_err_msg.as_deref().unwrap_or("未知错误")
+            ))
+            .execute(db)
+            .await;
         }
 
-        return Err(anyhow::anyhow!(last_err_msg.unwrap_or_else(|| "Unknown error".to_string())));
+        return Err(anyhow::anyhow!(
+            last_err_msg.unwrap_or_else(|| "Unknown error".to_string())
+        ));
     }
 
     tracing::info!("feed {} 同步完成", feed_id);
@@ -452,15 +460,30 @@ struct ParsedArticle {
 
 /// 同步解析 XML，返回 Send 安全的数据结构
 fn parse_feed_entries(xml: &str, _feed_id: i64) -> Result<Vec<ParsedArticle>> {
-    let feed = parser::parse(xml.as_bytes())?;
+    // 1. 预处理 XML：修复非标准的 pubDate 格式 (针对 rustcc.cn 等源)
+    // 将 <pubDate>2024-03-27 06:40:41</pubDate> 转换为可被解析的标准格式
+    let date_fixed_xml = regex::Regex::new(r"<pubDate>(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})</pubDate>")
+        .unwrap()
+        .replace_all(xml, "<pubDate>$1 +0800</pubDate>");
+
+    let feed = parser::parse(date_fixed_xml.as_bytes())?;
     let mut results = Vec::new();
 
     for entry in feed.entries {
         let mut origin_guid = entry.id;
         if origin_guid.is_empty() {
             // 如果 GUID 为空，尝试使用链接作为 GUID，再不行就用标题
-            origin_guid = entry.links.first().map(|l| l.href.clone())
-                .unwrap_or_else(|| entry.title.as_ref().map(|t| t.content.clone()).unwrap_or_default());
+            origin_guid = entry
+                .links
+                .first()
+                .map(|l| l.href.clone())
+                .unwrap_or_else(|| {
+                    entry
+                        .title
+                        .as_ref()
+                        .map(|t| t.content.clone())
+                        .unwrap_or_default()
+                });
         }
 
         if origin_guid.is_empty() {
@@ -478,13 +501,16 @@ fn parse_feed_entries(xml: &str, _feed_id: i64) -> Result<Vec<ParsedArticle>> {
             .map(|t| t.content)
             .unwrap_or_else(|| "No Title".to_string());
         let link = entry.links.first().map(|l| l.href.clone());
+        
+        // 尝试获取作者：优先从 entry.authors 获取
         let author = entry.authors.first().map(|a| a.name.clone());
-        let published_at = entry.published.map(|d| d.timestamp());
-
+        
         let raw_html = entry
             .content
             .and_then(|c| c.body)
             .unwrap_or_else(|| entry.summary.map(|s| s.content).unwrap_or_default());
+
+        let published_at = entry.published.or(entry.updated).map(|d| d.timestamp());
 
         let (skeleton, blocks) = extract_blocks_from_html(&raw_html);
 
@@ -526,12 +552,12 @@ pub async fn process_xml_content(
         sqlx::query(
             r#"
             INSERT INTO articles (id, original_guid, feed_id, title, link, author, published_at, content_skeleton, crawl_time)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, strftime('%s', 'now'))
+            VALUES (?, ?, ?, ?, ?, ?, COALESCE(?, strftime('%s', 'now')), ?, strftime('%s', 'now'))
             ON CONFLICT(original_guid) DO UPDATE SET
                 title = excluded.title,
                 link = excluded.link,
                 author = excluded.author,
-                published_at = excluded.published_at,
+                published_at = COALESCE(excluded.published_at, articles.published_at),
                 content_skeleton = excluded.content_skeleton,
                 updated_at = CURRENT_TIMESTAMP
             "#,

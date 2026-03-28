@@ -9,42 +9,33 @@ use rand::RngCore;
 use serde::{Deserialize, Serialize};
 use std::{fs, path::Path, sync::OnceLock};
 
-/// JWT Secret 全局单例 —— 首次调用时从文件加载，文件不存在则自动生成并写入
-static JWT_SECRET: OnceLock<Vec<u8>> = OnceLock::new();
+/// JWT Secret 全局单例 —— 优先从环境变量加载，其次从数据库加载，最后从文件/自动生成加载
+pub static JWT_SECRET: OnceLock<Vec<u8>> = OnceLock::new();
 
-const SECRET_FILE: &str = "../jwt_secret.key";
+/// 手动初始化 JWT Secret (用于从数据库加载)
+pub fn init_jwt_secret(secret: Vec<u8>) -> Result<(), Vec<u8>> {
+    JWT_SECRET.set(secret)
+}
 
-fn get_jwt_secret() -> &'static [u8] {
+pub fn get_jwt_secret() -> &'static [u8] {
     JWT_SECRET.get_or_init(|| {
-        let path = Path::new(SECRET_FILE);
-        if path.exists() {
-            // 读取已有的 secret（十六进制文本）
-            match fs::read_to_string(path) {
-                Ok(hex) => {
-                    let hex = hex.trim();
-                    if let Ok(bytes) = hex::decode(hex) {
-                        if bytes.len() >= 32 {
-                            tracing::info!("JWT secret 已从 {} 加载", SECRET_FILE);
-                            return bytes;
-                        }
-                    }
-                    tracing::warn!("jwt_secret.key 文件内容无效，将重新生成");
+        // 1. 优先尝试从环境变量读取（推荐 Docker 部署方式）
+        if let Ok(val) = std::env::var("JWT_SECRET") {
+            if let Ok(bytes) = hex::decode(val.trim()) {
+                if bytes.len() >= 32 {
+                    tracing::info!("JWT secret 已从环境变量加载");
+                    return bytes;
                 }
-                Err(e) => tracing::warn!("读取 jwt_secret.key 失败: {}，将重新生成", e),
             }
+            tracing::warn!("环境变量 JWT_SECRET 无效（需为 64 字符 hex）");
         }
 
-        // 生成 32 字节随机 secret
+        // 2. 如果没有任何预设（环境变量或数据库初始化），则生成一个临时的
+        // 注意：生产环境下 main.rs 会负责从数据库加载并通过 init_jwt_secret 初始化
+        // 如果运行到这一步，说明是真正意义上的“首次启动”或“数据库刚被删”
         let mut secret = vec![0u8; 32];
         rand::thread_rng().fill_bytes(&mut secret);
-        let hex_str = hex::encode(&secret);
-
-        if let Err(e) = fs::write(path, &hex_str) {
-            tracing::error!("无法写入 jwt_secret.key: {}，本次使用内存中生成的密钥", e);
-        } else {
-            tracing::info!("已生成新的 JWT secret 并保存至 {}", SECRET_FILE);
-        }
-
+        tracing::info!("已生成新的随机 JWT secret");
         secret
     })
 }

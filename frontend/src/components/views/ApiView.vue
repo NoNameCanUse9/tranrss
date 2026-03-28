@@ -137,6 +137,11 @@ const fetchConfigs = async () => {
     const res = await fetch('/api/translate-configs', {
       headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` }
     })
+    if (res.status === 401) {
+      localStorage.removeItem('token');
+      window.location.reload();
+      return;
+    }
     if (res.ok) {
       const data = await res.json()
       apiConfigs.value = data.map((item: any) => ({
@@ -158,6 +163,11 @@ const fetchUserSettings = async () => {
     const res = await fetch('/api/user/setting', {
       headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` }
     })
+    if (res.status === 401) {
+      localStorage.removeItem('token');
+      window.location.reload();
+      return;
+    }
     if (res.ok) {
       userSettings.value = await res.json()
     }
@@ -187,6 +197,11 @@ const fetchUsageHistory = async () => {
     const res = await fetch('/api/translate-configs/usage/history', {
       headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` }
     })
+    if (res.status === 401) {
+      localStorage.removeItem('token');
+      window.location.reload();
+      return;
+    }
     if (res.ok) {
       usageHistory.value = await res.json()
     }
@@ -641,13 +656,13 @@ const pieOption = computed(() => {
                     v-model="form.name"
                     :label="$t('api.alias')"
                     variant="outlined"
-                    density="comfortable"
                     rounded="lg"
                     color="primary"
                     :prepend-inner-icon="mdiLabelOutline"
                     persistent-hint
                     :hint="$t('api.alias_hint')"
                     style="flex: 1"
+                    hide-details="auto"
                   />
                   <v-select
                     v-model="form.api_type"
@@ -666,20 +681,19 @@ const pieOption = computed(() => {
                   v-model="form.base_url"
                   :label="$t('api.base_url')"
                   variant="outlined"
-                  density="comfortable"
                   rounded="lg"
                   color="primary"
                   :prepend-inner-icon="mdiLinkVariant"
                   persistent-hint
                   :hint="$t('api.base_url_hint')"
                   class="w-100"
+                  hide-details="auto"
                 />
 
                 <v-text-field
                   v-model="form.api_key"
                   :label="$t('api.api_key')"
                   variant="outlined"
-                  density="comfortable"
                   rounded="lg"
                   color="primary"
                   :prepend-inner-icon="mdiShieldKeyOutline"
@@ -687,6 +701,7 @@ const pieOption = computed(() => {
                   persistent-hint
                   :hint="$t('api.api_key_hint')"
                   class="w-100"
+                  hide-details="auto"
                 />
               </div>
             </section>
@@ -731,22 +746,22 @@ const pieOption = computed(() => {
                       :label="$t('api.max_tokens')"
                       type="number"
                       variant="outlined"
-                      density="comfortable"
                       rounded="lg"
                       color="primary"
                       :prepend-inner-icon="mdiFormatTextWrappingOverflow"
                       style="flex: 1"
+                      hide-details="auto"
                     />
                     <v-text-field
                       v-model.number="form.settings.rpm"
                       :label="$t('api.rpm')"
                       type="number"
                       variant="outlined"
-                      density="comfortable"
                       rounded="lg"
                       color="primary"
                       :prepend-inner-icon="mdiSpeedometer"
                       style="flex: 1"
+                      hide-details="auto"
                     />
                   </div>
                 </div>

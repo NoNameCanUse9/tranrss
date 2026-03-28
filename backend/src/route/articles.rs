@@ -1,13 +1,13 @@
 use crate::AppState;
 use crate::services::articles;
 use crate::services::auth::AuthUser;
+use apalis::prelude::*;
 use axum::{
     Json, Router,
     extract::{Path, Query, State},
     http::StatusCode,
     routing::{get, post},
 };
-use apalis::prelude::*;
 use serde::Deserialize;
 use std::sync::Arc;
 
@@ -37,7 +37,8 @@ async fn batch_translate_titles(
         .await
         .map_err(|e| (StatusCode::BAD_REQUEST, e.to_string()))?;
 
-    let count = ai.translate_titles_batch(&state, auth.user_id)
+    let count = ai
+        .translate_titles_batch(&state, auth.user_id)
         .await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
@@ -53,15 +54,22 @@ async fn translate_article(
     Path(id): Path<i64>,
 ) -> Result<StatusCode, (StatusCode, String)> {
     // 1. 获取有效 API ID (优先指定，次之默认，最后回退至最前)
-    let translate_api_id: Option<i64> = sqlx::query_scalar("SELECT translate_api_id FROM user_setting WHERE user_id = ?")
+    let translate_api_id: Option<i64> =
+        sqlx::query_scalar("SELECT translate_api_id FROM user_setting WHERE user_id = ?")
             .bind(auth.user_id)
             .fetch_one(&state.db)
             .await
-            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to fetch user settings: {}", e)))?;
+            .map_err(|e| {
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    format!("Failed to fetch user settings: {}", e),
+                )
+            })?;
 
-    let effective_id = crate::services::api::get_effective_api_id(&state.db, auth.user_id, translate_api_id)
-        .await
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    let effective_id =
+        crate::services::api::get_effective_api_id(&state.db, auth.user_id, translate_api_id)
+            .await
+            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
     if effective_id.is_none() {
         return Err((
@@ -94,15 +102,22 @@ async fn summarize_article(
     Path(id): Path<i64>,
 ) -> Result<StatusCode, (StatusCode, String)> {
     // 1. 获取有效 API ID
-    let summary_api_id: Option<i64> = sqlx::query_scalar("SELECT summary_api_id FROM user_setting WHERE user_id = ?")
+    let summary_api_id: Option<i64> =
+        sqlx::query_scalar("SELECT summary_api_id FROM user_setting WHERE user_id = ?")
             .bind(auth.user_id)
             .fetch_one(&state.db)
             .await
-            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to fetch user settings: {}", e)))?;
+            .map_err(|e| {
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    format!("Failed to fetch user settings: {}", e),
+                )
+            })?;
 
-    let effective_id = crate::services::api::get_effective_api_id(&state.db, auth.user_id, summary_api_id)
-        .await
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    let effective_id =
+        crate::services::api::get_effective_api_id(&state.db, auth.user_id, summary_api_id)
+            .await
+            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
     if effective_id.is_none() {
         return Err((
@@ -117,20 +132,16 @@ async fn summarize_article(
         user_id: auth.user_id,
         article_id: id,
     };
-    
-    storage
-        .push(job)
-        .await
-        .map_err(|e| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                format!("Failed to enqueue summary task: {}", e),
-            )
-        })?;
+
+    storage.push(job).await.map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("Failed to enqueue summary task: {}", e),
+        )
+    })?;
 
     Ok(StatusCode::ACCEPTED)
 }
-
 
 async fn list_articles(
     State(state): State<Arc<AppState>>,

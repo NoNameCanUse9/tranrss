@@ -223,5 +223,29 @@ border-left: 2px solid rgba(var(--v-theme-primary), 0.4);")
         tracing::debug!("数据库已初始化，跳过自动建表");
     }
 
+    // --- JWT 密钥持久化逻辑 ---
+    // 1. 尝试从数据库加载
+    let db_jwt: Option<String> = sqlx::query_scalar("SELECT value FROM system_config WHERE key = 'jwt_secret'")
+        .fetch_optional(pool)
+        .await?;
+
+    if let Some(hex_val) = db_jwt {
+        if let Ok(bytes) = hex::decode(hex_val.trim()) {
+            if bytes.len() >= 32 {
+                let _ = crate::services::auth::init_jwt_secret(bytes);
+                tracing::info!("JWT secret 已从数据库加载");
+            }
+        }
+    }
+
+    // 2. 如果没能初始化（数据库没记录或无效），则通过原有逻辑加载/生成，并存回数据库
+    let final_secret = crate::services::auth::get_jwt_secret();
+    let hex_val = hex::encode(final_secret);
+    
+    sqlx::query("INSERT OR REPLACE INTO system_config (key, value) VALUES ('jwt_secret', ?)")
+        .bind(hex_val)
+        .execute(pool)
+        .await?;
+
     Ok(())
 }

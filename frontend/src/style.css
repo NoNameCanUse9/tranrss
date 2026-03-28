@@ -148,7 +148,7 @@ body,
   --v-theme-on-surface-rgb: var(--md-sys-color-on-surface-rgb) !important;
   --v-theme-error-rgb: var(--md-sys-color-error-rgb) !important;
   --v-border-color: var(--md-sys-color-outline-rgb) !important;
-  --v-border-opacity: 0.1 !important;
+  --v-border-opacity: 0.2 !important;
 }
 
 body {
@@ -216,7 +216,7 @@ h3,
 
 /* 统一字体 */
 * {
-  font-family: 'Noto Serif SC', 'Source Han Serif SC', 'Source Han Serif CN', 'Songti SC', 'STSong', serif !important;
+  font-family: 'Noto Serif SC', 'Source Han Serif SC', 'Source Han Serif CN', 'Songti SC', 'STSong', serif;
 }
 
 .sub-card {

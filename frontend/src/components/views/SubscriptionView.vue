@@ -78,6 +78,11 @@ const fetchSubscriptions = async () => {
         'Authorization': `Bearer ${localStorage.getItem('token')}`
       }
     })
+    if (response.status === 401) {
+      localStorage.removeItem('token');
+      window.location.reload();
+      return;
+    }
     if (!response.ok) throw new Error(t('sub.status_error'))
     subscriptions.value = await response.json()
   } catch (e: any) {
@@ -735,7 +740,6 @@ const handleUrlBlur = async () => {
                     :prepend-inner-icon="mdiUpdate" 
                     persistent-hint
                     :hint="$t('sub.refresh_interval_hint')"
-                    suffix="min"
                     style="flex: 2"
                   />
                 </div>
