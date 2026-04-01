@@ -26,9 +26,10 @@ import {
   mdiTextBoxOutline,
   mdiTextBox,
   mdiKeyVariant,
-  mdiCogOutline,
-  mdiCog
+  mdiCog,
+  mdiCogOutline
 } from '@mdi/js'
+import { apiFetch } from '../utils/api'
 
 const theme = useTheme()
 const { mdAndUp } = useDisplay()
@@ -99,13 +100,7 @@ const filterStarred = ref<boolean | undefined>(undefined)
 
 const fetchSubscriptions = async () => {
   try {
-    const response = await fetch('/api/feeds', {
-      headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` }
-    })
-    if (response.status === 401) {
-      logout()
-      return
-    }
+    const response = await apiFetch('/api/feeds')
     if (response.ok) {
       subscriptions.value = await response.json()
     }
@@ -152,13 +147,7 @@ const logout = () => {
 
 const fetchActiveJobsCount = async () => {
   try {
-    const response = await fetch('/api/jobs', {
-      headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` }
-    })
-    if (response.status === 401) {
-      logout()
-      return
-    }
+    const response = await apiFetch('/api/jobs')
     if (response.ok) {
       const data: { status: string }[] = await response.json()
       // Only count active or failing tasks
@@ -169,6 +158,9 @@ const fetchActiveJobsCount = async () => {
   } catch (e) {
     // ignore
   }
+}
+const getCategoryUnreadCount = (subs: any[]) => {
+  return subs.reduce((acc, sub) => acc + (sub.unreadCount || 0), 0)
 }
 </script>
 
@@ -246,7 +238,16 @@ const fetchActiveJobsCount = async () => {
 
           <v-list-group v-for="(subs, cat) in groupedSubscriptions" :key="cat" :value="cat">
             <template #activator="{ props }">
-              <v-list-item v-bind="props" :title="cat" density="compact" class="text-caption" />
+              <v-list-item 
+                v-bind="props" 
+                :title="cat as string" 
+                density="compact" 
+                class="text-body-2"
+              >
+                <template #append v-if="getCategoryUnreadCount(subs) > 0">
+                  <v-badge :content="getCategoryUnreadCount(subs)" color="primary" inline />
+                </template>
+              </v-list-item>
             </template>
             <v-list-item
               v-for="sub in subs"
@@ -400,13 +401,20 @@ const fetchActiveJobsCount = async () => {
               <!-- Custom Category Header with Expand/Collapse -->
               <v-list-item 
                 density="compact" 
-                class="text-caption opacity-80 pl-6 cursor-pointer rounded-lg mb-1" 
+                class="text-body-2 pl-10 cursor-pointer rounded-lg mb-1" 
                 @click="toggleCategory(cat as string)"
               >
-                <div class="d-flex align-center justify-space-between w-100">
-                  <span class="text-truncate">{{ cat }}</span>
-                  <v-icon size="14">{{ collapsedCategories.includes(cat as string) ? mdiChevronDown : mdiChevronUp }}</v-icon>
-                </div>
+                <template #prepend>
+                   <v-icon size="20" class="mr-2" color="on-surface-variant">
+                     {{ collapsedCategories.includes(cat as string) ? mdiChevronDown : mdiChevronUp }}
+                   </v-icon>
+                </template>
+                <v-list-item-title :class="collapsedCategories.includes(cat as string) ? 'text-on-surface-variant' : 'text-primary font-weight-medium'">
+                  {{ cat }}
+                </v-list-item-title>
+                <template #append v-if="getCategoryUnreadCount(subs) > 0">
+                  <v-badge :content="getCategoryUnreadCount(subs)" color="primary" inline />
+                </template>
               </v-list-item>
               
               <!-- Subscriptions list in the category -->
@@ -416,7 +424,7 @@ const fetchActiveJobsCount = async () => {
                   :key="sub.id"
                   :title="sub.title"
                   density="compact"
-                  class="pl-10 text-caption rounded-lg mb-1"
+                  class="pl-14 text-caption rounded-lg mb-1"
                   :active="activeTab === 0 && selectedFeedId === sub.feedId"
                   @click="selectFeed(sub.feedId)"
                 >

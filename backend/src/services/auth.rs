@@ -113,9 +113,9 @@ pub fn verify_password(password: &str, hash: &str) -> bool {
 }
 
 pub fn create_token(user_id: i64, username: &str) -> Result<String> {
-    // 100 年过期时间
+    // 3 天过期时间
     let expiration = Utc::now()
-        .checked_add_signed(Duration::days(365 * 100))
+        .checked_add_signed(Duration::days(3))
         .expect("valid timestamp")
         .timestamp();
 

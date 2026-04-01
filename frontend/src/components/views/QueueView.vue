@@ -21,6 +21,7 @@ import {
   mdiIdentifier,
   mdiFormatListBulletedType
 } from '@mdi/js'
+import { apiFetch } from '../../utils/api'
 
 const { t } = useI18n()
 
@@ -220,14 +221,7 @@ const groupJobs = (rawJobs: any[]): QueueJob[] => {
 
 const fetchJobs = async () => {
   try {
-    const response = await fetch('/api/jobs', {
-      headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` }
-    })
-    if (response.status === 401) {
-       localStorage.removeItem('token')
-       location.reload()
-       return
-    }
+    const response = await apiFetch('/api/jobs')
     if (response.ok) {
       const data: BackendJob[] = await response.json()
       const mapped = data.map(mapBackendJob)
@@ -383,15 +377,9 @@ const statusInfo = (status: string): { color: string; label: string; icon: strin
 const retryJob = async (job: QueueJob) => {
   try {
     for (const id of job.groupedIds) {
-      const res = await fetch(`/api/jobs/${id}/retry`, {
-        method: 'POST',
-        headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` }
+      await apiFetch(`/api/jobs/${id}/retry`, {
+        method: 'POST'
       })
-      if (res.status === 401) {
-        localStorage.removeItem('token')
-        location.reload()
-        return
-      }
     }
     fetchJobs()
   } catch (e) {
@@ -401,15 +389,9 @@ const retryJob = async (job: QueueJob) => {
 
 const clearCompleted = async () => {
   try {
-    const res = await fetch(`/api/jobs/clear_completed`, {
-      method: 'POST',
-      headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` }
+    const res = await apiFetch(`/api/jobs/clear_completed`, {
+      method: 'POST'
     })
-    if (res.status === 401) {
-       localStorage.removeItem('token')
-       location.reload()
-       return
-    }
     if (res.ok) {
       fetchJobs()
     }

@@ -38,6 +38,7 @@ import {
 } from 'echarts/components'
 import VChart from 'vue-echarts'
 import { computed } from 'vue'
+import { apiFetch } from '../../utils/api'
 
 use([
   CanvasRenderer,
@@ -134,14 +135,7 @@ const form = ref({
 const fetchConfigs = async () => {
   loading.value = true
   try {
-    const res = await fetch('/api/translate-configs', {
-      headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` }
-    })
-    if (res.status === 401) {
-      localStorage.removeItem('token');
-      window.location.reload();
-      return;
-    }
+    const res = await apiFetch('/api/translate-configs')
     if (res.ok) {
       const data = await res.json()
       apiConfigs.value = data.map((item: any) => ({
@@ -160,14 +154,7 @@ const fetchConfigs = async () => {
 // 获取用户设置（用于判断哪些 API 是当前选中的）
 const fetchUserSettings = async () => {
   try {
-    const res = await fetch('/api/user/setting', {
-      headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` }
-    })
-    if (res.status === 401) {
-      localStorage.removeItem('token');
-      window.location.reload();
-      return;
-    }
+    const res = await apiFetch('/api/user/setting')
     if (res.ok) {
       userSettings.value = await res.json()
     }
@@ -179,9 +166,7 @@ const fetchUserSettings = async () => {
 const fetchUsageStats = async () => {
   statsLoading.value = true
   try {
-    const res = await fetch('/api/translate-configs/usage', {
-      headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` }
-    })
+    const res = await apiFetch('/api/translate-configs/usage')
     if (res.ok) {
       usageStats.value = await res.json()
     }
@@ -194,14 +179,7 @@ const fetchUsageStats = async () => {
 
 const fetchUsageHistory = async () => {
   try {
-    const res = await fetch('/api/translate-configs/usage/history', {
-      headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` }
-    })
-    if (res.status === 401) {
-      localStorage.removeItem('token');
-      window.location.reload();
-      return;
-    }
+    const res = await apiFetch('/api/translate-configs/usage/history')
     if (res.ok) {
       usageHistory.value = await res.json()
     }
@@ -273,11 +251,10 @@ const saveConfig = async () => {
     const url = isEdit ? `/api/translate-configs/${selectedConfig.value!.id}` : '/api/translate-configs'
     const method = isEdit ? 'PUT' : 'POST'
     
-    const res = await fetch(url, {
+    const res = await apiFetch(url, {
       method,
       headers: { 
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${localStorage.getItem('token')}` 
+        'Content-Type': 'application/json'
       },
       body: JSON.stringify({
         ...form.value,
@@ -301,9 +278,8 @@ const saveConfig = async () => {
 const deleteConfig = async () => {
   if (!selectedConfig.value) return
   try {
-    const res = await fetch(`/api/translate-configs/${selectedConfig.value.id}`, {
-      method: 'DELETE',
-      headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` }
+    const res = await apiFetch(`/api/translate-configs/${selectedConfig.value.id}`, {
+      method: 'DELETE'
     })
     if (res.ok) {
       apiConfigs.value = apiConfigs.value.filter(c => c.id !== selectedConfig.value!.id)

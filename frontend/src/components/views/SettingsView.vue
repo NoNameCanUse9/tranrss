@@ -18,6 +18,7 @@ import {
   mdiCheckCircleOutline,
   mdiContentCopy
 } from '@mdi/js'
+import { apiFetch } from '../../utils/api'
 
 const { t } = useI18n()
 
@@ -43,6 +44,7 @@ const snackbar = ref(false)
 const snackbarText = ref(t('settings.saved'))
 
 const greaderUrl = ref(`${window.location.origin}/api/greader`)
+const loadingConfigs = ref(true)
 const apiConfigs = ref<any[]>([])
 
 const copyToClipboard = (text: string) => {
@@ -52,33 +54,30 @@ const copyToClipboard = (text: string) => {
 }
 
 const fetchApiConfigs = async () => {
+  loadingConfigs.value = true
   try {
-    const res = await fetch('/api/translate-configs', {
-      headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
-    })
-    if (res.status === 401) {
-      localStorage.removeItem('token');
-      window.location.reload();
-      return;
-    }
+    const res = await apiFetch('/api/translate-configs')
     if (res.ok) {
       apiConfigs.value = await res.json()
+      
+      // Auto-select if none set and only one available
+      if (apiConfigs.value.length === 1) {
+        if (defaultApiId.value === null) defaultApiId.value = apiConfigs.value[0].id
+        if (translateApiId.value === null) translateApiId.value = apiConfigs.value[0].id
+        const isOpenAi = ['openai', 'azure', 'deepseek', 'anthropic', 'gemini', 'ollama'].includes(apiConfigs.value[0].api_type.toLowerCase())
+        if (summaryApiId.value === null && isOpenAi) summaryApiId.value = apiConfigs.value[0].id
+      }
     }
   } catch (e) {
     console.error('Failed to load API configs', e)
+  } finally {
+    loadingConfigs.value = false
   }
 }
 
 const loadSettings = async () => {
   try {
-    const res = await fetch('/api/user/setting', {
-      headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
-    })
-    if (res.status === 401) {
-      localStorage.removeItem('token');
-      window.location.reload();
-      return;
-    }
+    const res = await apiFetch('/api/user/setting')
     if (res.ok) {
       const data = await res.json()
       if (data.app_mode !== undefined && data.app_mode !== null) {
@@ -107,11 +106,10 @@ onMounted(async () => {
 const saveSettings = async () => {
   saving.value = true
   try {
-    await fetch('/api/user/setting', {
+    await apiFetch('/api/user/setting', {
       method: 'PUT',
       headers: { 
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${localStorage.getItem('token')}`
+        'Content-Type': 'application/json'
       },
       body: JSON.stringify({
         app_mode: isDark.value,
@@ -138,9 +136,7 @@ const saveSettings = async () => {
 
 const exportOPML = async () => {
   try {
-    const res = await fetch('/api/feeds/opml', {
-      headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
-    })
+    const res = await apiFetch('/api/feeds/opml')
     if (res.ok) {
       const blob = await res.blob()
       const url = window.URL.createObjectURL(blob)
@@ -170,9 +166,8 @@ const triggerImport = () => {
     formData.append('file', file)
     
     try {
-      const res = await fetch('/api/feeds/opml', {
+      const res = await apiFetch('/api/feeds/opml', {
         method: 'POST',
-        headers: { Authorization: `Bearer ${localStorage.getItem('token')}` },
         body: formData
       })
       if (res.ok) {
@@ -325,11 +320,19 @@ const triggerImport = () => {
                 rounded="lg"
                 hide-details
                 clearable
+                :loading="loadingConfigs"
                 :prepend-inner-icon="mdiApi"
                 color="primary"
               >
+                <template #item="{ props, item }">
+                  <v-list-item v-bind="props" :subtitle="item.raw.api_type.toUpperCase()">
+                  </v-list-item>
+                </template>
                 <template #no-data>
-                  <div class="px-4 py-2 text-caption text-medium-emphasis">{{ t('settings.no_api_configs') }}</div>
+                  <div class="pa-4 text-center">
+                    <p class="text-caption text-medium-emphasis mb-2">{{ t('settings.no_api_configs') }}</p>
+                    <p class="text-caption">请先在「API 密钥」页面添加配置</p>
+                  </div>
                 </template>
               </v-select>
             </div>
@@ -349,11 +352,18 @@ const triggerImport = () => {
                 rounded="lg"
                 hide-details
                 clearable
+                :loading="loadingConfigs"
                 :prepend-inner-icon="mdiTranslate"
                 color="primary"
               >
+                <template #item="{ props, item }">
+                  <v-list-item v-bind="props" :subtitle="item.raw.api_type.toUpperCase()">
+                  </v-list-item>
+                </template>
                 <template #no-data>
-                  <div class="px-4 py-2 text-caption text-medium-emphasis">{{ t('settings.no_api_configs') }}</div>
+                  <div class="pa-4 text-center">
+                    <p class="text-caption text-medium-emphasis mb-2">{{ t('settings.no_api_configs') }}</p>
+                  </div>
                 </template>
               </v-select>
             </div>
@@ -371,11 +381,18 @@ const triggerImport = () => {
                 rounded="lg"
                 hide-details
                 clearable
+                :loading="loadingConfigs"
                 :prepend-inner-icon="mdiTextShort"
                 color="primary"
               >
+                <template #item="{ props, item }">
+                  <v-list-item v-bind="props" :subtitle="item.raw.api_type.toUpperCase()">
+                  </v-list-item>
+                </template>
                 <template #no-data>
-                  <div class="px-4 py-2 text-caption text-medium-emphasis">{{ t('settings.no_api_configs') }}</div>
+                  <div class="pa-4 text-center">
+                    <p class="text-caption text-medium-emphasis mb-2">{{ t('settings.no_api_configs') }}</p>
+                  </div>
                 </template>
               </v-select>
             </div>

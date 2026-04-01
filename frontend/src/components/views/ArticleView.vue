@@ -18,6 +18,8 @@ import {
   mdiChevronDown
 } from '@mdi/js'
 import ArticleContent from '../ArticleContent.vue'
+import { apiFetch } from '../../utils/api'
+import { prepareText, calculateHeight } from '../../utils/textLayout'
 
 const { t } = useI18n()
 
@@ -36,6 +38,8 @@ const stitchedContent = ref('')
 const articleSearch = ref('')
 const contentArea = ref<HTMLElement | null>(null)
 const customTransStyle = ref('')
+const containerWidth = ref(0)
+const calculatedHeight = ref(0)
 
 const filteredArticles = computed(() => {
   if (!articleSearch.value.trim()) return articles.value
@@ -54,28 +58,28 @@ const fetchArticles = async () => {
     if (props.isRead !== undefined) params.append('is_read', props.isRead.toString())
     if (props.isStarred !== undefined) params.append('is_starred', props.isStarred.toString())
     
-    const res = await fetch('/api/articles?' + params.toString(), {
-      headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` }
+    const res = await apiFetch('/api/articles?' + params.toString())
+    const data = await res.json()
+    articles.value = data
+    // Pre-calculate layouts for titles in the list (14px font for subtitle-2)
+    data.forEach((a: any) => {
+      if (a.title) prepareText(`art-${a.id}-title`, a.title, 'bold 14px Inter, sans-serif')
     })
-    if (res.status === 401) {
-      localStorage.removeItem('token');
-      window.location.reload();
-      return;
-    }
-    articles.value = await res.json()
   } finally {
     loading.value = false
   }
 }
 
 const fetchArticleDetail = async (id: number) => {
-  const res = await fetch(`/api/articles/${id}`, {
-    headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` }
-  })
+  const res = await apiFetch(`/api/articles/${id}`)
   const data = await res.json()
   articleDetail.value = data.detail
   blocks.value = data.blocks
   stitchedContent.value = data.content
+  
+  // Prepare content for pretext measurement (strip HTML for text measuring)
+  const plainText = data.content.replace(/<[^>]*>/g, ' ')
+  prepareText(`art-${id}-body`, plainText, '1.1rem Inter, sans-serif')
   
   if (!articleDetail.value.isRead) {
     updateReadStatus(id, true)
@@ -83,10 +87,9 @@ const fetchArticleDetail = async (id: number) => {
 }
 
 const updateReadStatus = async (id: number, read: boolean) => {
-  await fetch(`/api/articles/${id}/read`, {
+  await apiFetch(`/api/articles/${id}/read`, {
     method: 'POST',
     headers: { 
-      'Authorization': `Bearer ${localStorage.getItem('token')}`,
       'Content-Type': 'application/json'
     },
     body: JSON.stringify({ read })
@@ -99,10 +102,9 @@ const updateReadStatus = async (id: number, read: boolean) => {
 }
 
 const toggleStar = async (id: number, current: boolean) => {
-  await fetch(`/api/articles/${id}/star`, {
+  await apiFetch(`/api/articles/${id}/star`, {
     method: 'POST',
     headers: { 
-      'Authorization': `Bearer ${localStorage.getItem('token')}`,
       'Content-Type': 'application/json'
     },
     body: JSON.stringify({ starred: !current })
@@ -130,9 +132,8 @@ const hasSummary = computed(() => {
 const translateArticle = async (id: number) => {
   translateBtnLoading.value = true
   try {
-    const res = await fetch(`/api/articles/${id}/translate`, {
-      method: 'POST',
-      headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` }
+    const res = await apiFetch(`/api/articles/${id}/translate`, {
+      method: 'POST'
     })
     if (res.ok) {
       await fetchArticleDetail(id)
@@ -148,9 +149,8 @@ const translateArticle = async (id: number) => {
 const summarizeArticle = async (id: number) => {
   summarizeBtnLoading.value = true
   try {
-    const res = await fetch(`/api/articles/${id}/summarize`, {
-      method: 'POST',
-      headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` }
+    const res = await apiFetch(`/api/articles/${id}/summarize`, {
+      method: 'POST'
     })
     if (res.ok) {
       await fetchArticleDetail(id)
@@ -164,9 +164,7 @@ const summarizeArticle = async (id: number) => {
 
 const fetchUserSettings = async () => {
     try {
-        const res = await fetch('/api/user/setting', {
-            headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
-        })
+        const res = await apiFetch('/api/user/setting')
         if (res.ok) {
             const data = await res.json()
             customTransStyle.value = data.custom_trans_style || ''
@@ -179,6 +177,34 @@ const fetchUserSettings = async () => {
 onMounted(() => {
   fetchArticles()
   fetchUserSettings()
+  
+  if (contentArea.value) {
+    let rafId: number | null = null
+    let lastWidth = 0
+    
+    const observer = new ResizeObserver((entries) => {
+      if (rafId) cancelAnimationFrame(rafId)
+      
+      rafId = requestAnimationFrame(() => {
+        for (let entry of entries) {
+          const newWidth = Math.floor(entry.contentRect.width)
+          // 只有当宽度发生实质性变化（>2px）且有选中文章时才计算
+          if (Math.abs(newWidth - lastWidth) > 2 && selectedArticle.value) {
+            containerWidth.value = newWidth
+            lastWidth = newWidth
+            const res = calculateHeight(
+              `art-${selectedArticle.value.id}-body`, 
+              '1.1rem Inter, sans-serif', 
+              newWidth, 
+              1.1 * 16 * 1.8
+            )
+            calculatedHeight.value = res.height
+          }
+        }
+      })
+    })
+    observer.observe(contentArea.value)
+  }
 })
 watch(() => [props.feedId, props.isRead, props.isStarred], () => {
   articleSearch.value = ''

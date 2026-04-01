@@ -26,3 +26,7 @@ pnpm-debug.log
 *.log
 .env
 .local
+data/
+
+# Rust toolchain (already provided by base image)
+**/rust-toolchain.toml

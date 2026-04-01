@@ -127,15 +127,9 @@ fn extract_blocks_from_html(raw_html: &str) -> (String, HashMap<usize, String>) 
     let mut counter = 0;
     let mut acc = String::new();
 
-    // Html::parse_fragment automatically wraps the content in html > body
-    let html_node = fragment.tree.root().children().find(|c| c.value().as_element().map_or(false, |e| e.name() == "html"));
-    if let Some(html) = html_node {
-        let body_node = html.children().find(|c| c.value().as_element().map_or(false, |e| e.name() == "body"));
-        if let Some(body) = body_node {
-            for child in body.children() {
-                process_node(child, &mut skeleton, &mut blocks, &mut counter, &mut acc);
-            }
-        }
+    // 针对片段解析，直接遍历根节点下的所有直接子节点
+    for child in fragment.tree.root().children() {
+        process_node(child, &mut skeleton, &mut blocks, &mut counter, &mut acc);
     }
     
     flush_acc(&mut acc, &mut skeleton, &mut blocks, &mut counter);

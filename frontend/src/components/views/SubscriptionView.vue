@@ -34,6 +34,7 @@ import {
   // mdiHeartOutline,
   // mdiHeart
 } from '@mdi/js'
+import { apiFetch } from '../../utils/api'
 
 const { t } = useI18n()
 
@@ -73,16 +74,7 @@ const error = ref('')
 const fetchSubscriptions = async () => {
   loading.value = true
   try {
-    const response = await fetch('/api/feeds', {
-      headers: {
-        'Authorization': `Bearer ${localStorage.getItem('token')}`
-      }
-    })
-    if (response.status === 401) {
-      localStorage.removeItem('token');
-      window.location.reload();
-      return;
-    }
+    const response = await apiFetch('/api/feeds')
     if (!response.ok) throw new Error(t('sub.status_error'))
     subscriptions.value = await response.json()
   } catch (e: any) {
@@ -118,9 +110,7 @@ const filteredInactive = computed(() => {
 
 const fetchInactive = async () => {
   try {
-    const response = await fetch('/api/feeds/inactive', {
-      headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` }
-    })
+    const response = await apiFetch('/api/feeds/inactive')
     if (!response.ok) throw new Error(t('sub.inactive_list'))
     inactiveFeeds.value = await response.json()
   } catch (e: any) {
@@ -137,11 +127,10 @@ const activateSelected = async () => {
   if (selectedInactive.value.length === 0) return
   activating.value = true
   try {
-    const response = await fetch('/api/feeds/inactive/activate', {
+    const response = await apiFetch('/api/feeds/inactive/activate', {
       method: 'POST',
       headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${localStorage.getItem('token')}`
+        'Content-Type': 'application/json'
       },
       body: JSON.stringify({ feed_ids: selectedInactive.value })
     })
@@ -211,11 +200,8 @@ const statusInfo = (sub: Subscription): { color: string; label: string; icon: st
 const syncNow = async (id: number) => {
   syncing.value[id] = true
   try {
-    const response = await fetch(`/api/feeds/${id}/sync`, {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${localStorage.getItem('token')}`
-      }
+    const response = await apiFetch(`/api/feeds/${id}/sync`, {
+      method: 'POST'
     })
     if (!response.ok) throw new Error(t('common.sync_failed'))
     
@@ -233,11 +219,8 @@ const syncAll = async () => {
   if (subscriptions.value.length === 0) return
   syncAllLoading.value = true
   try {
-    const response = await fetch('/api/feeds/sync_all', {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${localStorage.getItem('token')}`
-      }
+    const response = await apiFetch('/api/feeds/sync_all', {
+      method: 'POST'
     })
     if (!response.ok) throw new Error('全部同步失败')
     
@@ -287,11 +270,8 @@ const deleteSub = async () => {
   if (!selectedSub.value) return
   
   try {
-    const response = await fetch(`/api/feeds/${selectedSub.value.id}`, {
-      method: 'DELETE',
-      headers: {
-        'Authorization': `Bearer ${localStorage.getItem('token')}`
-      }
+    const response = await apiFetch(`/api/feeds/${selectedSub.value.id}`, {
+      method: 'DELETE'
     })
     if (!response.ok) throw new Error('删除失败')
     await fetchSubscriptions()
@@ -324,11 +304,10 @@ const saveSub = async () => {
       refreshInterval: form.value.refreshInterval,      // folderId: ... // 暂时默认由后端根据 category 自动处理
     }
 
-    const response = await fetch(url, {
+    const response = await apiFetch(url, {
       method,
       headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${localStorage.getItem('token')}`
+        'Content-Type': 'application/json'
       },
       body: JSON.stringify(payload),
     })
@@ -361,11 +340,10 @@ const handleUrlBlur = async () => {
   
   fetchingPreview.value = true
   try {
-    const response = await fetch('/api/feeds/preview', {
+    const response = await apiFetch('/api/feeds/preview', {
       method: 'POST',
       headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${localStorage.getItem('token')}`
+        'Content-Type': 'application/json'
       },
       body: JSON.stringify({ url: form.value.url })
     })

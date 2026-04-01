@@ -18,7 +18,7 @@ pub async fn create_config(
     let id = sqlx::query("INSERT INTO api_configs (user_id, name, api_type, api_key, base_url, settings, timeout_seconds, retry_count, retry_interval_ms, retry_enabled) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
         .bind(user_id)
         .bind(req.name)
-        .bind(req.api_type)
+        .bind(req.api_type.clone()) // 使用 clone 防止所有权转移
         .bind(api_key)
         .bind(req.base_url)
         .bind(settings_json)
@@ -29,6 +29,47 @@ pub async fn create_config(
         .execute(pool)
         .await?
         .last_insert_rowid();
+
+    // 自动设为默认逻辑：获取当前用户设置
+    let settings: Option<(Option<i64>, Option<i64>, Option<i64>)> = sqlx::query_as(
+        "SELECT default_api_id, translate_api_id, summary_api_id FROM user_setting WHERE user_id = ?"
+    )
+    .bind(user_id)
+    .fetch_optional(pool)
+    .await?;
+
+    if let Some((def_id, trans_id, sum_id)) = settings {
+        // 1. 全局默认：如果没设置过，就把第一个 API 设为全局默认
+        if def_id.is_none() {
+            sqlx::query("UPDATE user_setting SET default_api_id = ? WHERE user_id = ?")
+                .bind(id)
+                .bind(user_id)
+                .execute(pool)
+                .await?;
+        }
+
+        // 2. 翻译默认：如果没设置过，设为翻译默认
+        if trans_id.is_none() {
+            sqlx::query("UPDATE user_setting SET translate_api_id = ? WHERE user_id = ?")
+                .bind(id)
+                .bind(user_id)
+                .execute(pool)
+                .await?;
+        }
+
+        // 3. 总结默认：如果没设置过，且类型是 OpenAI 类 (openai / azure / deepseek 等)，则设为总结默认
+        if sum_id.is_none() {
+             // 常见 OpenAI 兼容类型
+             let is_openai_type = ["openai", "azure", "deepseek", "anthropic", "gemini", "ollama", "moonshot"].contains(&req.api_type.to_lowercase().as_str());
+             if is_openai_type {
+                 sqlx::query("UPDATE user_setting SET summary_api_id = ? WHERE user_id = ?")
+                    .bind(id)
+                    .bind(user_id)
+                    .execute(pool)
+                    .await?;
+             }
+        }
+    }
 
     Ok(id)
 }
