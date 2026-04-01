@@ -3,10 +3,12 @@ import { ref, onMounted } from 'vue'
 import LoginView from './components/LoginView.vue'
 import HomeView from './components/HomeView.vue'
 
+import { isDemoMode } from './utils/demo'
+
 const isLoggedIn = ref(false)
 
 onMounted(() => {
-  if (localStorage.getItem('token')) {
+  if (isDemoMode || localStorage.getItem('token')) {
     isLoggedIn.value = true
   }
 })

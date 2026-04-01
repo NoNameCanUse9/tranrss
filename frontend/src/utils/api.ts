@@ -1,4 +1,12 @@
+import { isDemoMode, handleDemoRequest } from './demo';
+
 export async function apiFetch(url: string, options: RequestInit = {}) {
+  // Demo 模式重定向
+  if (isDemoMode && url.startsWith('/api')) {
+    console.log('[Demo] Intercepting fetch: ', url);
+    return handleDemoRequest(url, options);
+  }
+
   const token = localStorage.getItem('token');
   
   const headers = new Headers(options.headers || {});
