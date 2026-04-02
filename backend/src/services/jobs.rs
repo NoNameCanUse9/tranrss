@@ -2,8 +2,8 @@ use crate::AppState;
 use crate::model::api_config::ApiConfig;
 use crate::services::{ai::AiService, feeds};
 use anyhow::Result;
-use apalis::prelude::*;
 use apalis::layers::WorkerBuilderExt;
+use apalis::prelude::*;
 use apalis_cron::{CronStream, Schedule};
 use apalis_sql::sqlite::SqliteStorage;
 use serde::{Deserialize, Serialize};
@@ -91,10 +91,12 @@ async fn sync_feed_handler(
             .await?
     } else {
         // 后台模式：同步该 Feed 的所有订阅者
-        sqlx::query("SELECT user_id, need_translate, need_summary FROM subscriptions WHERE feed_id = ?")
-            .bind(job.feed_id)
-            .fetch_all(&data.db)
-            .await?
+        sqlx::query(
+            "SELECT user_id, need_translate, need_summary FROM subscriptions WHERE feed_id = ?",
+        )
+        .bind(job.feed_id)
+        .fetch_all(&data.db)
+        .await?
     };
 
     for sub in subscribers {
@@ -176,7 +178,13 @@ async fn sync_feed_handler(
             }
         }
     }
-    tracing::info!("✅ 同步任务分发完成: [FeedID: {}], UserTrigger: {}", job.feed_id, is_manual);
+    tracing::info!(
+        "✅ 同步任务分发完成: [FeedID: {}], UserTrigger: {}",
+        job.feed_id,
+        is_manual
+    );
+    // 📢 发出信号：订阅列表已更新内容
+    let _ = data.event_tx.send("REFRESH_FEEDS".to_string());
     Ok(())
 }
 
@@ -200,6 +208,9 @@ async fn translate_article_handler(
                 e.to_string(),
             )) as Box<dyn std::error::Error + Send + Sync + 'static>
         })?;
+        
+    // 📢 发出信号：单篇文章翻译完成
+    let _ = data.event_tx.send(format!("ARTICLE_UPDATED:{}", job.article_id));
     Ok(())
 }
 
@@ -223,6 +234,9 @@ async fn summarize_article_handler(
                 e.to_string(),
             )) as Box<dyn std::error::Error + Send + Sync + 'static>
         })?;
+        
+    // 📢 发出信号：单篇文章摘要完成
+    let _ = data.event_tx.send(format!("ARTICLE_UPDATED:{}", job.article_id));
     Ok(())
 }
 
@@ -296,7 +310,13 @@ pub async fn get_ai_service_for_user(db: &SqlitePool, user_id: i64) -> Result<Ai
         .and_then(|v| v.as_str())
         .unwrap_or("Chinese")
         .to_string();
-    Ok(AiService::new(db.clone(), user_id, target_lang, model, config))
+    Ok(AiService::new(
+        db.clone(),
+        user_id,
+        target_lang,
+        model,
+        config,
+    ))
 }
 
 /// 为总结任务获取 AI 服务，使用 summary_api_id
@@ -325,7 +345,13 @@ async fn get_summary_ai_service_for_user(db: &SqlitePool, user_id: i64) -> Resul
         .and_then(|v| v.as_str())
         .unwrap_or("Chinese")
         .to_string();
-    Ok(AiService::new(db.clone(), user_id, target_lang, model, config))
+    Ok(AiService::new(
+        db.clone(),
+        user_id,
+        target_lang,
+        model,
+        config,
+    ))
 }
 
 /// 获取用户默认的 AI 服务配置
@@ -349,9 +375,14 @@ pub async fn get_default_ai_service_for_user(db: &SqlitePool, user_id: i64) -> R
         .and_then(|v| v.as_str())
         .unwrap_or("Chinese")
         .to_string();
-    Ok(AiService::new(db.clone(), user_id, target_lang, model, config))
+    Ok(AiService::new(
+        db.clone(),
+        user_id,
+        target_lang,
+        model,
+        config,
+    ))
 }
-
 
 // --- 启动函数 ---
 
@@ -397,7 +428,7 @@ pub async fn start_workers(state: Arc<AppState>) -> anyhow::Result<()> {
     )
     .execute(&state.db)
     .await;
-    
+
     if let Ok(res) = cleanup_res {
         tracing::info!("🧹 已清理 {} 条重复 Pending 任务", res.rows_affected());
     } else if let Err(e) = cleanup_res {
@@ -410,7 +441,7 @@ pub async fn start_workers(state: Arc<AppState>) -> anyhow::Result<()> {
     let storage_trans = state.translate_queue.clone();
     let state_sum = state.clone();
     let storage_sum = state.summarize_queue.clone();
-    
+
     let state_cron = state.clone();
     let schedule = Schedule::from_str("0 * * * * *")?; // 每分钟运行一次
 

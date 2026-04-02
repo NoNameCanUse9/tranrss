@@ -2,7 +2,7 @@ use axum::{
     Router,
     extract::State,
     http::{StatusCode, Uri},
-    response::IntoResponse,
+    response::{IntoResponse, sse::{Event, Sse, KeepAlive}},
     routing::get,
 };
 #[cfg(feature = "embed-frontend")]
@@ -42,6 +42,21 @@ pub struct AppState {
     pub translate_queue: SqliteStorage<TranslateArticleJob>,
     pub summarize_queue: SqliteStorage<SummarizeArticleJob>,
     pub refresh_queue: SqliteStorage<RefreshFeedsJob>,
+    pub event_tx: tokio::sync::broadcast::Sender<String>, // 全局事件发射器
+}
+
+async fn sse_handler(
+    State(state): State<Arc<AppState>>,
+) -> Sse<impl futures::Stream<Item = Result<Event, std::convert::Infallible>>> {
+    let mut rx = state.event_tx.subscribe();
+
+    let stream = async_stream::stream! {
+        while let Ok(msg) = rx.recv().await {
+            yield Ok(Event::default().data(msg));
+        }
+    };
+
+    Sse::new(stream).keep_alive(KeepAlive::default())
 }
 
 #[tokio::main]
@@ -69,9 +84,10 @@ async fn main() -> anyhow::Result<()> {
     // 3. 首次启动自动初始化（建表 + 默认账号）
     auto_init_db(&pool).await?;
 
-    // 4. 初始化任务队列存储
+    // 4. 初始化任务队列存储与广播频道
     let (sync_queue, translate_queue, summarize_queue, refresh_queue) =
         jobs::create_storages(pool.clone());
+    let (event_tx, _) = tokio::sync::broadcast::channel::<String>(100);
 
     // 构建应用状态
     let state = Arc::new(AppState {
@@ -80,6 +96,7 @@ async fn main() -> anyhow::Result<()> {
         translate_queue,
         summarize_queue,
         refresh_queue,
+        event_tx,
     });
 
     // 4. 启动后台 Workers
@@ -88,6 +105,7 @@ async fn main() -> anyhow::Result<()> {
     // 5. 定义路由
     let app = Router::new()
         .route("/health", get(health_check))
+        .route("/api/events", get(sse_handler))
         .route("/users/count", get(get_user_count))
         .nest("/api/user", route::user::router())
         .nest("/api/translate-configs", route::translate_api::router())

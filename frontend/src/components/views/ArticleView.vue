@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, watch, onMounted, computed } from 'vue'
+import { ref, watch, onMounted, onUnmounted, computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import {
   mdiMagnify,
@@ -178,6 +178,28 @@ const fetchUserSettings = async () => {
 onMounted(() => {
   fetchArticles()
   fetchUserSettings()
+
+  // 📡 开启实时推送监听
+  const eventSource = new EventSource('/api/events')
+  eventSource.onmessage = (event) => {
+    const msg = event.data
+    // 信号 A: 订阅同步完成
+    if (msg === 'REFRESH_FEEDS') {
+      fetchArticles()
+    }
+    // 信号 B: 文章翻译/总结完成
+    if (msg.startsWith('ARTICLE_UPDATED:')) {
+      const updatedId = parseInt(msg.split(':')[1])
+      if (selectedArticle.value && selectedArticle.value.id === updatedId) {
+        fetchArticleDetail(updatedId)
+      }
+      fetchArticles() // 刷新列表标记
+    }
+  }
+
+  onUnmounted(() => {
+    eventSource.close()
+  })
   
   if (contentArea.value) {
     let rafId: number | null = null
