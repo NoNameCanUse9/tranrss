@@ -11,8 +11,8 @@ pub async fn list_articles(
     let mut query = String::from(
         r#"
         SELECT 
-            a.id, COALESCE(b.trans_text, a.title) as title, a.author, a.published_at, a.is_read, a.is_starred,
-            a.feed_id, f.title as feed_title
+            a.id, a.title, a.author, a.published_at, a.is_read, a.is_starred,
+            a.feed_id, f.title as feed_title, b.trans_text as translated_title
         FROM articles a
         JOIN feeds f ON a.feed_id = f.id
         JOIN subscriptions s ON s.feed_id = f.id

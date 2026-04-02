@@ -8,6 +8,5 @@ services:
     volumes:
       - "./data:/app/data"
     environment:
-      - DATABASE_URL=sqlite:/app/data/data.database
-      - API_ENCRYPTION_KEY=YourEncryptionKey
+      
       - TZ=Asia/Shanghai # 设置时区

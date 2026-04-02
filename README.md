@@ -11,40 +11,52 @@ TranRSS 是一款基于 AI 驱动的现代 RSS 阅读器。它不仅具备传统
 - **极致自定义样式**：支持用户自定义 CSS，随心所欲定制翻译文本的展示外观。
 - **多架构支持**：原生支持 Docker 部署，适配 `amd64` 与 `arm64` 架构（支持树莓派等设备）。
 
-## 🚀 快速开始
+### 使用 Docker Compose (推荐)
 
-### 使用 Docker (推荐方式一)
+在项目目录下创建 `docker-compose.yml` 并填入以下内容：
+
+```yaml
+services:
+  tranrss:
+    image: ghcr.io/nonamecanuse9/tranrss:latest
+    container_name: tranrss
+    restart: always
+    ports:
+      - "8000:8000"
+    volumes:
+      - "./data:/app/data"
+    environment:
+      - API_ENCRYPTION_KEY=YourSecretKey # 自定义加密密钥
+      - TZ=Asia/Shanghai                 # 访问时区
+```
+
+随后运行：
+```bash
+docker compose up -d
+```
+
+### 极简运行 (Docker Run)
 
 ```bash
 docker run -d \
   --name tranrss \
   -p 8000:8000 \
-  --restart always \
   -v ./data:/app/data \
-  -e DATABASE_URL=sqlite:/app/data/data.database \
-  -e API_ENCRYPTION_KEY=你的加密密钥 \
   ghcr.io/nonamecanuse9/tranrss:latest
 ```
 
-### 使用 Docker Compose (推荐方式二)
-
-项目根目录下已提供 `docker-compose.yml`，你可以直接运行：
-
-```bash
-docker compose up -d
-```
-
 > [!IMPORTANT]
-> - **持久化映射**：推荐直接映射 `./data` 或 `/app/data` 目录以兼容 SQLite 的 WAL 模式临时文件。
-> - **端口说明**：Docker 镜像已开启 `embed-frontend`，访问 **8000** 即可完成全部操作（前端单独开发的调试端口为 8001）。
+> - **持久化映射**：推荐映射 `./data` 目录，以确保 SQLite 数据库及任务队列在容器重启后不丢失。
+> - **访问说明**：访问 **http://localhost:8000** 即可。默认账号密码为 `admin / admin`。
 
-### 环境变量
+### 环境变量说明
 
 | 变量名 | 说明 | 默认值 |
 | :--- | :--- | :--- |
-| `DATABASE_URL` | SQLite 数据库路径 | `sqlite:/app/data/data.database` |
-| `API_ENCRYPTION_KEY` | API 密钥加密 Key | (内置默认) |
-| `JWT_SECRET` | JWT 鉴权私钥 | (自动生成) |
+| `API_ENCRYPTION_KEY` | 数据库 API 密钥的加密 Key | (内置默认) |
+| `DATABASE_URL` | SQLite 数据库路径 (可选覆盖) | `sqlite:/app/data/data.database` |
+| `TZ` | 系统时区 | `UTC` |
+| `JWT_SECRET` | JWT 鉴权私钥 | (数据库初始化生成) |
 
 ## 🛠️ 技术栈
 

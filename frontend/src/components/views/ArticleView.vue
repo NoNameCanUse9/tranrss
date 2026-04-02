@@ -46,6 +46,7 @@ const filteredArticles = computed(() => {
   const q = articleSearch.value.trim().toLowerCase()
   return articles.value.filter(a =>
     (a.title && a.title.toLowerCase().includes(q)) ||
+    (a.translatedTitle && a.translatedTitle.toLowerCase().includes(q)) ||
     (a.feedTitle && a.feedTitle.toLowerCase().includes(q))
   )
 })
@@ -121,8 +122,8 @@ const summarizeBtnLoading = ref(false)
 const snackbar = ref({ show: false, text: '', color: '' })
 
 const isTranslated = computed(() => {
-  // 对接后端 camelCase 的 transText
-  return blocks.value.length > 0 && blocks.value.some(b => b.transText && b.transText.trim().length > 0)
+  // 修改逻辑：只有当序号大于等于 0 的正文块也有翻译时，才认为“全文已翻”，从而禁用按钮
+  return blocks.value.length > 0 && blocks.value.some(b => b.blockIndex >= 0 && b.transText && b.transText.trim().length > 0)
 })
 
 const hasSummary = computed(() => {
@@ -303,7 +304,9 @@ watch(selectedArticle, () => {
               <v-spacer />
               <v-icon v-if="article.isStarred" size="x-small" color="warning">{{ mdiStar }}</v-icon>
             </div>
-            <div class="text-subtitle-2 font-weight-bold line-clamp-2" :class="article.isRead ? 'text-medium-emphasis' : ''">{{ article.title }}</div>
+            <div class="text-subtitle-2 font-weight-bold line-clamp-2" :class="article.isRead ? 'text-medium-emphasis' : ''">
+              {{ article.translatedTitle || article.title }}
+            </div>
             <div class="text-caption text-medium-emphasis mt-1">
               {{ article.publishedAt ? formatDate(article.publishedAt) : '' }}
             </div>

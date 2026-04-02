@@ -211,7 +211,7 @@ impl AiService {
             WHERE s.user_id = ? AND s.need_translate = 1
               AND NOT EXISTS (
                   SELECT 1 FROM article_blocks b 
-                  WHERE b.article_id = a.id AND b.user_id = ? AND b.block_index = -1
+                  WHERE b.article_id = a.id AND b.user_id = ? AND b.block_index = -1 AND b.trans_text IS NOT NULL
               )
             ORDER BY a.published_at DESC
             LIMIT 50

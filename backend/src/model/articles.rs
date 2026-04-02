@@ -12,6 +12,7 @@ pub struct ArticleListItem {
     pub is_starred: bool,
     pub feed_id: i64,
     pub feed_title: Option<String>,
+    pub translated_title: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]

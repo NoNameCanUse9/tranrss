@@ -567,6 +567,7 @@ pub async fn process_xml_content(
         .execute(&mut *tx)
         .await?;
 
+        // 写入正文块
         for (idx, text) in &article.blocks {
             let idx_i32 = *idx as i32;
             sqlx::query(
@@ -584,6 +585,21 @@ pub async fn process_xml_content(
             .execute(&mut *tx)
             .await?;
         }
+
+        // --- 新增：写入标题块 (index = -1) 以供翻译引擎识别 ---
+        sqlx::query(
+            r#"
+            INSERT INTO article_blocks (user_id, article_id, block_index, raw_text)
+            VALUES (?, ?, -1, ?)
+            ON CONFLICT(user_id, article_id, block_index) DO UPDATE SET
+                raw_text = excluded.raw_text
+            "#,
+        )
+        .bind(user_id)
+        .bind(article.id)
+        .bind(&article.title)
+        .execute(&mut *tx)
+        .await?;
     }
 
     // 3. 检查 num 限制并清理旧文章
