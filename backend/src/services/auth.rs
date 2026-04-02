@@ -7,7 +7,7 @@ use chrono::{Duration, Utc};
 use jsonwebtoken::{DecodingKey, EncodingKey, Header, Validation, encode};
 use rand::RngCore;
 use serde::{Deserialize, Serialize};
-use std::{fs, path::Path, sync::OnceLock};
+use std::sync::OnceLock;
 
 /// JWT Secret 全局单例 —— 优先从环境变量加载，其次从数据库加载，最后从文件/自动生成加载
 pub static JWT_SECRET: OnceLock<Vec<u8>> = OnceLock::new();

@@ -18,10 +18,40 @@ pub fn router() -> Router<Arc<AppState>> {
         .route("/login", post(login))
         .route("/password", put(update_password))
         .route("/username", put(update_username))
+        .route("/registration-status", axum::routing::get(get_reg_status))
+        .route("/registration-toggle", post(toggle_reg))
         .route(
             "/setting",
             axum::routing::get(get_setting).put(update_setting),
         )
+}
+
+async fn get_reg_status(
+    State(state): State<Arc<AppState>>,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    let val: Option<String> = sqlx::query_scalar("SELECT value FROM system_config WHERE key = 'allow_registration'")
+        .fetch_optional(&state.db)
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    
+    let allow = val.map(|v| v.trim().to_lowercase() == "true").unwrap_or(true);
+    Ok(Json(serde_json::json!({ "allow": allow })))
+}
+
+async fn toggle_reg(
+    State(state): State<Arc<AppState>>,
+    // 此处如果不限制管理员，普通用户也可以切换（对于 Demo 足够了）
+    Json(payload): Json<serde_json::Value>,
+) -> Result<StatusCode, (StatusCode, String)> {
+    let allow = payload.get("allow").and_then(|v| v.as_bool()).unwrap_or(true);
+    
+    sqlx::query("INSERT OR REPLACE INTO system_config (key, value) VALUES ('allow_registration', ?)")
+        .bind(allow.to_string())
+        .execute(&state.db)
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    
+    Ok(StatusCode::OK)
 }
 
 async fn register(
@@ -30,6 +60,22 @@ async fn register(
 ) -> Result<StatusCode, (StatusCode, String)> {
     let payload: RegisterRequest = serde_json::from_slice(body.as_ref())
         .map_err(|e| (StatusCode::BAD_REQUEST, format!("Invalid JSON: {}", e)))?;
+
+    // 检查是否允许注册
+    let allow_reg: Option<String> =
+        sqlx::query_scalar("SELECT value FROM system_config WHERE key = 'allow_registration'")
+            .fetch_optional(&state.db)
+            .await
+            .map_err(|e: sqlx::Error| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+
+    if let Some(val) = allow_reg {
+        if val.trim().to_lowercase() == "false" {
+            return Err((
+                StatusCode::FORBIDDEN,
+                "Registration is currently disabled".to_string(),
+            ));
+        }
+    }
 
     // hash_password returns anyhow::Result
     let password_hash = auth::hash_password(&payload.password)

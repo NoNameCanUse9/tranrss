@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref } from 'vue'
+import { ref, onMounted } from 'vue'
 import {
   mdiTranslate,
   mdiChevronDown,
@@ -23,6 +23,21 @@ const isLogin = ref(true)
 const loading = ref(false)
 const error = ref('')
 const messageType = ref<'error' | 'success'>('error')
+const allowRegistration = ref(true)
+
+const fetchRegStatus = async () => {
+  try {
+    const res = await fetch('/api/user/registration-status')
+    if (res.ok) {
+      const data = await res.json()
+      allowRegistration.value = data.allow
+    }
+  } catch (e) {
+    // ignore
+  }
+}
+
+onMounted(fetchRegStatus)
 
 const username = ref('')
 const password = ref('')
@@ -164,7 +179,7 @@ const handleSubmit = async () => {
           {{ isLogin ? t('auth.login_btn') : t('auth.register_btn') }}
         </v-btn>
 
-        <div class="d-flex align-center justify-center text-body-2 mt-4">
+        <div v-if="allowRegistration || !isLogin" class="d-flex align-center justify-center text-body-2 mt-4">
           <span class="text-medium-emphasis">
             {{ isLogin ? t('auth.no_account') : t('auth.has_account') }}
           </span>
@@ -177,6 +192,9 @@ const handleSubmit = async () => {
           >
             {{ isLogin ? t('auth.register_now') : t('auth.back_to_login') }}
           </v-btn>
+        </div>
+        <div v-else-if="!allowRegistration && isLogin" class="text-center text-caption text-medium-emphasis mt-4">
+           {{ t('auth.registration_disabled', '注册已关闭') }}
         </div>
       </v-form>
     </v-card>

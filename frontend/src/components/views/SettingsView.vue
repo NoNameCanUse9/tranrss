@@ -16,11 +16,23 @@ import {
   mdiServerNetwork,
   mdiContentSaveOutline,
   mdiCheckCircleOutline,
-  mdiContentCopy
+  mdiContentCopy,
+  mdiAccountCog,
+  mdiLockReset,
+  mdiShieldLock,
+  mdiAccountOutline
 } from '@mdi/js'
 import { apiFetch } from '../../utils/api'
 
 const { t } = useI18n()
+
+// Account management state
+const currentUsername = ref(localStorage.getItem('username') || 'admin')
+const newUsername = ref(currentUsername.value)
+const oldPassword = ref('')
+const newPassword = ref('')
+const confirmPassword = ref('')
+const allowRegistration = ref(true) // Global reg toggle
 
 const theme = useTheme()
 const isDark = ref(theme.global.current.value.dark)
@@ -98,9 +110,83 @@ const loadSettings = async () => {
   }
 }
 
+const fetchExtSettings = async () => {
+    try {
+        const res = await apiFetch('/api/user/registration-status')
+        if (res.ok) {
+            const data = await res.json()
+            allowRegistration.value = data.allow
+        }
+    } catch (e) {
+        console.error('Failed to load registration status', e)
+    }
+}
+
+const toggleRegistration = async () => {
+    try {
+        await apiFetch('/api/user/registration-toggle', {
+            method: 'POST',
+            body: JSON.stringify({ allow: allowRegistration.value })
+        })
+        snackbarText.value = t('settings.saved')
+        snackbar.value = true
+    } catch (e) {
+        console.error('Failed to toggle registration', e)
+    }
+}
+
+const updateUsernameAction = async () => {
+    if (!newUsername.value) return
+    try {
+        const res = await apiFetch('/api/user/username', {
+            method: 'PUT',
+            body: JSON.stringify({ new_username: newUsername.value })
+        })
+        if (res.ok) {
+            localStorage.setItem('username', newUsername.value)
+            currentUsername.value = newUsername.value
+            snackbarText.value = '用户名已修改'
+            snackbar.value = true
+        } else {
+            alert('修改失败: ' + await res.text())
+        }
+    } catch (e) {
+        console.error('Update username failed', e)
+    }
+}
+
+const updatePasswordAction = async () => {
+    if (!oldPassword.value || !newPassword.value) return
+    if (newPassword.value !== confirmPassword.value) {
+        alert('两次输入的密码不一致')
+        return
+    }
+    try {
+        const res = await apiFetch('/api/user/password', {
+            method: 'PUT',
+            body: JSON.stringify({ 
+                old_password: oldPassword.value,
+                new_password: newPassword.value 
+            })
+        })
+        if (res.ok) {
+            oldPassword.value = ''
+            newPassword.value = ''
+            confirmPassword.value = ''
+            snackbarText.value = '密码已修改'
+            snackbar.value = true
+        } else {
+            alert('修改失败: ' + await res.text())
+        }
+    } catch (e) {
+        console.error('Update password failed', e)
+    }
+}
+
 onMounted(async () => {
   await fetchApiConfigs()
   await loadSettings()
+  await fetchExtSettings()
 })
 
 const saveSettings = async () => {
@@ -196,6 +282,126 @@ const triggerImport = () => {
     </div>
 
     <div class="d-flex flex-column">
+        <!-- 账号管理 -->
+        <v-card rounded="xl" variant="flat" color="surface-variant" class="mb-10">
+          <v-card-item class="pa-8 pb-4">
+            <template #prepend>
+              <v-icon color="primary" class="mr-3" size="28">{{ mdiAccountCog }}</v-icon>
+            </template>
+            <v-card-title class="text-h6 font-weight-bold">账号管理</v-card-title>
+          </v-card-item>
+          <v-divider />
+          <v-card-text class="pa-8">
+            <!-- 修改用户名 -->
+            <div class="mb-10">
+                <p class="text-subtitle-2 font-weight-bold mb-4">修改用户名</p>
+                <div class="d-flex" style="gap: 16px;">
+                    <div class="flex-grow-1">
+                        <v-text-field
+                            v-model="newUsername"
+                            placeholder="新用户名"
+                            variant="outlined"
+                            density="comfortable"
+                            rounded="lg"
+                            hide-details
+                            :prepend-inner-icon="mdiAccountOutline"
+                            color="primary"
+                            bg-color="surface"
+                        />
+                    </div>
+                    <v-btn color="primary" rounded="xl" size="large" @click="updateUsernameAction" class="text-none">
+                        更新用户名
+                    </v-btn>
+                </div>
+            </div>
+
+            <v-divider class="mb-10" />
+
+            <!-- 修改密码 -->
+            <div>
+                <p class="text-subtitle-2 font-weight-bold mb-4">修改登录密码</p>
+                <v-text-field
+                    v-model="oldPassword"
+                    type="password"
+                    placeholder="请输入原密码"
+                    variant="outlined"
+                    density="comfortable"
+                    rounded="lg"
+                    class="mb-6"
+                    hide-details
+                    :prepend-inner-icon="mdiLockReset"
+                    color="primary"
+                    bg-color="surface"
+                />
+                
+                <v-text-field
+                    v-model="newPassword"
+                    type="password"
+                    placeholder="请输入新密码"
+                    variant="outlined"
+                    density="comfortable"
+                    rounded="lg"
+                    class="mb-6"
+                    hide-details
+                    color="primary"
+                    bg-color="surface"
+                />
+                
+                <v-text-field
+                    v-model="confirmPassword"
+                    type="password"
+                    placeholder="请再次填写新密码"
+                    variant="outlined"
+                    density="comfortable"
+                    rounded="lg"
+                    class="mb-8"
+                    hide-details
+                    color="primary"
+                    bg-color="surface"
+                />
+                
+                <div class="d-flex justify-end">
+                    <v-btn 
+                        color="primary" 
+                        rounded="pill" 
+                        size="large" 
+                        variant="tonal" 
+                        min-width="180" 
+                        @click="updatePasswordAction" 
+                        class="text-none font-weight-bold"
+                    >
+                        确认重置密码
+                    </v-btn>
+                </div>
+            </div>
+          </v-card-text>
+        </v-card>
+
+        <!-- 安全设置 -->
+        <v-card rounded="xl" variant="flat" color="surface-variant" class="mb-6">
+          <v-card-item class="pa-6 pb-4">
+            <template #prepend>
+              <v-icon color="primary" class="mr-2">{{ mdiShieldLock }}</v-icon>
+            </template>
+            <v-card-title class="text-h6 font-weight-bold">安全与公开设置</v-card-title>
+          </v-card-item>
+          <v-divider />
+          <v-card-text class="pa-6">
+            <div class="d-flex align-center justify-space-between mb-4">
+              <div>
+                <p class="text-body-2 font-weight-medium">允许新用户注册</p>
+                <p class="text-caption text-medium-emphasis">开启后，访客将可以在登录页自行创建账号。这对演示站很有用，但正式站建议关闭。</p>
+              </div>
+              <v-switch
+                v-model="allowRegistration"
+                color="success"
+                hide-details
+                @change="toggleRegistration"
+              />
+            </div>
+          </v-card-text>
+        </v-card>
+
       <!-- 外观设置 -->
       <v-card rounded="xl" variant="flat" color="surface-variant" class="mb-6">
           <v-card-item class="pa-6 pb-4">

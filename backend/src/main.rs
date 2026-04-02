@@ -12,7 +12,7 @@ use axum::{
 };
 use tower_http::trace::TraceLayer;
 
-use sqlx::sqlite::{SqliteConnectOptions, SqlitePool, SqliteJournalMode, SqliteSynchronous};
+use sqlx::sqlite::{SqliteConnectOptions, SqliteJournalMode, SqlitePool, SqliteSynchronous};
 use std::net::SocketAddr;
 use std::str::FromStr;
 use std::sync::Arc;
@@ -55,8 +55,8 @@ async fn main() -> anyhow::Result<()> {
         .init();
 
     // 2. 数据库连接池初始化
-    let database_url =
-        std::env::var("DATABASE_URL").unwrap_or_else(|_| "sqlite:/app/data/data.database".to_string());
+    let database_url = std::env::var("DATABASE_URL")
+        .unwrap_or_else(|_| "sqlite:/app/data/data.database".to_string());
 
     tracing::info!("📡 正在连接数据库: {}", database_url);
 
@@ -105,9 +105,7 @@ async fn main() -> anyhow::Result<()> {
     tracing::info!("🚀 TranRSS 启动于 http://{}", addr);
 
     let listener = tokio::net::TcpListener::bind(addr).await?;
-    axum::serve(listener, app).await?; 
-
-
+    axum::serve(listener, app).await?;
 
     Ok(())
 }
@@ -208,13 +206,15 @@ async fn auto_init_db(pool: &SqlitePool) -> anyhow::Result<()> {
 
         sqlx::query("INSERT INTO user_setting (user_id, custom_trans_style) VALUES (?, ?)")
             .bind(user_id)
-            .bind("display: block;
+            .bind(
+                "display: block;
 font-style: italic;
 opacity: 0.6;
 font-size: 0.95em;
 margin-top: 0.3rem;
 padding-left: 0.75rem;
-border-left: 2px solid rgba(var(--v-theme-primary), 0.4);")
+border-left: 2px solid rgba(var(--v-theme-primary), 0.4);",
+            )
             .execute(pool)
             .await?;
 
@@ -225,11 +225,12 @@ border-left: 2px solid rgba(var(--v-theme-primary), 0.4);")
 
     // --- JWT 密钥持久化逻辑 ---
     // 1. 尝试从数据库加载
-    let db_jwt: Option<String> = sqlx::query_scalar("SELECT value FROM system_config WHERE key = 'jwt_secret'")
-        .fetch_optional(pool)
-        .await?;
+    let db_jwt: Option<String> =
+        sqlx::query_scalar("SELECT value FROM system_config WHERE key = 'jwt_secret'")
+            .fetch_optional(pool)
+            .await?;
 
-    if let Some(hex_val) = db_jwt {
+    if let Some(ref hex_val) = db_jwt {
         if let Ok(bytes) = hex::decode(hex_val.trim()) {
             if bytes.len() >= 32 {
                 let _ = crate::services::auth::init_jwt_secret(bytes);
@@ -240,12 +241,16 @@ border-left: 2px solid rgba(var(--v-theme-primary), 0.4);")
 
     // 2. 如果没能初始化（数据库没记录或无效），则通过原有逻辑加载/生成，并存回数据库
     let final_secret = crate::services::auth::get_jwt_secret();
-    let hex_val = hex::encode(final_secret);
-    
-    sqlx::query("INSERT OR REPLACE INTO system_config (key, value) VALUES ('jwt_secret', ?)")
-        .bind(hex_val)
-        .execute(pool)
-        .await?;
+
+    // 🌟 这里是您的优化点：只有在查不到时才写入，避免只读报错
+    if db_jwt.is_none() {
+        let hex_val = hex::encode(final_secret);
+        let _ = sqlx::query("INSERT OR REPLACE INTO system_config (key, value) VALUES ('jwt_secret', ?)")
+            .bind(hex_val)
+            .execute(pool)
+            .await;
+        tracing::info!("JWT secret 已生成并同步至数据库");
+    }
 
     Ok(())
 }
