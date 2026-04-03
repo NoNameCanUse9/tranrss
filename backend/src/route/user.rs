@@ -81,6 +81,8 @@ async fn register(
     let password_hash = auth::hash_password(&payload.password)
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
+    let fever_key = format!("{:x}", md5::compute(format!("{}:{}", payload.username, payload.password)));
+
     let mut tx = state
         .db
         .begin()
@@ -88,9 +90,10 @@ async fn register(
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
     // sqlx returns sqlx::Error
-    let res = sqlx::query("INSERT INTO users (username, password_hash) VALUES (?, ?)")
+    let res = sqlx::query("INSERT INTO users (username, password_hash, fever_api_key) VALUES (?, ?, ?)")
         .bind(&payload.username)
         .bind(&password_hash)
+        .bind(&fever_key)
         .execute(&mut *tx)
         .await
         .map_err(|e: sqlx::Error| {
@@ -202,8 +205,11 @@ async fn update_password(
     let new_hash = auth::hash_password(&payload.new_password)
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
-    sqlx::query("UPDATE users SET password_hash = ? WHERE id = ?")
+    let fever_key = format!("{:x}", md5::compute(format!("{}:{}", auth_user.username, payload.new_password)));
+
+    sqlx::query("UPDATE users SET password_hash = ?, fever_api_key = ? WHERE id = ?")
         .bind(new_hash)
+        .bind(fever_key)
         .bind(auth_user.user_id)
         .execute(&state.db)
         .await
@@ -243,7 +249,7 @@ async fn get_setting(
     State(state): State<Arc<AppState>>,
     auth_user: AuthUser,
 ) -> Result<Json<UserSetting>, (StatusCode, String)> {
-    let setting: UserSetting = sqlx::query_as("SELECT translate_api_id, summary_api_id, default_api_id, greader_api, api_proxy, api_proxy_url, app_mode, user_id, log_num_limit, custom_trans_style FROM user_setting WHERE user_id = ?")
+    let setting: UserSetting = sqlx::query_as("SELECT translate_api_id, summary_api_id, default_api_id, greader_api, fever_api, api_proxy, api_proxy_url, app_mode, user_id, log_num_limit, custom_trans_style FROM user_setting WHERE user_id = ?")
         .bind(auth_user.user_id)
         .fetch_one(&state.db)
         .await
@@ -261,12 +267,13 @@ async fn update_setting(
         .map_err(|e| (StatusCode::BAD_REQUEST, format!("Invalid JSON: {}", e)))?;
 
     sqlx::query(
-        "UPDATE user_setting SET translate_api_id = ?, summary_api_id = ?, default_api_id = ?, greader_api = ?, api_proxy = ?, api_proxy_url = ?, app_mode = ?, log_num_limit = ?, custom_trans_style = ? WHERE user_id = ?"
+        "UPDATE user_setting SET translate_api_id = ?, summary_api_id = ?, default_api_id = ?, greader_api = ?, fever_api = ?, api_proxy = ?, api_proxy_url = ?, app_mode = ?, log_num_limit = ?, custom_trans_style = ? WHERE user_id = ?"
     )
     .bind(payload.translate_api_id)
     .bind(payload.summary_api_id)
     .bind(payload.default_api_id)
     .bind(payload.greader_api)
+    .bind(payload.fever_api)
     .bind(payload.api_proxy)
     .bind(&payload.api_proxy_url)
     .bind(payload.app_mode)

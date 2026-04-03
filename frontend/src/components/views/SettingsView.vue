@@ -45,6 +45,7 @@ const logNumLimit = ref(300)
 const proxyEnabled = ref(false)
 const proxyUrl = ref('')
 const greaderApi = ref(false)
+const feverApi = ref(false)
 const translateApiId = ref<number | null>(null)
 const summaryApiId = ref<number | null>(null)
 const defaultApiId = ref<number | null>(null)
@@ -56,6 +57,7 @@ const snackbar = ref(false)
 const snackbarText = ref(t('settings.saved'))
 
 const greaderUrl = ref(`${window.location.origin}/api/greader`)
+const feverUrl = ref(`${window.location.origin}/api/fever`)
 const loadingConfigs = ref(true)
 const apiConfigs = ref<any[]>([])
 
@@ -100,6 +102,7 @@ const loadSettings = async () => {
       if (data.api_proxy !== undefined && data.api_proxy !== null) proxyEnabled.value = data.api_proxy
       if (data.api_proxy_url) proxyUrl.value = data.api_proxy_url
       if (data.greader_api !== undefined && data.greader_api !== null) greaderApi.value = data.greader_api
+      if (data.fever_api !== undefined && data.fever_api !== null) feverApi.value = data.fever_api
       if (data.translate_api_id) translateApiId.value = data.translate_api_id
       if (data.summary_api_id) summaryApiId.value = data.summary_api_id
       if (data.default_api_id) defaultApiId.value = data.default_api_id
@@ -203,6 +206,7 @@ const saveSettings = async () => {
         api_proxy: proxyEnabled.value,
         api_proxy_url: proxyUrl.value,
         greader_api: greaderApi.value,
+        fever_api: feverApi.value,
         translate_api_id: translateApiId.value,
         summary_api_id: summaryApiId.value,
         default_api_id: defaultApiId.value,
@@ -505,6 +509,35 @@ const triggerImport = () => {
                     :prepend-icon="mdiContentCopy"
                     class="text-none"
                     @click="copyToClipboard(greaderUrl)"
+                  >
+                    {{ t('common.copy') }}
+                  </v-btn>
+                </div>
+              </div>
+            </v-expand-transition>
+
+            <div class="d-flex align-center justify-space-between mb-4">
+              <div>
+                <p class="text-body-2 font-weight-medium">Fever API</p>
+                <p class="text-caption text-medium-emphasis">兼容 FreshRSS 客户端协议</p>
+              </div>
+              <v-switch v-model="feverApi" color="success" hide-details />
+            </div>
+
+            <v-expand-transition>
+              <div v-if="feverApi" class="mt-n2 mb-6">
+                <div class="d-flex align-center border-sm border-opacity-25 rounded-lg px-3 py-2 bg-surface">
+                  <div class="flex-grow-1 overflow-hidden mr-2">
+                    <p class="text-caption font-weight-bold text-primary mb-0">{{ t('settings.fever_url_tip') }}</p>
+                    <code class="text-caption text-truncate d-block">{{ feverUrl }}</code>
+                  </div>
+                  <v-btn
+                    variant="tonal"
+                    size="small"
+                    color="primary"
+                    :prepend-icon="mdiContentCopy"
+                    class="text-none"
+                    @click="copyToClipboard(feverUrl)"
                   >
                     {{ t('common.copy') }}
                   </v-btn>

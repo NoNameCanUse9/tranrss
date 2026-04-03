@@ -214,6 +214,7 @@
     "global_default_api": "全局默认 API",
     "global_default_desc": "当未指定具体翻译或摘要 API 时，将使用此配置。",
     "select_api_placeholder": "选择 API 密钥",
+    "fever_url_tip": "Fever API 端点 (FreshRSS 兼容)",
     "no_api_configs": "暂未配置 API 密钥",
     "default_translate_api": "默认翻译 API",
     "default_summary_api": "默认摘要 API",

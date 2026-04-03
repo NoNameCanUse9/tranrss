@@ -113,6 +113,7 @@ async fn main() -> anyhow::Result<()> {
         .nest("/api/articles", route::articles::router())
         .nest("/api/jobs", route::jobs::router())
         .nest("/api/greader", route::greader::router())
+        .nest("/api/fever", route::fever::router())
         // 内嵌前端：发布模式走 SPA fallback，开发模式无此路由（由 Vite dev server 提供）
         .fallback(get(serve_frontend))
         .layer(TraceLayer::new_for_http())
@@ -215,10 +216,12 @@ async fn auto_init_db(pool: &SqlitePool) -> anyhow::Result<()> {
     if user_count == 0 {
         tracing::info!("首次启动：自动创建默认账号 admin/admin");
         let hash = bcrypt::hash("admin", bcrypt::DEFAULT_COST)?;
+        let fever_key = format!("{:x}", md5::compute("admin:admin"));
         let user_id: i64 = sqlx::query_scalar(
-            "INSERT INTO users (username, password_hash) VALUES ('admin', ?) RETURNING id",
+            "INSERT INTO users (username, password_hash, fever_api_key) VALUES ('admin', ?, ?) RETURNING id",
         )
         .bind(&hash)
+        .bind(&fever_key)
         .fetch_one(pool)
         .await?;
 
