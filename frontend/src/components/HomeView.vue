@@ -9,7 +9,6 @@ import QueueView from './views/QueueView.vue'
 import ArticleView from './views/ArticleView.vue'
 import { onMounted } from 'vue'
 import { 
-  mdiLeaf, 
   mdiNewspaperVariant, 
   mdiNewspaperVariantOutline, 
   mdiCircleMedium, 
@@ -179,7 +178,7 @@ const getCategoryUnreadCount = (subs: any[]) => {
       <div class="pa-6 pb-4">
         <div class="d-flex align-center gap-3">
           <v-avatar class="logo-avatar" size="44" rounded="lg">
-            <v-icon color="white" size="24">{{ mdiLeaf }}</v-icon>
+            <img src="/favicon.svg?v=latest" alt="logo" style="width: 100%; height: 100%; object-fit: cover;" />
           </v-avatar>
           <div>
             <p class="text-h6 font-weight-bold" style="line-height:1.2; font-family: 'Noto Serif SC', serif !important;">TranRSS</p>
@@ -318,7 +317,7 @@ const getCategoryUnreadCount = (subs: any[]) => {
       <!-- Logo container: matched height to top bar (64px) for perfect divider alignment -->
       <div class="px-5 d-flex align-center" style="height: 64px;">
         <v-avatar class="logo-avatar cursor-pointer" size="40" rounded="lg" @click="drawerOpen = !drawerOpen">
-          <v-icon color="white" size="22">{{ mdiLeaf }}</v-icon>
+          <img src="/favicon.svg?v=latest" alt="logo" style="width: 100%; height: 100%; object-fit: cover;" />
         </v-avatar>
         <div v-if="drawerOpen" class="ml-3">
           <p class="text-h6 font-weight-bold mb-0" style="line-height:1; font-family: 'Noto Serif SC', serif !important;">TranRSS</p>

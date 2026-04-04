@@ -210,7 +210,7 @@ h3,
 }
 
 .logo-avatar {
-  background: linear-gradient(135deg, var(--md-sys-color-primary) 0%, var(--md-sys-color-secondary) 100%) !important;
+  background: transparent !important;
   box-shadow: 0 4px 12px rgba(var(--md-sys-color-primary-rgb), 0.2) !important;
 }
 

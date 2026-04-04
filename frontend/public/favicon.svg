@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg viewBox="0 0 1024 1024" version="1.1" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="bgGradient" x1="0" y1="0" x2="1024" y2="1024" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#16666E" />
+      <stop offset="100%" stop-color="#4A6266" />
+    </linearGradient>
+  </defs>
+  
+  <rect x="0" y="0" width="1024" height="1024" rx="220" fill="url(#bgGradient)"/>
+
+  <!-- 1. Star (Solid White) -->
+  <path d="M150 710 Q150 820 260 820 Q150 820 150 930 Q150 820 40 820 Q150 820 150 710 Z" fill="#ffffff" />
+  
+  <!-- 2. Arcs (Solid White No Opacity) -->
+  <path d="M150 160 C530 160 864 494 864 874" stroke="#ffffff" stroke-width="65" stroke-linecap="round" fill="none" />
+  <path d="M150 380 C420 380 644 604 644 874" stroke="#ffffff" stroke-width="65" stroke-linecap="round" fill="none" />
+  <path d="M150 600 C300 600 424 724 424 874" stroke="#ffffff" stroke-width="65" stroke-linecap="round" fill="none" />
+</svg>
