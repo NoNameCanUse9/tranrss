@@ -452,7 +452,7 @@ const handleUrlBlur = async () => {
                   </v-avatar>
                   <p class="text-body-1 font-weight-semibold text-truncate flex-grow-1 mb-0">{{ sub.title }}</p>
                 </div>
-                <p class="text-caption text-medium-emphasis text-truncate w-100 mb-0">{{ sub.url }}</p>
+                <p class="text-caption text-medium-emphasis text-truncate mb-0" style="width: 0; min-width: 100%;">{{ sub.url }}</p>
               </div>
               <v-tooltip v-if="sub.lastError" location="top" offset="10">
                 <template v-slot:activator="{ props }">
@@ -484,7 +484,7 @@ const handleUrlBlur = async () => {
             <div class="d-flex align-center gap-2 mb-3">
               <v-chip size="x-small" variant="outlined" color="primary" class="text-none">
                 <v-icon start size="12" :icon="mdiTagOutline" />
-                {{ sub.category }}
+                {{ sub.category === '未分类' ? $t('common.uncategorized') : sub.category }}
               </v-chip>
               <v-chip v-if="sub.autoTranslate" size="x-small" variant="outlined" color="secondary" class="text-none">
                 <v-icon start size="12" :icon="mdiTranslate" />
@@ -498,8 +498,8 @@ const handleUrlBlur = async () => {
 
             <v-divider class="mb-3" />
             
-            <div v-if="sub.description" class="text-caption text-medium-emphasis line-clamp-desc mb-3">
-              {{ sub.description }}
+            <div class="text-caption text-medium-emphasis line-clamp-desc mb-3">
+              {{ sub.description || '' }}
             </div>
 
             <v-spacer />

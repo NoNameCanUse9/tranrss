@@ -120,7 +120,7 @@ const starredCount = computed(() => subscriptions.value.reduce((acc, sub) => acc
 const groupedSubscriptions = computed(() => {
   const groups: Record<string, any[]> = {}
   subscriptions.value.forEach(sub => {
-    const cat = sub.category || t('common.uncategorized')
+    const cat = (!sub.category || sub.category === '未分类') ? t('common.uncategorized') : sub.category
     if (!groups[cat]) groups[cat] = []
     groups[cat].push(sub)
   })
