@@ -34,13 +34,13 @@ async fn get_reg_status(
         .await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
     
-    let allow = val.map(|v| v.trim().to_lowercase() == "true").unwrap_or(true);
+    let allow = val.map(|v| v.trim().to_lowercase() == "true").unwrap_or(false);
     Ok(Json(serde_json::json!({ "allow": allow })))
 }
 
 async fn toggle_reg(
     State(state): State<Arc<AppState>>,
-    // 此处如果不限制管理员，普通用户也可以切换（对于 Demo 足够了）
+    _auth: AuthUser, 
     Json(payload): Json<serde_json::Value>,
 ) -> Result<StatusCode, (StatusCode, String)> {
     let allow = payload.get("allow").and_then(|v| v.as_bool()).unwrap_or(true);
@@ -68,13 +68,12 @@ async fn register(
             .await
             .map_err(|e: sqlx::Error| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
-    if let Some(val) = allow_reg {
-        if val.trim().to_lowercase() == "false" {
-            return Err((
-                StatusCode::FORBIDDEN,
-                "Registration is currently disabled".to_string(),
-            ));
-        }
+    let allow = allow_reg.map(|v| v.trim().to_lowercase() == "true").unwrap_or(false);
+    if !allow {
+        return Err((
+            StatusCode::FORBIDDEN,
+            "Registration is currently disabled".to_string(),
+        ));
     }
 
     // hash_password returns anyhow::Result
