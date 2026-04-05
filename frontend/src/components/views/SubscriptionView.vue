@@ -154,12 +154,17 @@ const toggleSelectAllInactive = () => {
   }
 }
 
-const categories = ['技术', '科技媒体', '研究', '新闻', '财经', '其他']
+const categories = computed(() => {
+  const existing = subscriptions.value
+    .map(s => s.category)
+    .filter(c => c && c !== '未分类')
+  return [...new Set(existing)]
+})
 
 const form = ref({
   title: '',
   url: '',
-  category: '技术',
+  category: '',
   targetLanguage: 'Chinese',
   autoTranslate: false,
   needSummary: false,
@@ -235,7 +240,7 @@ const syncAll = async () => {
 
 const openAddDialog = () => {
   form.value = { 
-    title: '', url: '', category: '技术', targetLanguage: 'Chinese', autoTranslate: false, needSummary: false,
+    title: '', url: '', category: '', targetLanguage: 'Chinese', autoTranslate: false, needSummary: false,
     siteUrl: '', description: '', iconUrl: '', iconBase64: '', num: 200, refreshInterval: 30
   }
   selectedSub.value = null
