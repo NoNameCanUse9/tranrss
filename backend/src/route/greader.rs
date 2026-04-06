@@ -60,11 +60,14 @@ fn item_id_to_greader(id: i64) -> String {
 
 /// 从 GReader item ID 解析回整数 ID
 fn greader_to_item_id(greader_id: &str) -> Option<i64> {
-    // 支持两种格式:
-    // 1. "tag:google.com,2005:reader/item/000000000000abcd" (十六进制)
-    // 2. 纯数字字符串（向后兼容）
+    // 支持三种格式:
+    // 1. "tag:google.com,2005:reader/item/000000000000abcd" (标准 GReader 格式)
+    // 2. "000000000000abcd" (16位纯十六进制字符串，CapyReader 使用的格式)
+    // 3. 纯数字十进制字符串（向后兼容某些老客户端）
     if let Some(hex) = greader_id.strip_prefix("tag:google.com,2005:reader/item/") {
         u64::from_str_radix(hex, 16).map(|i| i as i64).ok()
+    } else if greader_id.len() == 16 && greader_id.chars().all(|c| c.is_ascii_hexdigit()) {
+        u64::from_str_radix(greader_id, 16).map(|i| i as i64).ok()
     } else {
         greader_id.parse::<i64>().ok()
     }
@@ -280,11 +283,11 @@ struct StreamQuery {
 struct GReaderStreamContents {
     id: String,
     title: String,
+    direction: String,
     #[serde(rename = "self")]
     self_link: Vec<GReaderLink>,
     updated: i64,
     items: Vec<GReaderItem>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     continuation: Option<String>,
 }
 
@@ -356,13 +359,14 @@ async fn stream_contents(
     let offset = params.c.as_deref().map(parse_continuation).unwrap_or(0);
 
     // 构建基础查询
-    // (id, title, link, author, published_at, crawl_time, is_read, is_starred, feed_id, feed_title, site_url, content_skeleton, summary)
+    // (id, title, link, author, published_at, crawl_time, is_read, is_starred, feed_id, feed_title, site_url, content_skeleton, summary, updated_at, need_translate)
     let mut query_str = String::from(
         r#"
         SELECT 
             a.id, a.title, a.link, a.author, a.published_at, a.crawl_time,
             a.is_read, a.is_starred, a.feed_id, f.title as feed_title, f.site_url,
-            a.content_skeleton, a.summary, a.updated_at
+            COALESCE(a.content_skeleton, '') as skeleton, COALESCE(a.summary, '') as summary,
+            a.updated_at, s.need_translate
         FROM articles a
         JOIN feeds f ON a.feed_id = f.id
         JOIN subscriptions s ON s.feed_id = f.id
@@ -394,9 +398,10 @@ async fn stream_contents(
         i64,
         String,
         Option<String>,
-        Option<String>,
-        Option<String>,
         String,
+        String,
+        String,
+        bool,
     )> = sqlx::query_as(&query_str)
         .bind(auth.user_id)
         .fetch_all(&state.db)
@@ -404,18 +409,60 @@ async fn stream_contents(
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
     let has_more = rows.len() as i64 > limit;
-    let rows = if has_more {
-        &rows[..limit as usize]
-    } else {
-        &rows[..]
-    };
+    let mut rows = rows;
+    if has_more {
+        rows.truncate(limit as usize);
+    }
+
+    if rows.is_empty() {
+        return Ok(Json(GReaderStreamContents {
+            id: stream_id.clone(),
+            title: resolve_stream_title(&stream_id),
+            direction: "ltr".to_string(),
+            self_link: vec![GReaderLink {
+                href: format!("/reader/api/0/stream/contents/{}", stream_id),
+            }],
+            updated: chrono::Utc::now().timestamp(),
+            items: vec![],
+            continuation: Some("".to_string()),
+        }));
+    }
+
+    // 提取 ID 以便批量拉取 Blocks
+    let item_ids: Vec<i64> = rows.iter().map(|r| r.0).collect();
+    let placeholders = item_ids
+        .iter()
+        .enumerate()
+        .map(|(i, _)| format!("?{}", i + 2))
+        .collect::<Vec<_>>()
+        .join(",");
+
+    let block_query = format!(
+        "SELECT article_id, block_index, raw_text, trans_text FROM article_blocks WHERE user_id = ?1 AND article_id IN ({}) ORDER BY article_id, block_index ASC",
+        placeholders
+    );
+    let mut bq =
+        sqlx::query_as::<_, crate::model::articles::ArticleBlock>(&block_query).bind(auth.user_id);
+    for id in &item_ids {
+        bq = bq.bind(id);
+    }
+    let all_blocks = bq
+        .fetch_all(&state.db)
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+
+    use std::collections::HashMap;
+    let mut blocks_map: HashMap<i64, Vec<crate::model::articles::ArticleBlock>> = HashMap::new();
+    for block in all_blocks {
+        blocks_map.entry(block.article_id).or_default().push(block);
+    }
 
     let items: Vec<GReaderItem> = rows
-        .iter()
+        .into_iter()
         .map(
             |(
                 id,
-                title,
+                mut title,
                 link,
                 author,
                 pub_at,
@@ -428,48 +475,64 @@ async fn stream_contents(
                 skeleton,
                 summary,
                 _updated_at,
+                need_translate,
             )| {
                 let ct = crawl_time.unwrap_or(0);
-                let ts = pub_at.unwrap_or(ct); // Fallback to crawl_time if published_at is NULL
+                let ts = pub_at.unwrap_or(ct);
+
+                // 尝试翻译标题 (index = -1)
+                if let Some(article_blocks) = blocks_map.get(&id) {
+                    if let Some(block) = article_blocks.iter().find(|b| b.block_index == -1) {
+                        if let Some(ref trans_title) = block.trans_text {
+                            title = trans_title.clone();
+                        }
+                    }
+                }
+
+                let content_html = crate::services::articles::stitch_article_content(
+                    &skeleton,
+                    blocks_map.get(&id).map(|v| v.as_slice()).unwrap_or(&[]),
+                    if summary.trim().is_empty() {
+                        None
+                    } else {
+                        Some(&summary)
+                    },
+                    need_translate,
+                );
 
                 let mut categories = vec![STATE_READING_LIST.to_string()];
-                if *is_read {
+                if is_read {
                     categories.push(STATE_READ.to_string());
                 } else {
                     categories.push(STATE_KEPT_UNREAD.to_string());
-                    // 最近抓取的文章标记为 fresh（24小时内）
                     if ct > chrono::Utc::now().timestamp() - 86400 {
                         categories.push(STATE_FRESH.to_string());
                     }
                 }
-                if *is_starred {
+                if is_starred {
                     categories.push(STATE_STARRED.to_string());
                 }
 
-                let content_text = skeleton
-                    .clone()
-                    .or_else(|| summary.clone())
-                    .unwrap_or_default();
                 let link_str = link.clone().unwrap_or_default();
 
                 GReaderItem {
-                    id: item_id_to_greader(*id),
+                    id: item_id_to_greader(id),
                     crawl_time_msec: (ct * 1000).to_string(),
                     timestamp_usec: (ts * 1_000_000).to_string(),
                     published: ts,
                     updated: ts,
-                    title: title.clone(),
+                    title,
                     canonical: vec![GReaderLink {
                         href: link_str.clone(),
                     }],
                     alternate: vec![GReaderLink { href: link_str }],
                     summary: GReaderContent {
                         direction: "ltr".into(),
-                        content: content_text.clone(),
+                        content: content_html.clone(),
                     },
                     content: Some(GReaderContent {
                         direction: "ltr".into(),
-                        content: content_text,
+                        content: content_html,
                     }),
                     author: author.clone().unwrap_or_default(),
                     categories,
@@ -486,7 +549,7 @@ async fn stream_contents(
     let continuation = if has_more {
         Some(encode_continuation(offset + limit))
     } else {
-        None
+        Some("".to_string())
     };
 
     let stream_title = resolve_stream_title(&stream_id);
@@ -494,6 +557,7 @@ async fn stream_contents(
     Ok(Json(GReaderStreamContents {
         id: stream_id.clone(),
         title: stream_title,
+        direction: "ltr".to_string(),
         self_link: vec![GReaderLink {
             href: format!("/reader/api/0/stream/contents/{}", stream_id),
         }],
@@ -706,7 +770,7 @@ async fn stream_items_ids(
         .map(|(id, pub_at, feed_id, crawl_time)| {
             let ts = pub_at.or(*crawl_time).unwrap_or(0);
             GReaderItemRef {
-                id: item_id_to_greader(*id),
+                id: id.to_string(), // CapyReader expects numeric strings here
                 timestamp_usec: (ts * 1_000_000).to_string(),
                 direct_stream_ids: vec![format!("feed/{}", feed_id)],
             }
@@ -778,10 +842,11 @@ async fn stream_items_contents(
         return Ok(Json(GReaderStreamContents {
             id: STATE_READING_LIST.to_string(),
             title: "Items".to_string(),
+            direction: "ltr".to_string(),
             self_link: vec![],
             updated: chrono::Utc::now().timestamp(),
             items: vec![],
-            continuation: None,
+            continuation: Some("".to_string()),
         }));
     }
 
@@ -949,10 +1014,11 @@ async fn stream_items_contents(
     Ok(Json(GReaderStreamContents {
         id: STATE_READING_LIST.to_string(),
         title: "Items".to_string(),
+        direction: "ltr".to_string(),
         self_link: vec![],
         updated: chrono::Utc::now().timestamp(),
         items,
-        continuation: None,
+        continuation: Some("".to_string()),
     }))
 }
 
@@ -973,44 +1039,56 @@ struct EditTagForm {
 async fn edit_tag(
     State(state): State<Arc<AppState>>,
     auth: AuthUser,
-    Form(payload): Form<EditTagForm>,
+    body: axum::body::Bytes,
 ) -> Result<impl IntoResponse, (StatusCode, String)> {
-    for item_id_str in &payload.i {
-        let item_id = match greader_to_item_id(item_id_str) {
+    let mut ids_list = Vec::new();
+    let mut add_tags = Vec::new();
+    let mut rem_tags = Vec::new();
+
+    let body_str = String::from_utf8_lossy(&body);
+    for part in body_str.split('&') {
+        let mut kv = part.split('=');
+        if let (Some(k), Some(v)) = (kv.next(), kv.next()) {
+            if let Ok(decoded) = urlencoding::decode(v) {
+                let val = decoded.into_owned();
+                if k == "i" || k == "i[]" {
+                    ids_list.push(val);
+                } else if k == "a" || k == "a[]" {
+                    add_tags.push(val);
+                } else if k == "r" || k == "r[]" {
+                    rem_tags.push(val);
+                }
+            }
+        }
+    }
+
+    for item_id_str in ids_list {
+        let item_id = match greader_to_item_id(&item_id_str) {
             Some(id) => id,
             None => continue,
         };
 
-        if let Some(ref add_tags) = payload.a {
+        if !add_tags.is_empty() {
             if add_tags.iter().any(|t| t.contains("state/com.google/read")) {
                 sqlx::query("UPDATE articles SET is_read = 1 WHERE id = ? AND feed_id IN (SELECT feed_id FROM subscriptions WHERE user_id = ?)")
                     .bind(item_id).bind(auth.user_id).execute(&state.db).await.ok();
             }
-            if add_tags
-                .iter()
-                .any(|t| t.contains("state/com.google/starred"))
-            {
+            if add_tags.iter().any(|t| t.contains("state/com.google/starred")) {
                 sqlx::query("UPDATE articles SET is_starred = 1 WHERE id = ? AND feed_id IN (SELECT feed_id FROM subscriptions WHERE user_id = ?)")
                     .bind(item_id).bind(auth.user_id).execute(&state.db).await.ok();
             }
-            if add_tags
-                .iter()
-                .any(|t| t.contains("state/com.google/kept-unread"))
-            {
+            if add_tags.iter().any(|t| t.contains("state/com.google/kept-unread")) {
                 sqlx::query("UPDATE articles SET is_read = 0 WHERE id = ? AND feed_id IN (SELECT feed_id FROM subscriptions WHERE user_id = ?)")
                     .bind(item_id).bind(auth.user_id).execute(&state.db).await.ok();
             }
         }
 
-        if let Some(ref rem_tags) = payload.r {
+        if !rem_tags.is_empty() {
             if rem_tags.iter().any(|t| t.contains("state/com.google/read")) {
                 sqlx::query("UPDATE articles SET is_read = 0 WHERE id = ? AND feed_id IN (SELECT feed_id FROM subscriptions WHERE user_id = ?)")
                     .bind(item_id).bind(auth.user_id).execute(&state.db).await.ok();
             }
-            if rem_tags
-                .iter()
-                .any(|t| t.contains("state/com.google/starred"))
-            {
+            if rem_tags.iter().any(|t| t.contains("state/com.google/starred")) {
                 sqlx::query("UPDATE articles SET is_starred = 0 WHERE id = ? AND feed_id IN (SELECT feed_id FROM subscriptions WHERE user_id = ?)")
                     .bind(item_id).bind(auth.user_id).execute(&state.db).await.ok();
             }
