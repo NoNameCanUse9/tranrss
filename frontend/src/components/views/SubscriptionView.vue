@@ -392,54 +392,58 @@ const handleUrlBlur = async () => {
 
 <template>
   <div class="subscription-view">
-    <div class="d-flex align-center justify-space-between mb-8">
-      <div>
-        <h1 class="text-h3 font-weight-bold">{{ $t('sub.title') }}</h1>
-        <p class="text-body-1 text-medium-emphasis mt-2">{{ $t('sub.active_count', { n: subscriptions.length }) }}</p>
+    <div class="sticky-header pa-4 pb-0 mb-4">
+      <div class="d-flex align-center justify-space-between mb-6">
+        <div>
+          <h1 class="text-h3 font-weight-bold">{{ $t('sub.title') }}</h1>
+          <p class="text-body-1 text-medium-emphasis mt-2">{{ $t('sub.active_count', { n: subscriptions.length }) }}</p>
+        </div>
+        <div class="d-flex gap-2">
+          <v-btn 
+            variant="tonal" 
+            color="secondary" 
+            rounded="pill" 
+            class="text-none font-weight-bold" 
+            @click="syncAll"
+            :loading="syncAllLoading"
+            :disabled="subscriptions.length === 0"
+          >
+            <v-icon start :icon="mdiSync" />
+            {{ $t('sub.sync_all') }}
+          </v-btn>
+          <v-btn 
+            color="warning" 
+            variant="tonal"
+            rounded="pill" 
+            class="text-none font-weight-bold mr-2" 
+            @click="openInactiveDialog"
+          >
+            <v-icon start :icon="mdiAlertCircleOutline" />
+            {{ $t('sub.inactive_list') }}
+          </v-btn>
+          <v-btn color="primary" rounded="pill" elevation="0" class="text-none font-weight-bold" @click="openAddDialog">
+            <v-icon start :icon="mdiPlus" />
+            {{ $t('sub.add_btn') }}
+          </v-btn>
+        </div>
       </div>
-      <div class="d-flex gap-2">
-        <v-btn 
-          variant="tonal" 
-          color="secondary" 
-          rounded="pill" 
-          class="text-none font-weight-bold" 
-          @click="syncAll"
-          :loading="syncAllLoading"
-          :disabled="subscriptions.length === 0"
-        >
-          <v-icon start :icon="mdiSync" />
-          {{ $t('sub.sync_all') }}
-        </v-btn>
-        <v-btn 
-          color="warning" 
-          variant="tonal"
-          rounded="pill" 
-          class="text-none font-weight-bold mr-2" 
-          @click="openInactiveDialog"
-        >
-          <v-icon start :icon="mdiAlertCircleOutline" />
-          {{ $t('sub.inactive_list') }}
-        </v-btn>
-        <v-btn color="primary" rounded="pill" elevation="0" class="text-none font-weight-bold" @click="openAddDialog">
-          <v-icon start :icon="mdiPlus" />
-          {{ $t('sub.add_btn') }}
-        </v-btn>
-      </div>
+
+      <!-- 搜索 -->
+      <v-text-field
+        v-model="search"
+        :placeholder="$t('sub.search')"
+        variant="outlined"
+        density="comfortable"
+        rounded="xl"
+        class="mb-4"
+        color="primary"
+        :prepend-inner-icon="mdiMagnify"
+        hide-details
+        clearable
+      />
     </div>
 
-    <!-- 搜索 -->
-    <v-text-field
-      v-model="search"
-      :placeholder="$t('sub.search')"
-      variant="outlined"
-      density="comfortable"
-      rounded="xl"
-      class="mb-4"
-      color="primary"
-      :prepend-inner-icon="mdiMagnify"
-      hide-details
-      clearable
-    />
+    <div class="pa-4 pt-0">
 
     <!-- 空状态 -->
     <v-card v-if="filtered.length === 0" rounded="xl" variant="tonal" color="surface-variant" class="text-center pa-12">
@@ -966,6 +970,7 @@ const handleUrlBlur = async () => {
         </v-card-actions>
       </v-card>
     </v-dialog>
+  </div>
 </template>
 
 <style scoped>
@@ -1041,5 +1046,19 @@ const handleUrlBlur = async () => {
   letter-spacing: 0.5px;
   text-transform: none;
   background: linear-gradient(135deg, var(--v-theme-primary) 0%, var(--v-theme-secondary) 100%) !important;
+}
+
+/* Sticky Header Styles */
+.sticky-header {
+  position: sticky;
+  top: 0;
+  z-index: 100;
+  background: rgba(var(--v-theme-background), 0.85); /* 稍微透明背景 */
+  backdrop-filter: blur(10px); /* 磨砂效果 */
+  margin-left: -16px; /* 补偿外层 padding */
+  margin-right: -16px; 
+  padding-left: 32px !important;
+  padding-right: 32px !important;
+  border-bottom: 1px solid rgba(var(--v-theme-primary), 0.05);
 }
 </style>
