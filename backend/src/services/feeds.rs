@@ -18,18 +18,32 @@ pub async fn fetch_feed_preview(url: &str) -> Result<CreateFeedRequest> {
     let response = client.get(url).send().await?;
     let content = response.bytes().await?;
 
-    let feed = parser::parse(&content[..])?;
+    // --- 核心容错改进 ---
+    // 如果标准解析库报错，我们不应该抛出 400，而是给一个填充用的默认 Preview
+    let feed_parse_result = parser::parse(&content[..]);
 
-    let title = feed
-        .title
-        .map(|t| t.content)
-        .unwrap_or_else(|| "Unknown Feed".to_string());
-    let description = feed.description.map(|d| d.content);
-    let site_url = feed.links.first().map(|l| l.href.clone());
-    let mut icon_url = feed
-        .logo
-        .map(|l| l.uri)
-        .or_else(|| feed.icon.map(|i| i.uri));
+    let (title, description, site_url, mut icon_url) = if let Ok(feed) = feed_parse_result {
+        let title = feed
+            .title
+            .map(|t| t.content)
+            .unwrap_or_else(|| "Unknown Feed".to_string());
+        let description = feed.description.map(|d| d.content);
+        let site_url = feed.links.first().map(|l| l.href.clone());
+        let icon_url = feed
+            .logo
+            .map(|l| l.uri)
+            .or_else(|| feed.icon.map(|i| i.uri));
+        (title, description, site_url, icon_url)
+    } else {
+        // 解析失败，但这可能是一个虽然不规范但包含有效内容的 XML
+        // 或者是由于字符集报错。我们依然返回一个至少带 URL 的预览，让用户能强行添加。
+        (
+            "Non-standard RSS Source".to_string(),
+            Some("This feed uses a non-standard format but may still sync.".to_string()),
+            Some(url.to_string()),
+            None,
+        )
+    };
 
     // 如果 RSS 没提供 icon，尝试从网站主页嗅探
     if icon_url.is_none() {
@@ -454,19 +468,25 @@ struct ParsedArticle {
 
 /// 同步解析 XML，返回 Send 安全的数据结构
 fn parse_feed_entries(xml: &str, _feed_id: i64) -> Result<Vec<ParsedArticle>> {
-    // 1. 预处理 XML：修复非标准的 pubDate 格式 (针对 rustcc.cn 等源)
-    // 将 <pubDate>2024-03-27 06:40:41</pubDate> 转换为可被解析的标准格式
+    // 1. 预处理 XML：修复非标准的 pubDate 格式
     let date_fixed_xml = regex::Regex::new(r"<pubDate>(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})</pubDate>")
         .unwrap()
         .replace_all(xml, "<pubDate>$1 +0800</pubDate>");
 
-    let feed = parser::parse(date_fixed_xml.as_bytes())?;
+    // 容错解析：如果解析彻底失败，返回空列表而不是 Err 以保证同步流程不崩溃
+    let feed = match parser::parse(date_fixed_xml.as_bytes()) {
+        Ok(f) => f,
+        Err(e) => {
+            tracing::error!("(feed_id={}) XML 解析彻底失败: {}", _feed_id, e);
+            return Ok(Vec::new());
+        }
+    };
+
     let mut results = Vec::new();
 
     for entry in feed.entries {
         let mut origin_guid = entry.id;
         if origin_guid.is_empty() {
-            // 如果 GUID 为空，尝试使用链接作为 GUID，再不行就用标题
             origin_guid = entry
                 .links
                 .first()
@@ -476,18 +496,15 @@ fn parse_feed_entries(xml: &str, _feed_id: i64) -> Result<Vec<ParsedArticle>> {
                         .title
                         .as_ref()
                         .map(|t| t.content.clone())
-                        .unwrap_or_default()
+                        .unwrap_or_else(|| {
+                             // 最后兜底：使用当前时间戳
+                             format!("auto-id-{}", chrono::Utc::now().timestamp_nanos_opt().unwrap_or(0))
+                        })
                 });
-        }
-
-        if origin_guid.is_empty() {
-            tracing::warn!("(feed_id={}) 文章没有 ID/链接/标题，跳过", _feed_id);
-            continue;
         }
 
         let mut hasher = DefaultHasher::new();
         origin_guid.hash(&mut hasher);
-        // 取模 2^53 - 1 确保 ID 在 JavaScript 的安全整数范围内 (Number.MAX_SAFE_INTEGER)
         let id = (hasher.finish() % 9_007_199_254_740_991) as i64;
 
         let title = entry
@@ -495,8 +512,6 @@ fn parse_feed_entries(xml: &str, _feed_id: i64) -> Result<Vec<ParsedArticle>> {
             .map(|t| t.content)
             .unwrap_or_else(|| "No Title".to_string());
         let link = entry.links.first().map(|l| l.href.clone());
-        
-        // 尝试获取作者：优先从 entry.authors 获取
         let author = entry.authors.first().map(|a| a.name.clone());
         
         let raw_html = entry

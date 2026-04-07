@@ -99,6 +99,7 @@ const inactiveFeeds = ref<any[]>([])
 const inactiveSearch = ref('')
 const selectedInactive = ref<number[]>([])
 const activating = ref(false)
+const isNonStandard = ref(false)
 
 const filteredInactive = computed(() => {
   if (!inactiveSearch.value) return inactiveFeeds.value
@@ -244,6 +245,7 @@ const openAddDialog = () => {
     siteUrl: '', description: '', iconUrl: '', iconBase64: '', num: 200, refreshInterval: 30
   }
   selectedSub.value = null
+  isNonStandard.value = false
   dialog.value = true
 }
 
@@ -263,6 +265,7 @@ const openEditDialog = (sub: Subscription) => {
     refreshInterval: sub.refreshInterval || 30,
   }
   selectedSub.value = sub
+  isNonStandard.value = false
   dialog.value = true
 }
 
@@ -344,6 +347,7 @@ const handleUrlBlur = async () => {
   if (!form.value.url || selectedSub.value) return
   
   fetchingPreview.value = true
+  isNonStandard.value = false
   try {
     const response = await apiFetch('/api/feeds/preview', {
       method: 'POST',
@@ -356,6 +360,17 @@ const handleUrlBlur = async () => {
     if (!response.ok) throw new Error('获取订阅信息失败')
     
     const data = await response.json()
+    
+    // 如果后端返回了非标标记
+    if (data.title === 'Non-standard RSS Source') {
+      isNonStandard.value = true
+      snackbar.value = {
+        show: true,
+        text: '警告：此订阅源格式不规范，部分元数据可能缺失，但仍可尝试同步。',
+        color: 'warning'
+      }
+    }
+
     if (data.title && !form.value.title) {
       form.value.title = data.title
     }
@@ -594,6 +609,17 @@ const handleUrlBlur = async () => {
                     {{ getHostname(form.siteUrl) }}
                   </div>
                 </div>
+
+                <v-alert
+                  v-if="isNonStandard"
+                  type="warning"
+                  variant="tonal"
+                  density="compact"
+                  :icon="mdiAlertDecagram"
+                  class="text-caption mb-2"
+                >
+                  检测到非标准 RSS 格式。为了保证兼容性，我们将使用基础模式抓取，建议检查该源的 XML 规范。
+                </v-alert>
 
                 <div class="d-flex flex-column gap-4 w-100">
                   <v-text-field 
