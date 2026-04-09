@@ -139,6 +139,13 @@ async fn list_subscriptions(
     State(state): State<Arc<AppState>>,
     auth: AuthUser,
 ) -> Result<Json<Vec<SubscriptionDetail>>, (StatusCode, String)> {
+    // FreshRSS 风格：用户访问时顺带检查并触发过期任务 (Pseudo-cron)
+    let state_thread = (*state).clone();
+    let uid = auth.user_id;
+    tokio::spawn(async move {
+        let _ = subscription::trigger_stale_syncs(&state_thread.db, uid, state_thread.clone()).await;
+    });
+
     let subscriptions = subscription::list_subscriptions(&state.db, auth.user_id)
         .await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;

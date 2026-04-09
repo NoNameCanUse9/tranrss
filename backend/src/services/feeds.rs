@@ -20,9 +20,12 @@ pub async fn fetch_feed_preview(url: &str) -> Result<CreateFeedRequest> {
 
     // --- 核心容错改进 ---
     // 如果标准解析库报错，我们不应该抛出 400，而是给一个填充用的默认 Preview
-    let feed_parse_result = parser::parse(&content[..]);
+    let content_for_parse = content.clone();
+    let feed_parse_result = tokio::task::spawn_blocking(move || {
+        parser::parse(&content_for_parse[..])
+    }).await?;
 
-    let (title, description, site_url, mut icon_url) = if let Ok(feed) = feed_parse_result {
+    let (title, description, site_url, mut icon_url, hub_url) = if let Ok(feed) = feed_parse_result {
         let title = feed
             .title
             .map(|t| t.content)
@@ -33,7 +36,12 @@ pub async fn fetch_feed_preview(url: &str) -> Result<CreateFeedRequest> {
             .logo
             .map(|l| l.uri)
             .or_else(|| feed.icon.map(|i| i.uri));
-        (title, description, site_url, icon_url)
+        
+        let hub_url = feed.links.iter()
+            .find(|l| l.rel.as_deref() == Some("hub"))
+            .map(|l| l.href.clone());
+            
+        (title, description, site_url, icon_url, hub_url)
     } else {
         // 解析失败，但这可能是一个虽然不规范但包含有效内容的 XML
         // 或者是由于字符集报错。我们依然返回一个至少带 URL 的预览，让用户能强行添加。
@@ -41,6 +49,7 @@ pub async fn fetch_feed_preview(url: &str) -> Result<CreateFeedRequest> {
             "Non-standard RSS Source".to_string(),
             Some("This feed uses a non-standard format but may still sync.".to_string()),
             Some(url.to_string()),
+            None,
             None,
         )
     };
@@ -67,6 +76,7 @@ pub async fn fetch_feed_preview(url: &str) -> Result<CreateFeedRequest> {
         description,
         icon_url,
         icon_base64,
+        hub_url,
     })
 }
 
@@ -305,7 +315,7 @@ fn serialize_as_is(node: NodeRef<Node>, out: &mut String) {
 }
 
 /// 从指定的 ID 抓取并处理 Feed，更新到数据库
-pub async fn fetch_and_process_feed(db: &SqlitePool, user_id: i64, feed_id: i64) -> Result<()> {
+pub async fn fetch_and_process_feed(db: &SqlitePool, user_id: i64, feed_id: i64) -> Result<Vec<i64>> {
     tracing::info!("📡 开始同步 feed ID: {}", feed_id);
     let (feed_url, icon_url, icon_base64): (String, Option<String>, Option<String>) =
         sqlx::query_as("SELECT feed_url, icon_url, icon_base64 FROM feeds WHERE id = ?")
@@ -321,7 +331,6 @@ pub async fn fetch_and_process_feed(db: &SqlitePool, user_id: i64, feed_id: i64)
         .user_agent("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36")
         .build()?;
 
-    let mut success = false;
     let mut last_status = None;
     let mut last_err_msg = None;
 
@@ -376,7 +385,7 @@ pub async fn fetch_and_process_feed(db: &SqlitePool, user_id: i64, feed_id: i64)
                     );
 
                     // 3. 处理并同步到数据库
-                    process_xml_content(db, &xml_content, user_id, feed_id).await?;
+                    let synced_ids = process_xml_content(db, &xml_content, user_id, feed_id).await?;
 
                     // 4. 如果 icon_base64 为空，尝试同步获取一次
                     if icon_base64.is_none() {
@@ -392,8 +401,7 @@ pub async fn fetch_and_process_feed(db: &SqlitePool, user_id: i64, feed_id: i64)
                         }
                     }
 
-                    success = true;
-                    break;
+                    return Ok(synced_ids);
                 }
             }
             Err(e) => {
@@ -406,52 +414,48 @@ pub async fn fetch_and_process_feed(db: &SqlitePool, user_id: i64, feed_id: i64)
         }
     }
 
-    if !success {
-        // 更新连续失败计数
-        sqlx::query(
-            "UPDATE feeds SET last_error = ?, last_status_code = ?, consecutive_fetch_failures = consecutive_fetch_failures + 1 WHERE id = ?"
+    // 如果走到这里，说明循环正常结束但没有返回 Ok，即全部尝试都失败了
+    // 更新连续失败计数
+    sqlx::query(
+        "UPDATE feeds SET last_error = ?, last_status_code = ?, consecutive_fetch_failures = consecutive_fetch_failures + 1 WHERE id = ?"
+    )
+    .bind(last_err_msg.as_ref())
+    .bind(last_status)
+    .bind(feed_id)
+    .execute(db)
+    .await?;
+
+    // 判定失效逻辑：如果最后一次成功抓取（或创建时间）超过 2 天，则标记为失效
+    let should_disable: (bool,) = sqlx::query_as(
+        r#"
+        SELECT EXISTS (
+            SELECT 1 FROM feeds 
+            WHERE id = ? 
+              AND datetime('now') > datetime(IFNULL(last_fetched_at, created_at), '+2 days')
         )
-        .bind(last_err_msg.as_ref())
-        .bind(last_status)
+        "#,
+    )
+    .bind(feed_id)
+    .fetch_one(db)
+    .await?;
+
+    if should_disable.0 {
+        let _ = sqlx::query(
+            "INSERT OR IGNORE INTO inactive_feeds (user_id, feed_id, reason) VALUES (?, ?, ?)",
+        )
+        .bind(user_id)
         .bind(feed_id)
+        .bind(format!(
+            "连续超过2天抓取失败: {}",
+            last_err_msg.as_deref().unwrap_or("未知错误")
+        ))
         .execute(db)
-        .await?;
-
-        // 判定失效逻辑：如果最后一次成功抓取（或创建时间）超过 2 天，则标记为失效
-        let should_disable: (bool,) = sqlx::query_as(
-            r#"
-            SELECT EXISTS (
-                SELECT 1 FROM feeds 
-                WHERE id = ? 
-                  AND datetime('now') > datetime(IFNULL(last_fetched_at, created_at), '+2 days')
-            )
-            "#,
-        )
-        .bind(feed_id)
-        .fetch_one(db)
-        .await?;
-
-        if should_disable.0 {
-            let _ = sqlx::query(
-                "INSERT OR IGNORE INTO inactive_feeds (user_id, feed_id, reason) VALUES (?, ?, ?)",
-            )
-            .bind(user_id)
-            .bind(feed_id)
-            .bind(format!(
-                "连续超过2天抓取失败: {}",
-                last_err_msg.as_deref().unwrap_or("未知错误")
-            ))
-            .execute(db)
-            .await;
-        }
-
-        return Err(anyhow::anyhow!(
-            last_err_msg.unwrap_or_else(|| "Unknown error".to_string())
-        ));
+        .await;
     }
 
-    tracing::info!("feed {} 同步完成", feed_id);
-    Ok(())
+    Err(anyhow::anyhow!(
+        last_err_msg.unwrap_or_else(|| "Unknown error".to_string())
+    ))
 }
 
 /// 解析后的单篇文章数据（纯同步，Send 安全）
@@ -466,8 +470,13 @@ struct ParsedArticle {
     blocks: HashMap<usize, String>,
 }
 
+struct ParsedFeed {
+    articles: Vec<ParsedArticle>,
+    hub_url: Option<String>,
+}
+
 /// 同步解析 XML，返回 Send 安全的数据结构
-fn parse_feed_entries(xml: &str, _feed_id: i64) -> Result<Vec<ParsedArticle>> {
+fn parse_feed_entries(xml: &str, _feed_id: i64) -> Result<ParsedFeed> {
     // 1. 预处理 XML：修复非标准的 pubDate 格式
     let date_fixed_xml = regex::Regex::new(r"<pubDate>(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})</pubDate>")
         .unwrap()
@@ -478,9 +487,13 @@ fn parse_feed_entries(xml: &str, _feed_id: i64) -> Result<Vec<ParsedArticle>> {
         Ok(f) => f,
         Err(e) => {
             tracing::error!("(feed_id={}) XML 解析彻底失败: {}", _feed_id, e);
-            return Ok(Vec::new());
+            return Ok(ParsedFeed { articles: Vec::new(), hub_url: None });
         }
     };
+    
+    let hub_url = feed.links.iter()
+        .find(|l| l.rel.as_deref() == Some("hub"))
+        .map(|l| l.href.clone());
 
     let mut results = Vec::new();
 
@@ -535,7 +548,7 @@ fn parse_feed_entries(xml: &str, _feed_id: i64) -> Result<Vec<ParsedArticle>> {
         });
     }
 
-    Ok(results)
+    Ok(ParsedFeed { articles: results, hub_url })
 }
 
 /// 将解析后的 XML 字符串转换为 Article 骨架和翻译任务包，并同步到数据库
@@ -544,20 +557,31 @@ pub async fn process_xml_content(
     xml: &str,
     user_id: i64,
     feed_id: i64,
-) -> Result<()> {
-    // 1. 同步解析（不涉及 await，scraper::Html 不会跨越 await 边界）
-    let articles = parse_feed_entries(xml, feed_id)?;
+) -> Result<Vec<i64>> {
+    // 1. 同步解析（移至 spawn_blocking 以免阻塞异步线程）
+    let xml_for_parse = xml.to_string();
+    let parsed_feed = tokio::task::spawn_blocking(move || {
+        parse_feed_entries(&xml_for_parse, feed_id)
+    }).await??;
+    
+    let articles = parsed_feed.articles;
+    let hub_url = parsed_feed.hub_url;
+
     tracing::info!(
-        "📦 (feed_id={}) 解析 XML 成功，得到 {} 篇文章",
+        "📦 (feed_id={}) 解析 XML 成功，得到 {} 篇文章, Hub: {:?}",
         feed_id,
-        articles.len()
+        articles.len(),
+        hub_url
     );
 
     // 2. 开始事务异步写入数据库
     let mut tx = db.begin().await?;
     tracing::info!("💾 (feed_id={}) 数据库事务开启", feed_id);
+    
+    let mut synced_ids = Vec::new();
 
     for article in &articles {
+        synced_ids.push(article.id);
         sqlx::query(
             r#"
             INSERT INTO articles (id, original_guid, feed_id, title, link, author, published_at, content_skeleton, crawl_time)
@@ -647,13 +671,14 @@ pub async fn process_xml_content(
     .execute(&mut *tx)
     .await?;
 
-    // 4. 更新最后同步时间
-    sqlx::query("UPDATE feeds SET last_fetched_at = CURRENT_TIMESTAMP WHERE id = ?")
+    // 4. 更新最后同步时间与 Hub 信息
+    sqlx::query("UPDATE feeds SET last_fetched_at = CURRENT_TIMESTAMP, hub_url = COALESCE(?, hub_url) WHERE id = ?")
+        .bind(hub_url)
         .bind(feed_id)
         .execute(&mut *tx)
         .await?;
 
     tx.commit().await?;
     tracing::info!("✅ (feed_id={}) 数据库事务提交成功，同步文章完成", feed_id);
-    Ok(())
+    Ok(synced_ids)
 }

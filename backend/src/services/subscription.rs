@@ -1,6 +1,8 @@
 use crate::model::subscriptions::{
     CreateSubscriptionRequest, SubscriptionDetail, UpdateSubscriptionRequest,
 };
+use crate::services::jobs::SyncFeedJob;
+use apalis::prelude::Storage;
 use sqlx::{Error, SqlitePool};
 
 pub async fn list_subscriptions(
@@ -50,6 +52,49 @@ pub async fn list_subscriptions(
     .await?;
 
     Ok(subs)
+}
+
+pub async fn trigger_stale_syncs(
+    db: &SqlitePool,
+    user_id: i64,
+    state: crate::AppState, // 传入 AppState 以便获取队列
+) -> Result<(), Error> {
+    let overdue_feeds = sqlx::query_scalar::<_, i64>(
+        r#"
+        SELECT f.id 
+        FROM feeds f
+        JOIN subscriptions s ON f.id = s.feed_id
+        WHERE s.user_id = ?
+          AND NOT EXISTS (
+            SELECT 1 FROM inactive_feeds inf 
+            WHERE inf.user_id = s.user_id AND inf.feed_id = f.id
+          )
+          AND NOT EXISTS (
+            SELECT 1 FROM Jobs j 
+            WHERE j.job_type LIKE '%SyncFeedJob%' 
+              AND j.job LIKE '%"feed_id":' || f.id || '%'
+              AND j.status IN ('Pending', 'Running')
+          )
+        GROUP BY f.id
+        HAVING f.last_fetched_at IS NULL OR 
+               datetime(f.last_fetched_at, '+' || s.refresh_interval || ' minutes') < datetime('now')
+        "#,
+    )
+    .bind(user_id)
+    .fetch_all(db)
+    .await?;
+
+    let mut storage = state.sync_queue.clone();
+    for fid in overdue_feeds {
+        let _ = storage
+            .push(SyncFeedJob {
+                feed_id: fid,
+                initiator_user_id: Some(user_id),
+            })
+            .await;
+    }
+
+    Ok(())
 }
 
 pub async fn create_subscription(

@@ -66,7 +66,7 @@ async fn sync_feed_handler(
             }
         }
     };
-    feeds::fetch_and_process_feed(&data.db, user_id, job.feed_id)
+    let synced_article_ids = feeds::fetch_and_process_feed(&data.db, user_id, job.feed_id)
         .await
         .map_err(|e| {
             Box::new(std::io::Error::new(
@@ -76,11 +76,9 @@ async fn sync_feed_handler(
         })?;
 
     // 同步开启下游任务 (翻译/摘要)
-    // 策略：如果是手动同步（存在 initiator_user_id），则放宽时间限制进行“补课”模式。
-    // 如果是后台自动同步，则仅对最近 1 小时内的新文章触发任务，防止过度消耗。
+    // 策略：直接针对本次同步受影响的文章 ID 进行任务分发，实现真正的“状态绑定”与“批处理”。
     let initiator_user_id = job.initiator_user_id;
     let is_manual = initiator_user_id.is_some();
-    let is_manual_int = if is_manual { 1 } else { 0 };
 
     let subscribers = if let Some(uid) = initiator_user_id {
         // 手动模式：仅同步发起者的订阅设置
@@ -104,77 +102,36 @@ async fn sync_feed_handler(
         let need_translate: bool = sub.get("need_translate");
         let need_summary: bool = sub.get("need_summary");
 
-        if need_translate {
-            let to_translate = sqlx::query_scalar::<_, i64>(
-                r#"
-                SELECT a.id FROM articles a
-                WHERE a.feed_id = ? 
-                  AND (? = 1 OR a.updated_at > datetime('now', '-1 hour'))
-                  AND NOT EXISTS (
-                      SELECT 1 FROM article_blocks b 
-                      WHERE b.article_id = a.id AND b.user_id = ? AND b.trans_text IS NOT NULL
-                  )
-                  AND NOT EXISTS (
-                      SELECT 1 FROM Jobs j
-                      WHERE j.job_type LIKE '%TranslateArticleJob%'
-                        AND j.job LIKE '%"article_id":' || a.id || '%'
-                        AND j.job LIKE '%"user_id":' || ? || '%'
-                        AND j.status IN ('Pending', 'Running', 'Killed')
-                  )
-                ORDER BY a.published_at DESC
-                LIMIT 20
-                "#,
-            )
-            .bind(job.feed_id)
-            .bind(is_manual_int)
-            .bind(sub_user_id)
-            .bind(sub_user_id)
-            .fetch_all(&data.db)
-            .await?;
+        if !synced_article_ids.is_empty() {
+            if need_translate {
+                let mut storage = data.translate_queue.clone();
+                for &aid in &synced_article_ids {
+                    // 基本查重以防万一，但现在的范围已经从“全库”缩小到“本次更新的文章”
+                    let exists = sqlx::query_scalar::<_, bool>(
+                        "SELECT EXISTS(SELECT 1 FROM Jobs WHERE job_type LIKE '%TranslateArticleJob%' AND job LIKE '%\"article_id\":' || ? || '%' AND job LIKE '%\"user_id\":' || ? || '%' AND status IN ('Pending', 'Running'))"
+                    )
+                    .bind(aid).bind(sub_user_id)
+                    .fetch_one(&data.db).await.unwrap_or(false);
 
-            let mut storage = data.translate_queue.clone();
-            for aid in to_translate {
-                let _ = storage
-                    .push(TranslateArticleJob {
-                        user_id: sub_user_id,
-                        article_id: aid,
-                    })
-                    .await;
+                    if !exists {
+                        let _ = storage.push(TranslateArticleJob { user_id: sub_user_id, article_id: aid }).await;
+                    }
+                }
             }
-        }
 
-        if need_summary {
-            let to_summarize = sqlx::query_scalar::<_, i64>(
-                r#"
-                SELECT a.id FROM articles a
-                WHERE a.feed_id = ? 
-                  AND (? = 1 OR a.updated_at > datetime('now', '-1 hour'))
-                  AND a.summary IS NULL
-                  AND NOT EXISTS (
-                      SELECT 1 FROM Jobs j 
-                      WHERE j.job_type LIKE '%SummarizeArticleJob%'
-                        AND j.job LIKE '%"article_id":' || a.id || '%'
-                        AND j.job LIKE '%"user_id":' || ? || '%'
-                        AND j.status IN ('Pending', 'Running', 'Killed')
-                  )
-                ORDER BY a.published_at DESC
-                LIMIT 20
-                "#,
-            )
-            .bind(job.feed_id)
-            .bind(is_manual_int)
-            .bind(sub_user_id)
-            .fetch_all(&data.db)
-            .await?;
+            if need_summary {
+                let mut storage = data.summarize_queue.clone();
+                for &aid in &synced_article_ids {
+                    let exists = sqlx::query_scalar::<_, bool>(
+                        "SELECT EXISTS(SELECT 1 FROM Jobs WHERE job_type LIKE '%SummarizeArticleJob%' AND job LIKE '%\"article_id\":' || ? || '%' AND job LIKE '%\"user_id\":' || ? || '%' AND status IN ('Pending', 'Running'))"
+                    )
+                    .bind(aid).bind(sub_user_id)
+                    .fetch_one(&data.db).await.unwrap_or(false);
 
-            let mut storage = data.summarize_queue.clone();
-            for aid in to_summarize {
-                let _ = storage
-                    .push(SummarizeArticleJob {
-                        user_id: sub_user_id,
-                        article_id: aid,
-                    })
-                    .await;
+                    if !exists {
+                        let _ = storage.push(SummarizeArticleJob { user_id: sub_user_id, article_id: aid }).await;
+                    }
+                }
             }
         }
     }
@@ -463,21 +420,21 @@ pub async fn start_workers(state: Arc<AppState>) -> anyhow::Result<()> {
         Monitor::new()
             .register(
                 WorkerBuilder::new("sync-worker")
-                    .concurrency(1)
+                    .concurrency(8) // FreshRSS 风格：提高并发抓取能力，利用网络 I/O 等待时间处理更多任务
                     .data(state_sync)
                     .backend(storage_sync)
                     .build_fn(sync_feed_handler),
             )
             .register(
                 WorkerBuilder::new("translate-worker")
-                    .concurrency(1) // SQLite 建议保持较低并发以减少锁竞争
+                    .concurrency(2) // 适度并发以利用多核，同时避免过度竞争 SQLite 写入锁
                     .data(state_trans)
                     .backend(storage_trans)
                     .build_fn(translate_article_handler),
             )
             .register(
                 WorkerBuilder::new("summarize-worker")
-                    .concurrency(1)
+                    .concurrency(2)
                     .data(state_sum)
                     .backend(storage_sum)
                     .build_fn(summarize_article_handler),

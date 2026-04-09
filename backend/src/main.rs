@@ -71,7 +71,7 @@ async fn main() -> anyhow::Result<()> {
 
     // 2. 初始化日志（含 SSE 广播层）
     let env_filter = tracing_subscriber::EnvFilter::try_from_default_env()
-        .unwrap_or_else(|_| "tranrss_backend=debug,tower_http=warn".into());
+        .unwrap_or_else(|_| "tranrss_backend=info,tower_http=warn".into());
 
     let fmt_layer = tracing_subscriber::fmt::layer();
     let broadcast_layer = BroadcastLayer::new(event_tx.clone());
@@ -98,7 +98,7 @@ async fn main() -> anyhow::Result<()> {
         .pragma("busy_timeout", "5000");       // 5秒忙等待，减少锁冲突
 
     let pool = SqlitePoolOptions::new()
-        .max_connections(5)
+        .max_connections(2)
         .min_connections(1)
         .idle_timeout(std::time::Duration::from_secs(300))
         .connect_with(opts)
