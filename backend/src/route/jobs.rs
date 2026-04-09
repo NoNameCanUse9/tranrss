@@ -26,6 +26,23 @@ pub fn router() -> Router<Arc<AppState>> {
         .route("/", get(get_jobs))
         .route("/clear_completed", axum::routing::post(clear_completed))
         .route("/{id}/retry", axum::routing::post(retry_job))
+        .route("/trigger_refresh_all", axum::routing::post(trigger_refresh_all))
+}
+
+async fn trigger_refresh_all(
+    State(state): State<Arc<AppState>>,
+    _auth: AuthUser,
+) -> Result<StatusCode, (StatusCode, String)> {
+    use crate::services::jobs::RefreshFeedsJob;
+    use apalis::prelude::Storage;
+
+    let mut storage = state.refresh_queue.clone();
+    storage
+        .push(RefreshFeedsJob)
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+
+    Ok(StatusCode::OK)
 }
 
 async fn clear_completed(

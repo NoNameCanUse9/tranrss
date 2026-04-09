@@ -37,15 +37,17 @@ RUN cargo build --release --features embed-frontend
 
 # --- 3. Final Stage ---
 FROM alpine:3.20
-RUN apk add --no-cache ca-certificates openssl tzdata
+RUN apk add --no-cache ca-certificates openssl tzdata curl
 WORKDIR /app
 RUN mkdir -p /app/data && chmod 777 /app/data
 # Copy binary and migrations
 COPY --from=backend-builder /app/backend/target/release/tranrss-backend /app/tranrss
 COPY --from=backend-builder /app/backend/migrations /app/migrations
+COPY entrypoint.sh /app/entrypoint.sh
+RUN chmod +x /app/entrypoint.sh
 
 ENV DATABASE_URL=sqlite:/app/data/data.database
 ENV TZ=Asia/Shanghai
 EXPOSE 8000
 
-CMD ["./tranrss"]
+ENTRYPOINT ["/app/entrypoint.sh"]

@@ -129,6 +129,7 @@ async fn main() -> anyhow::Result<()> {
     let app = Router::new()
         .route("/health", get(health_check))
         .route("/api/events", get(sse_handler))
+        .route("/api/internal/trigger_refresh_all", axum::routing::post(trigger_refresh_all_internal))
         .route("/users/count", get(get_user_count))
         .nest("/api/user", route::user::router())
         .nest("/api/translate-configs", route::translate_api::router())
@@ -150,6 +151,18 @@ async fn main() -> anyhow::Result<()> {
     axum::serve(listener, app).await?;
 
     Ok(())
+}
+
+async fn trigger_refresh_all_internal(
+    State(state): State<Arc<AppState>>,
+) -> StatusCode {
+    use crate::services::jobs::RefreshFeedsJob;
+    use apalis::prelude::Storage;
+
+    let mut storage = state.refresh_queue.clone();
+    let _ = storage.push(RefreshFeedsJob).await;
+    
+    StatusCode::OK
 }
 
 // ── 前端静态资源 Handler ─────────────────────────────────────────

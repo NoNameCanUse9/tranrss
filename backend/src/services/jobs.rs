@@ -417,7 +417,7 @@ pub async fn start_workers(state: Arc<AppState>) -> anyhow::Result<()> {
     let schedule = Schedule::from_str("0 */5 * * * *")?; // 每 5 分钟运行一次
 
     tokio::spawn(async move {
-        Monitor::new()
+        let mut monitor = Monitor::new()
             .register(
                 WorkerBuilder::new("sync-worker")
                     .concurrency(8) // FreshRSS 风格：提高并发抓取能力，利用网络 I/O 等待时间处理更多任务
@@ -438,14 +438,23 @@ pub async fn start_workers(state: Arc<AppState>) -> anyhow::Result<()> {
                     .data(state_sum)
                     .backend(storage_sum)
                     .build_fn(summarize_article_handler),
-            )
-            .register(
+            );
+
+        // 架构优化：允许通过环境变量禁用内部 Cron 任务，改用外部触发（如 systemd.timer + API）
+        // 这能让 Tokio 调度器在闲置时处于绝对沉睡状态，彻底消除高频定时器开销。
+        if std::env::var("DISABLE_INTERNAL_CRON").is_err() {
+            tracing::info!("🕒 内部 Cron 已启用 (每 5 分钟轮询一次)");
+            monitor = monitor.register(
                 WorkerBuilder::new("cron-worker")
                     .data(state_cron)
                     .backend(CronStream::new(schedule))
                     .build_fn(refresh_feeds_handler),
-            )
-            .run()
+            );
+        } else {
+            tracing::warn!("🔕 内部 Cron 已禁用，请确保使用外部 Cron 或 API 触发更新");
+        }
+
+        monitor.run()
             .await
             .expect("Jobs monitor failed");
     });
