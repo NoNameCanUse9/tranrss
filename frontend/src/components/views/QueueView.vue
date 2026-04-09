@@ -303,13 +303,40 @@ const mapBackendJob = (bj: BackendJob): QueueJob => {
   } as unknown as any // using 'any' mapping bridge for groupJobs
 }
 
+let eventSource: EventSource | null = null
+const systemLogs = ref<Array<{level: string, target: string, message: string, time: string}>>([])
+
 onMounted(() => {
   fetchJobs()
-  timer = setInterval(fetchJobs, 30000)
+  // 保留低频轮询作为 SSE 断线的兜底
+  timer = setInterval(fetchJobs, 60000)
+
+  // 监听 SSE 事件以实现近实时更新
+  eventSource = new EventSource('/api/events')
+  eventSource.onmessage = (event) => {
+    const msg = event.data
+    // 当有 feed 刷新或文章更新完成时，立即拉取最新 job 状态
+    if (msg === 'REFRESH_FEEDS' || msg.startsWith('ARTICLE_UPDATED:')) {
+      fetchJobs()
+    }
+    // 捕获后台推送的 WARN+ 日志
+    if (msg.startsWith('LOG:')) {
+      try {
+        const log = JSON.parse(msg.slice(4))
+        systemLogs.value.unshift({
+          ...log,
+          time: new Date().toLocaleTimeString()
+        })
+        // 只保留最近 50 条
+        if (systemLogs.value.length > 50) systemLogs.value.pop()
+      } catch {}
+    }
+  }
 })
 
 onUnmounted(() => {
   if (timer) clearInterval(timer)
+  eventSource?.close()
 })
 
 const filterStatus = ref<string>('all')
@@ -327,6 +354,7 @@ const typeOptions = computed(() => [
   { title: t('queue.filter_all_types'), value: 'all' },
   { title: t('queue.filter_sync'), value: 'update' },
   { title: t('queue.filter_ai'), value: 'ai' },
+  { title: t('queue.filter_system'), value: 'system' },
 ])
 
 const filtered = computed(() => {
@@ -342,6 +370,8 @@ const filtered = computed(() => {
     result = result.filter(j => j.type === 'sync' || j.type === 'cron')
   } else if (filterType.value === 'ai') {
     result = result.filter(j => j.type === 'translate' || j.type === 'summarize')
+  } else if (filterType.value === 'system') {
+    result = result.filter(j => j.type === 'cron')
   }
   
   return result
@@ -623,6 +653,35 @@ const clearCompleted = async () => {
         </v-card-text>
       </v-card>
     </div>
+
+    <!-- 系统日志面板 -->
+    <v-card
+      v-if="systemLogs.length > 0"
+      rounded="xl" variant="flat" color="surface-variant"
+      class="mt-6"
+    >
+      <v-card-title class="d-flex align-center">
+        <v-icon start>{{ mdiAlertCircleOutline }}</v-icon>
+        {{ $t('queue.system_logs') }} ({{ systemLogs.length }})
+      </v-card-title>
+      <v-card-text class="pa-0">
+        <v-list density="compact" class="pa-0 bg-transparent">
+          <v-list-item
+            v-for="(log, i) in systemLogs" :key="i"
+            class="text-caption"
+          >
+            <template #prepend>
+              <v-chip
+                :color="log.level === 'ERROR' ? 'error' : 'warning'"
+                size="x-small" variant="tonal" class="mr-2"
+              >{{ log.level }}</v-chip>
+            </template>
+            <v-list-item-title class="text-caption font-weight-medium">{{ log.message }}</v-list-item-title>
+            <v-list-item-subtitle style="font-size: 11px">{{ log.target }} · {{ log.time }}</v-list-item-subtitle>
+          </v-list-item>
+        </v-list>
+      </v-card-text>
+    </v-card>
   </div>
 </template>
 

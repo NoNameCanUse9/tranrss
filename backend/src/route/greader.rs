@@ -1024,18 +1024,6 @@ async fn stream_items_contents(
 
 // --- Action Handlers ---
 
-#[derive(Deserialize, Default)]
-struct EditTagForm {
-    #[serde(default)]
-    i: Vec<String>, // Item IDs (GReader 格式)
-    #[serde(default)]
-    a: Option<Vec<String>>, // Add tags
-    #[serde(default)]
-    r: Option<Vec<String>>, // Remove tags
-    #[allow(dead_code)]
-    s: Option<String>, // Stream ID (可选)
-}
-
 async fn edit_tag(
     State(state): State<Arc<AppState>>,
     auth: AuthUser,
@@ -1062,6 +1050,9 @@ async fn edit_tag(
         }
     }
 
+    let mut tx = state.db.begin().await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+
     for item_id_str in ids_list {
         let item_id = match greader_to_item_id(&item_id_str) {
             Some(id) => id,
@@ -1071,29 +1062,32 @@ async fn edit_tag(
         if !add_tags.is_empty() {
             if add_tags.iter().any(|t| t.contains("state/com.google/read")) {
                 sqlx::query("UPDATE articles SET is_read = 1 WHERE id = ? AND feed_id IN (SELECT feed_id FROM subscriptions WHERE user_id = ?)")
-                    .bind(item_id).bind(auth.user_id).execute(&state.db).await.ok();
+                    .bind(item_id).bind(auth.user_id).execute(&mut *tx).await.ok();
             }
             if add_tags.iter().any(|t| t.contains("state/com.google/starred")) {
                 sqlx::query("UPDATE articles SET is_starred = 1 WHERE id = ? AND feed_id IN (SELECT feed_id FROM subscriptions WHERE user_id = ?)")
-                    .bind(item_id).bind(auth.user_id).execute(&state.db).await.ok();
+                    .bind(item_id).bind(auth.user_id).execute(&mut *tx).await.ok();
             }
             if add_tags.iter().any(|t| t.contains("state/com.google/kept-unread")) {
                 sqlx::query("UPDATE articles SET is_read = 0 WHERE id = ? AND feed_id IN (SELECT feed_id FROM subscriptions WHERE user_id = ?)")
-                    .bind(item_id).bind(auth.user_id).execute(&state.db).await.ok();
+                    .bind(item_id).bind(auth.user_id).execute(&mut *tx).await.ok();
             }
         }
 
         if !rem_tags.is_empty() {
             if rem_tags.iter().any(|t| t.contains("state/com.google/read")) {
                 sqlx::query("UPDATE articles SET is_read = 0 WHERE id = ? AND feed_id IN (SELECT feed_id FROM subscriptions WHERE user_id = ?)")
-                    .bind(item_id).bind(auth.user_id).execute(&state.db).await.ok();
+                    .bind(item_id).bind(auth.user_id).execute(&mut *tx).await.ok();
             }
             if rem_tags.iter().any(|t| t.contains("state/com.google/starred")) {
                 sqlx::query("UPDATE articles SET is_starred = 0 WHERE id = ? AND feed_id IN (SELECT feed_id FROM subscriptions WHERE user_id = ?)")
-                    .bind(item_id).bind(auth.user_id).execute(&state.db).await.ok();
+                    .bind(item_id).bind(auth.user_id).execute(&mut *tx).await.ok();
             }
         }
     }
+
+    tx.commit().await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
     Ok("OK")
 }

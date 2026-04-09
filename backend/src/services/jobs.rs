@@ -117,8 +117,8 @@ async fn sync_feed_handler(
                   AND NOT EXISTS (
                       SELECT 1 FROM Jobs j
                       WHERE j.job_type LIKE '%TranslateArticleJob%'
-                        AND json_extract(j.job, '$.article_id') = a.id
-                        AND json_extract(j.job, '$.user_id') = ?
+                        AND j.job LIKE '%"article_id":' || a.id || '%'
+                        AND j.job LIKE '%"user_id":' || ? || '%'
                         AND j.status IN ('Pending', 'Running', 'Killed')
                   )
                 ORDER BY a.published_at DESC
@@ -153,8 +153,8 @@ async fn sync_feed_handler(
                   AND NOT EXISTS (
                       SELECT 1 FROM Jobs j 
                       WHERE j.job_type LIKE '%SummarizeArticleJob%'
-                        AND json_extract(j.job, '$.article_id') = a.id
-                        AND json_extract(j.job, '$.user_id') = ?
+                        AND j.job LIKE '%"article_id":' || a.id || '%'
+                        AND j.job LIKE '%"user_id":' || ? || '%'
                         AND j.status IN ('Pending', 'Running', 'Killed')
                   )
                 ORDER BY a.published_at DESC
@@ -257,7 +257,7 @@ async fn refresh_feeds_handler(
           AND NOT EXISTS (
             SELECT 1 FROM Jobs j 
             WHERE j.job_type LIKE '%SyncFeedJob%' 
-              AND json_extract(j.job, '$.feed_id') = f.id
+              AND j.job LIKE '%"feed_id":' || f.id || '%'
               AND j.status IN ('Pending', 'Running')
         )
         GROUP BY f.id
@@ -280,6 +280,20 @@ async fn refresh_feeds_handler(
             })
             .await;
     }
+
+    // === 定期维护 ===
+    let _ = sqlx::query(
+        "DELETE FROM Jobs WHERE status IN ('Done', 'Failed', 'Killed') AND done_at < strftime('%s', 'now', '-7 days')"
+    )
+    .execute(&data.db)
+    .await;
+
+    let _ = sqlx::query(
+        "DELETE FROM Workers WHERE last_seen < strftime('%s', 'now', '-1 day')"
+    )
+    .execute(&data.db)
+    .await;
+
     Ok(())
 }
 
@@ -443,7 +457,7 @@ pub async fn start_workers(state: Arc<AppState>) -> anyhow::Result<()> {
     let storage_sum = state.summarize_queue.clone();
 
     let state_cron = state.clone();
-    let schedule = Schedule::from_str("0 * * * * *")?; // 每分钟运行一次
+    let schedule = Schedule::from_str("0 */5 * * * *")?; // 每 5 分钟运行一次
 
     tokio::spawn(async move {
         Monitor::new()

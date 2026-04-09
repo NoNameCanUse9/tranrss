@@ -43,3 +43,5 @@ test_feed.rs
 测试.md
 
 backend/src/route/greader.rs
+task.md
+.agents/rules/scheme.md

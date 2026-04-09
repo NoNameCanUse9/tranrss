@@ -9,6 +9,7 @@ use std::sync::Arc;
 pub struct JobInfo {
     pub id: String,
     pub job_type: String,
+    pub category: String,
     pub status: String,
     pub attempts: i32,
     pub last_error: Option<String>,
@@ -168,7 +169,8 @@ async fn get_jobs(
 
             JobInfo {
                 id: row.get("id"),
-                job_type,
+                job_type: job_type.clone(),
+                category: categorize_job_type(&job_type),
                 status: row.get("status"),
                 attempts: row.get("attempts"),
                 last_error,
@@ -183,4 +185,18 @@ async fn get_jobs(
         .collect();
 
     Ok(Json(jobs))
+}
+
+fn categorize_job_type(job_type: &str) -> String {
+    if job_type.contains("SyncFeedJob") {
+        "sync".to_string()
+    } else if job_type.contains("TranslateArticleJob") {
+        "translate".to_string()
+    } else if job_type.contains("SummarizeArticleJob") {
+        "summarize".to_string()
+    } else if job_type.contains("RefreshFeedsJob") {
+        "system".to_string()
+    } else {
+        "other".to_string()
+    }
 }

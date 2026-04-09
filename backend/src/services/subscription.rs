@@ -15,9 +15,9 @@ pub async fn list_subscriptions(
             COALESCE(s.custom_title, f.title) as title,
             f.feed_url as url,
             COALESCE(fo.title, '未分类') as category,
-            (SELECT COUNT(*) FROM articles WHERE feed_id = f.id) as article_count,
-            (SELECT COUNT(*) FROM articles WHERE feed_id = f.id AND is_read = 0) as unread_count,
-            (SELECT COUNT(*) FROM articles WHERE feed_id = f.id AND is_starred = 1) as starred_count,
+            COALESCE(ac.total, 0) as article_count,
+            COALESCE(ac.unread, 0) as unread_count,
+            COALESCE(ac.starred, 0) as starred_count,
             f.last_fetched_at as last_sync,
             'active' as status,
             s.target_language,
@@ -34,6 +34,14 @@ pub async fn list_subscriptions(
         FROM subscriptions s
         JOIN feeds f ON s.feed_id = f.id
         LEFT JOIN folders fo ON s.folder_id = fo.id
+        LEFT JOIN (
+            SELECT feed_id,
+                   COUNT(*) as total,
+                   SUM(CASE WHEN is_read = 0 THEN 1 ELSE 0 END) as unread,
+                   SUM(CASE WHEN is_starred = 1 THEN 1 ELSE 0 END) as starred
+            FROM articles
+            GROUP BY feed_id
+        ) ac ON ac.feed_id = f.id
         WHERE s.user_id = ?
         "#,
     )
