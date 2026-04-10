@@ -11,6 +11,7 @@ import { aliases, mdi } from 'vuetify/iconsets/mdi-svg'
 
 import { md3 } from 'vuetify/blueprints'
 
+const savedTheme = localStorage.getItem('theme') || 'light'
 const vuetify = createVuetify({
     blueprint: md3,
     components,
@@ -23,7 +24,7 @@ const vuetify = createVuetify({
         },
     },
     theme: {
-        defaultTheme: 'light',
+        defaultTheme: savedTheme,
         themes: {
             light: {
                 colors: {

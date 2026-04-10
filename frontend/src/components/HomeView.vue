@@ -32,7 +32,14 @@ import { apiFetch } from '../utils/api'
 
 const theme = useTheme()
 const { mdAndUp } = useDisplay()
-const isDark = ref(theme.global.current.value.dark)
+const isDark = computed({
+  get: () => theme.global.current.value.dark,
+  set: (val) => {
+    const nextTheme = val ? 'dark' : 'light'
+    theme.global.name.value = nextTheme
+    localStorage.setItem('theme', nextTheme)
+  }
+})
 
 // Computed drawer offset for app bar alignment on desktop
 const drawerOffset = computed(() => {
@@ -57,7 +64,6 @@ const toggleCategory = (cat: string) => {
 
 const toggleTheme = () => {
   isDark.value = !isDark.value
-  theme.global.name.value = isDark.value ? 'dark' : 'light'
 }
 
 const { t, locale } = useI18n()

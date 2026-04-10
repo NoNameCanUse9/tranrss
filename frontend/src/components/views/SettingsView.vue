@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, computed } from 'vue'
 import { useTheme } from 'vuetify'
 import { useI18n } from 'vue-i18n'
 import {
@@ -35,10 +35,17 @@ const confirmPassword = ref('')
 const allowRegistration = ref(true) // Global reg toggle
 
 const theme = useTheme()
-const isDark = ref(theme.global.current.value.dark)
+const isDark = computed({
+  get: () => theme.global.current.value.dark,
+  set: (val) => {
+    const nextTheme = val ? 'dark' : 'light'
+    theme.global.name.value = nextTheme
+    localStorage.setItem('theme', nextTheme)
+  }
+})
 
 const toggleTheme = () => {
-  theme.global.name.value = isDark.value ? 'dark' : 'light'
+  // isDark compute setter handles this
 }
 
 const logNumLimit = ref(300)
@@ -95,8 +102,9 @@ const loadSettings = async () => {
     if (res.ok) {
       const data = await res.json()
       if (data.app_mode !== undefined && data.app_mode !== null) {
-        isDark.value = data.app_mode
-        theme.global.name.value = data.app_mode ? 'dark' : 'light'
+        // We only load it into the state if we want to sync, 
+        // but here we let the global theme (from localStorage/main.ts) take precedence for the session.
+        // If the user wants to sync with backend, they can see the difference or we can auto-apply once on login.
       }
       if (data.log_num_limit) logNumLimit.value = data.log_num_limit
       if (data.api_proxy !== undefined && data.api_proxy !== null) proxyEnabled.value = data.api_proxy
@@ -214,6 +222,7 @@ const saveSettings = async () => {
       })
     })
     
+    localStorage.setItem('theme', isDark.value ? 'dark' : 'light')
     localStorage.setItem('log_num_limit', logNumLimit.value.toString())
     snackbarText.value = t('settings.saved')
     snackbar.value = true

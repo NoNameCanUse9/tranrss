@@ -44,7 +44,9 @@ const password = ref('')
 
 
 const toggleTheme = () => {
-  theme.global.name.value = theme.global.current.value.dark ? 'light' : 'dark'
+  const nextTheme = theme.global.current.value.dark ? 'light' : 'dark'
+  theme.global.name.value = nextTheme
+  localStorage.setItem('theme', nextTheme)
 }
 
 const emit = defineEmits(['auth-success'])
@@ -82,7 +84,9 @@ const handleSubmit = async () => {
 
       // Apply theme mode configured by backend (`app_mode`: true for dark mode)
       if (data.app_mode !== undefined && data.app_mode !== null) {
-        theme.global.name.value = data.app_mode ? 'dark' : 'light'
+        const backendTheme = data.app_mode ? 'dark' : 'light'
+        theme.global.name.value = backendTheme
+        localStorage.setItem('theme', backendTheme)
       }
 
       // Store other settings that might be useful
