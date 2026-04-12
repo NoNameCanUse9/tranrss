@@ -4,11 +4,11 @@ use crate::services::{ai::AiService, feeds};
 use anyhow::Result;
 use apalis::layers::WorkerBuilderExt;
 use apalis::prelude::*;
-use apalis_cron::{CronStream, Schedule};
+// use apalis_cron::{CronStream, Schedule};
 use apalis_sql::sqlite::SqliteStorage;
 use serde::{Deserialize, Serialize};
 use sqlx::{Row, SqlitePool};
-use std::str::FromStr;
+// use std::str::FromStr;
 use std::sync::Arc;
 // use std::time::Duration;
 
@@ -214,7 +214,7 @@ async fn refresh_feeds_handler(
           AND NOT EXISTS (
             SELECT 1 FROM Jobs j 
             WHERE j.job_type LIKE '%SyncFeedJob%' 
-              AND j.job LIKE '%"feed_id":' || f.id || '%'
+              AND json_extract(j.job, '$.feed_id') = f.id
               AND j.status IN ('Pending', 'Running')
         )
         GROUP BY f.id
@@ -247,6 +247,13 @@ async fn refresh_feeds_handler(
 
     let _ = sqlx::query(
         "DELETE FROM Workers WHERE last_seen < strftime('%s', 'now', '-1 day')"
+    )
+    .execute(&data.db)
+    .await;
+
+    // 清理假死的任务（Running 超过 1 小时）
+    let _ = sqlx::query(
+        "UPDATE Jobs SET status = 'Failed', last_error = 'Stuck job cleaned up by cron' WHERE status = 'Running' AND lock_at < strftime('%s', 'now', '-3600')"
     )
     .execute(&data.db)
     .await;
@@ -382,6 +389,11 @@ pub async fn start_workers(state: Arc<AppState>) -> anyhow::Result<()> {
         .execute(&state.db)
         .await;
 
+    // 1. 重置所有由于崩溃导致的 Running 任务，使其可以重新被拾取
+    let _ = sqlx::query("UPDATE Jobs SET status = 'Pending', lock_by = NULL, lock_at = NULL WHERE status = 'Running'")
+        .execute(&state.db)
+        .await;
+
     tracing::info!("🏃 正在清理残留的 Pending 任务...");
     let cleanup_res = sqlx::query(
         r#"
@@ -412,22 +424,44 @@ pub async fn start_workers(state: Arc<AppState>) -> anyhow::Result<()> {
     let storage_trans = state.translate_queue.clone();
     let state_sum = state.clone();
     let storage_sum = state.summarize_queue.clone();
-
-    let state_cron = state.clone();
-    let schedule = Schedule::from_str("0 */5 * * * *")?; // 每 5 分钟运行一次
+    let state_refresh = state.clone();
+    let storage_refresh = state.refresh_queue.clone();
 
     tokio::spawn(async move {
-        let mut monitor = Monitor::new()
+        // --- 核心定时器：定期往数据库投递 RefreshFeedsJob ---
+        if std::env::var("DISABLE_INTERNAL_CRON").is_err() {
+            tracing::info!("🕒 内部 Cron 已启用 (每 5 分钟投递一次刷新任务)");
+            let state_cron = state.clone();
+            tokio::spawn(async move {
+                let mut interval = tokio::time::interval(std::time::Duration::from_secs(300));
+                // 首次启动时先等几秒，避开系统启动高峰
+                tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+                
+                loop {
+                    interval.tick().await;
+                    let mut storage = state_cron.refresh_queue.clone();
+                    match storage.push(RefreshFeedsJob).await {
+                        Ok(_) => tracing::info!("🕒 Cron: 已成功向队列投递 RefreshFeedsJob"),
+                        Err(e) => tracing::error!("🕒 Cron: 投递 RefreshFeedsJob 失败: {:?}", e),
+                    }
+                }
+            });
+        } else {
+            tracing::warn!("🔕 内部 Cron 已禁用，请确保使用外部 Cron 或 API (POST /api/internal/trigger_refresh_all) 触发更新");
+        }
+
+        // --- 任务消费者 (Workers) ---
+        let monitor = Monitor::new()
             .register(
                 WorkerBuilder::new("sync-worker")
-                    .concurrency(8) // FreshRSS 风格：提高并发抓取能力，利用网络 I/O 等待时间处理更多任务
+                    .concurrency(8)
                     .data(state_sync)
                     .backend(storage_sync)
                     .build_fn(sync_feed_handler),
             )
             .register(
                 WorkerBuilder::new("translate-worker")
-                    .concurrency(2) // 适度并发以利用多核，同时避免过度竞争 SQLite 写入锁
+                    .concurrency(2)
                     .data(state_trans)
                     .backend(storage_trans)
                     .build_fn(translate_article_handler),
@@ -438,25 +472,18 @@ pub async fn start_workers(state: Arc<AppState>) -> anyhow::Result<()> {
                     .data(state_sum)
                     .backend(storage_sum)
                     .build_fn(summarize_article_handler),
-            );
-
-        // 架构优化：允许通过环境变量禁用内部 Cron 任务，改用外部触发（如 systemd.timer + API）
-        // 这能让 Tokio 调度器在闲置时处于绝对沉睡状态，彻底消除高频定时器开销。
-        if std::env::var("DISABLE_INTERNAL_CRON").is_err() {
-            tracing::info!("🕒 内部 Cron 已启用 (每 5 分钟轮询一次)");
-            monitor = monitor.register(
-                WorkerBuilder::new("cron-worker")
-                    .data(state_cron)
-                    .backend(CronStream::new(schedule))
+            )
+            .register(
+                WorkerBuilder::new("refresh-worker")
+                    .concurrency(1)
+                    .data(state_refresh)
+                    .backend(storage_refresh)
                     .build_fn(refresh_feeds_handler),
             );
-        } else {
-            tracing::warn!("🔕 内部 Cron 已禁用，请确保使用外部 Cron 或 API 触发更新");
-        }
 
-        monitor.run()
-            .await
-            .expect("Jobs monitor failed");
+        if let Err(e) = monitor.run().await {
+            tracing::error!("❌ Jobs monitor 运行过程中崩溃: {:?}", e);
+        }
     });
 
     Ok(())

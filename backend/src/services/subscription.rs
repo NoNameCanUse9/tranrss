@@ -55,10 +55,10 @@ pub async fn list_subscriptions(
 }
 
 pub async fn trigger_stale_syncs(
-    db: &SqlitePool,
     user_id: i64,
-    state: crate::AppState, // 传入 AppState 以便获取队列
+    state: crate::AppState, // 传入 AppState 以便获取数据库和队列
 ) -> Result<(), Error> {
+    let db = &state.db;1
     let overdue_feeds = sqlx::query_scalar::<_, i64>(
         r#"
         SELECT f.id 
@@ -72,7 +72,7 @@ pub async fn trigger_stale_syncs(
           AND NOT EXISTS (
             SELECT 1 FROM Jobs j 
             WHERE j.job_type LIKE '%SyncFeedJob%' 
-              AND j.job LIKE '%"feed_id":' || f.id || '%'
+              AND json_extract(j.job, '$.feed_id') = f.id
               AND j.status IN ('Pending', 'Running')
           )
         GROUP BY f.id

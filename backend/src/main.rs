@@ -98,7 +98,7 @@ async fn main() -> anyhow::Result<()> {
         .pragma("busy_timeout", "5000");       // 5秒忙等待，减少锁冲突
 
     let pool = SqlitePoolOptions::new()
-        .max_connections(2)
+        .max_connections(10)
         .min_connections(1)
         .idle_timeout(std::time::Duration::from_secs(300))
         .connect_with(opts)

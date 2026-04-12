@@ -171,6 +171,13 @@ async fn subscription_list(
     State(state): State<Arc<AppState>>,
     auth: AuthUser,
 ) -> Result<Json<GReaderSubscriptionList>, (StatusCode, String)> {
+    // 自动刷新逻辑：GReader 客户端访问时触发过期 Feed 同步
+    let state_thread = (*state).clone();
+    let uid = auth.user_id;
+    tokio::spawn(async move {
+        let _ = crate::services::subscription::trigger_stale_syncs(uid, state_thread).await;
+    });
+
     // feed_id, feed_url, title, site_url, icon_url, folder_title
     let rows: Vec<(i64, String, String, Option<String>, Option<String>, Option<String>)> = sqlx::query_as(
         r#"
@@ -355,6 +362,13 @@ async fn stream_contents(
     Path(stream_id): Path<String>,
     Query(params): Query<StreamQuery>,
 ) -> Result<Json<GReaderStreamContents>, (StatusCode, String)> {
+    // 自动刷新逻辑：拉取内容时触发过期 Feed 同步
+    let state_thread = (*state).clone();
+    let uid = auth.user_id;
+    tokio::spawn(async move {
+        let _ = crate::services::subscription::trigger_stale_syncs(uid, state_thread).await;
+    });
+
     let limit = params.n.unwrap_or(20).min(1000);
     let offset = params.c.as_deref().map(parse_continuation).unwrap_or(0);
 
@@ -478,7 +492,8 @@ async fn stream_contents(
                 need_translate,
             )| {
                 let ct = crawl_time.unwrap_or(0);
-                let ts = pub_at.unwrap_or(ct);
+                let ts_pub = pub_at.unwrap_or(ct);
+                let ts_sync = ct;
 
                 // 尝试翻译标题 (index = -1)
                 if let Some(article_blocks) = blocks_map.get(&id) {
@@ -518,9 +533,9 @@ async fn stream_contents(
                 GReaderItem {
                     id: item_id_to_greader(id),
                     crawl_time_msec: (ct * 1000).to_string(),
-                    timestamp_usec: (ts * 1_000_000).to_string(),
-                    published: ts,
-                    updated: ts,
+                    timestamp_usec: (ts_sync * 1_000_000).to_string(),
+                    published: ts_pub,
+                    updated: ts_pub,
                     title,
                     canonical: vec![GReaderLink {
                         href: link_str.clone(),
@@ -627,7 +642,7 @@ fn apply_stream_filters(
             ot
         };
         query_str.push_str(&format!(
-            " AND COALESCE(a.published_at, a.crawl_time) >= {}",
+            " AND a.crawl_time >= {}",
             ot_sec
         ));
     }
@@ -642,7 +657,7 @@ fn apply_stream_filters(
             nt
         };
         query_str.push_str(&format!(
-            " AND COALESCE(a.published_at, a.crawl_time) <= {}",
+            " AND a.crawl_time <= {}",
             nt_sec
         ));
     }
@@ -687,62 +702,7 @@ async fn stream_items_ids(
 "#,
     );
 
-    let s = params.s.clone().unwrap_or_default();
-    if s.starts_with("feed/") {
-        if let Ok(feed_id) = s[5..].parse::<i64>() {
-            query_str.push_str(&format!(" AND a.feed_id = {}", feed_id));
-        }
-    } else if s.contains("state/com.google/starred") {
-        query_str.push_str(" AND a.is_starred = 1");
-    } else if s.contains("/label/") {
-        if let Some(label) = s.split("/label/").last() {
-            query_str.push_str(&format!(" AND f.id IN (SELECT feed_id FROM subscriptions s2 JOIN folders fo ON s2.folder_id = fo.id WHERE s2.user_id = {} AND fo.title = '{}')", auth.user_id, label.replace("'", "''")));
-        }
-    }
-
-    if let Some(ref xt) = params.xt {
-        if xt.contains("state/com.google/read") {
-            query_str.push_str(" AND a.is_read = 0");
-        }
-    }
-
-    if let Some(ref it) = params.it {
-        if it.contains("state/com.google/read") {
-            query_str.push_str(" AND a.is_read = 1");
-        } else if it.contains("state/com.google/starred") {
-            query_str.push_str(" AND a.is_starred = 1");
-        }
-    }
-
-    // ot = oldest time: 返回比此时间戳**更新**的文章
-    if let Some(ot) = params.ot {
-        let ot_sec = if ot > 10_000_000_000_000 {
-            ot / 1_000_000
-        } else if ot > 10_000_000_000 {
-            ot / 1000
-        } else {
-            ot
-        };
-        query_str.push_str(&format!(
-            " AND COALESCE(a.published_at, a.crawl_time) >= {}",
-            ot_sec
-        ));
-    }
-
-    // nt = newest time: 返回比此时间戳**之前**的文章
-    if let Some(nt) = params.nt {
-        let nt_sec = if nt > 10_000_000_000_000 {
-            nt / 1_000_000
-        } else if nt > 10_000_000_000 {
-            nt / 1000
-        } else {
-            nt
-        };
-        query_str.push_str(&format!(
-            " AND COALESCE(a.published_at, a.crawl_time) <= {}",
-            nt_sec
-        ));
-    }
+    apply_stream_filters(&mut query_str, params.s.as_deref().unwrap_or(""), &params, auth.user_id);
 
     if params.r.as_deref() == Some("o") {
         query_str.push_str(" ORDER BY a.published_at ASC");
@@ -767,11 +727,11 @@ async fn stream_items_ids(
 
     let item_refs = rows
         .iter()
-        .map(|(id, pub_at, feed_id, crawl_time)| {
-            let ts = pub_at.or(*crawl_time).unwrap_or(0);
+        .map(|(id, _pub_at, feed_id, crawl_time)| {
+            let ct = crawl_time.unwrap_or(0);
             GReaderItemRef {
                 id: id.to_string(), // CapyReader expects numeric strings here
-                timestamp_usec: (ts * 1_000_000).to_string(),
+                timestamp_usec: (ct * 1_000_000).to_string(),
                 direct_stream_ids: vec![format!("feed/{}", feed_id)],
             }
         })
@@ -983,7 +943,7 @@ async fn stream_items_contents(
                 GReaderItem {
                     id: item_id_to_greader(id),
                     crawl_time_msec: (ct * 1000).to_string(),
-                    timestamp_usec: (ts * 1_000_000).to_string(),
+                    timestamp_usec: (ct * 1_000_000).to_string(),
                     published: ts,
                     updated: ts,
                     title,

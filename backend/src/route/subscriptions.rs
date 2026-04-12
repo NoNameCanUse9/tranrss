@@ -143,7 +143,7 @@ async fn list_subscriptions(
     let state_thread = (*state).clone();
     let uid = auth.user_id;
     tokio::spawn(async move {
-        let _ = subscription::trigger_stale_syncs(&state_thread.db, uid, state_thread.clone()).await;
+        let _ = subscription::trigger_stale_syncs(uid, state_thread.clone()).await;
     });
 
     let subscriptions = subscription::list_subscriptions(&state.db, auth.user_id)
