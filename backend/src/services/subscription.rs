@@ -58,7 +58,7 @@ pub async fn trigger_stale_syncs(
     user_id: i64,
     state: crate::AppState, // 传入 AppState 以便获取数据库和队列
 ) -> Result<(), Error> {
-    let db = &state.db;1
+    let db = &state.db;
     let overdue_feeds = sqlx::query_scalar::<_, i64>(
         r#"
         SELECT f.id 
