@@ -111,7 +111,7 @@ const handleSubmit = async () => {
 </script>
 
 <template>
-  <v-container class="fill-height d-flex align-center justify-center login-view-bg">
+  <div class="login-page-wrapper login-view-bg d-flex align-center justify-center">
     <!-- 极简主题/语言切换 -->
     <div class="theme-toggle d-flex align-center">
       <!-- Compatible Language Select (Native fallback) -->
@@ -131,6 +131,8 @@ const handleSubmit = async () => {
         <v-icon>{{ theme.global.current.value.dark ? mdiWeatherSunny : mdiWeatherNight }}</v-icon>
       </v-btn>
     </div>
+
+    <v-container class="d-flex align-center justify-center pa-0">
 
     <v-card width="100%" max-width="400" class="pa-6 elevation-4 rounded-xl">
       <v-card-title class="text-h5 font-weight-bold text-center mb-4">
@@ -203,14 +205,23 @@ const handleSubmit = async () => {
       </v-form>
     </v-card>
   </v-container>
+  </div>
 </template>
 
 <style scoped>
+.login-page-wrapper {
+  width: 100vw;
+  min-height: 100vh;
+  position: relative;
+  overflow-x: hidden;
+}
+
 .login-view-bg {
   background-color: var(--md-sys-color-background);
   background-image: 
-    radial-gradient(circle at 0% 0%, rgba(var(--md-sys-color-primary-rgb), 0.08) 0%, transparent 50%),
-    radial-gradient(circle at 100% 100%, rgba(var(--md-sys-color-secondary-rgb), 0.05) 0%, transparent 50%);
+    radial-gradient(circle at 100% 0%, rgba(var(--md-sys-color-primary-rgb), 0.08) 0%, transparent 40%),
+    radial-gradient(circle at 0% 100%, rgba(var(--md-sys-color-primary-rgb), 0.05) 0%, transparent 40%);
+  background-attachment: fixed;
 }
 
 .theme-toggle {

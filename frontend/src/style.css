@@ -211,7 +211,7 @@ h3,
 
 .logo-avatar {
   background: transparent !important;
-  box-shadow: 0 4px 12px rgba(var(--md-sys-color-primary-rgb), 0.2) !important;
+  box-shadow: 0 2px 8px rgba(var(--md-sys-color-primary-rgb), 0.12) !important;
 }
 
 /* 统一字体 */

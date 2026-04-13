@@ -321,8 +321,8 @@ const getCategoryUnreadCount = (subs: any[]) => {
       class="border-e custom-sidebar"
     >
       <!-- Logo container: matched height to top bar (64px) for perfect divider alignment -->
-      <div class="px-5 d-flex align-center" style="height: 64px;">
-        <v-avatar class="logo-avatar cursor-pointer" size="40" rounded="lg" @click="drawerOpen = !drawerOpen">
+      <div class="px-6 d-flex align-center border-b" style="height: 64px;">
+        <v-avatar class="logo-avatar cursor-pointer" size="32" rounded="lg" @click="drawerOpen = !drawerOpen">
           <img src="/favicon.svg?v=latest" alt="logo" style="width: 100%; height: 100%; object-fit: cover;" />
         </v-avatar>
         <div v-if="drawerOpen" class="ml-3">
@@ -330,7 +330,7 @@ const getCategoryUnreadCount = (subs: any[]) => {
         </div>
       </div>
 
-      <v-divider class="mx-3 mb-1" />
+
 
       <!-- Nav Items -->
       <v-list nav :class="[drawerOpen ? 'pa-3' : 'pa-1', 'custom-sidebar-list']" v-model:opened="openedGroups">

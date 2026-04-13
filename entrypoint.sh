@@ -11,8 +11,12 @@ echo "🔧 正在配置内部 Crontab..."
 # 注意：此接口仅供内部调用，不涉及 JWT 认证
 echo "*/15 * * * * curl -X POST http://127.0.0.1:8000/api/internal/trigger_refresh_all > /dev/null 2>&1" > /etc/crontabs/root
 
-# 启动 cron 守护进程 (-b: 后台运行, -L 0: 关闭日志以减少 I/O)
-crond -b -L 0
+# 验证配置
+echo "📋 当前 Crontab 任务一览："
+crontab -l
+
+# 启动 cron 守护进程
+crond -b -L /dev/stdout
 echo "✅ 内部 Crond 已启动 (周期: 15分钟)"
 
 # 🚀 启动 TranRSS 主进程
