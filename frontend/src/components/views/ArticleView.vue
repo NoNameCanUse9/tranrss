@@ -493,8 +493,14 @@ watch(selectedArticle, () => {
 
 <style scoped>
 .article-view {
-  height: calc(100vh - 180px); /* Adjust based on App Bar */
-  margin: -32px; /* Pull out to edges of container */
+  height: calc(100vh - var(--top-header-height, 64px)); /* Exact height of viewport minus global app bar */
+  margin: -16px -24px -32px; /* Pull out to edges of container padding from HomeView */
+}
+
+@media (min-width: 960px) {
+  .article-view {
+    margin: -32px -32px -32px;
+  }
 }
 
 .transition-sidebar {
@@ -517,9 +523,15 @@ watch(selectedArticle, () => {
 
 .article-search-box {
   flex-shrink: 0;
-  padding: 12px 14px 10px;
+  padding: 12px 14px;
   background: rgb(var(--v-theme-surface));
-  border-bottom: 1px solid rgba(var(--v-border-color), 0.08);
+  border-bottom: 1px solid rgba(var(--v-border-color), 0.12);
+  height: var(--top-header-height, 64px) !important; 
+  min-height: var(--top-header-height, 64px) !important;
+  max-height: var(--top-header-height, 64px) !important;
+  box-sizing: border-box !important;
+  display: flex;
+  align-items: center;
 }
 
 .article-list-scroll .v-list-item {

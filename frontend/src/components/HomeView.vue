@@ -41,11 +41,6 @@ const isDark = computed({
   }
 })
 
-// Computed drawer offset for app bar alignment on desktop
-const drawerOffset = computed(() => {
-  if (!mdAndUp.value) return '0px'
-  return drawerOpen.value ? '240px' : '88px'
-})
 const activeTab = ref(0)
 const activeJobsCount = ref(0)
 const mobileDrawer = ref(false)
@@ -321,7 +316,7 @@ const getCategoryUnreadCount = (subs: any[]) => {
       class="border-e custom-sidebar"
     >
       <!-- Logo container: matched height to top bar (64px) for perfect divider alignment -->
-      <div class="px-6 d-flex align-center border-b" style="height: 64px;">
+      <div class="px-6 d-flex align-center border-b sidebar-header">
         <v-avatar class="logo-avatar cursor-pointer" size="32" rounded="lg" @click="drawerOpen = !drawerOpen">
           <img src="/favicon.svg?v=latest" alt="logo" style="width: 100%; height: 100%; object-fit: cover;" />
         </v-avatar>
@@ -494,11 +489,6 @@ const getCategoryUnreadCount = (subs: any[]) => {
       color="surface"
       class="border-b"
       height="64"
-      :style="mdAndUp ? { 
-        left: drawerOffset, 
-        width: `calc(100% - ${drawerOffset})`,
-        paddingLeft: '0px'
-      } : {}"
     >
 
       <!-- Mobile menu button -->
@@ -550,8 +540,8 @@ const getCategoryUnreadCount = (subs: any[]) => {
     </v-app-bar>
 
     <!-- ========== Main Content ========== -->
-    <v-main class="main-content" style="height: 100vh; overflow-y: auto;">
-      <v-container fluid class="pa-4 pa-sm-6 pa-md-8 pb-16 max-content-width">
+    <v-main class="main-content">
+      <v-container fluid class="pa-4 pa-sm-6 pa-md-8 max-content-width">
         <component 
           :is="currentView" 
           :key="activeTab" 
@@ -593,6 +583,14 @@ const getCategoryUnreadCount = (subs: any[]) => {
 <style scoped>
 .border-b {
   border-bottom: 1px solid rgba(var(--v-border-color), 0.12) !important;
+}
+
+.sidebar-header,
+.v-app-bar.v-app-bar {
+  height: var(--top-header-height) !important;
+  min-height: var(--top-header-height) !important;
+  max-height: var(--top-header-height) !important;
+  box-sizing: border-box !important;
 }
 
 .main-content {

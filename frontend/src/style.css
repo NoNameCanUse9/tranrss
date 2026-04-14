@@ -137,6 +137,14 @@ body,
   padding: 0;
 }
 
+*, *::before, *::after {
+  box-sizing: border-box !important;
+}
+
+:root {
+  --top-header-height: 64px;
+}
+
 /* 将 MD3 变量映射到 Vuetify 内部使用的 RGB 变量 */
 .v-theme--light,
 .v-theme--dark {
@@ -202,11 +210,7 @@ h3,
 .v-navigation-drawer,
 .v-app-bar {
   background-color: var(--md-sys-color-surface-container-low) !important;
-  border-color: rgba(var(--md-sys-color-outline-rgb), 0.05) !important;
-}
-
-.v-navigation-drawer {
-  border-right: none !important;
+  border-color: rgba(var(--md-sys-color-outline-rgb), 0.12) !important;
 }
 
 .logo-avatar {
