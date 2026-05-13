@@ -5,7 +5,7 @@ WORKDIR /app/frontend
 RUN corepack enable && corepack prepare pnpm@latest --activate
 COPY frontend/package.json frontend/pnpm-lock.yaml ./
 # Install all dependencies including devDependencies to support build
-RUN pnpm install --frozen-lockfile --production=false
+RUN pnpm install --production=false
 COPY frontend .
 # Build the frontend
 RUN pnpm build
