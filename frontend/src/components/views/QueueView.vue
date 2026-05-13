@@ -40,7 +40,7 @@ interface BackendJob {
   last_error: string | null
   run_at: number
   done_at: number | null
-  job_data: JobData
+  job_data: JobData | null
   title_label: string | null
   feed_id: number | null
   feed_title: string | null
@@ -260,16 +260,16 @@ const mapBackendJob = (bj: BackendJob): QueueJob => {
 
   if (bj.title_label) {
     title = bj.title_label
-    subscription = type === 'cron' ? t('queue.job_cron') : `ID: ${bj.job_data.feed_id || bj.job_data.article_id || '?'}`
+    subscription = type === 'cron' ? t('queue.job_cron') : `ID: ${bj.job_data?.feed_id || bj.job_data?.article_id || '?'}`
   } else if (type === 'sync') {
-    title = `${t('queue.job_sync')} #${bj.job_data.feed_id || '?'}`
-    subscription = `Feed ID: ${bj.job_data.feed_id || '?'}`
+    title = `${t('queue.job_sync')} #${bj.job_data?.feed_id || '?'}`
+    subscription = `Feed ID: ${bj.job_data?.feed_id || '?'}`
   } else if (type === 'translate') {
-    title = `${t('queue.job_translate')} (ID: ${bj.job_data.article_id || '?'})`
-    subscription = `Article ID: ${bj.job_data.article_id || '?'}`
+    title = `${t('queue.job_translate')} (ID: ${bj.job_data?.article_id || '?'})`
+    subscription = `Article ID: ${bj.job_data?.article_id || '?'}`
   } else if (type === 'summarize') {
-    title = `${t('queue.job_summarize')} (ID: ${bj.job_data.article_id || '?'})`
-    subscription = `Article ID: ${bj.job_data.article_id || '?'}`
+    title = `${t('queue.job_summarize')} (ID: ${bj.job_data?.article_id || '?'})`
+    subscription = `Article ID: ${bj.job_data?.article_id || '?'}`
   } else if (type === 'cron') {
     title = t('queue.job_cron')
     subscription = t('queue.job_cron')
@@ -297,8 +297,8 @@ const mapBackendJob = (bj: BackendJob): QueueJob => {
     run_at: bj.run_at,
     duration,
     error: bj.last_error,
-    articleId: bj.job_data.article_id,
-    feedId: bj.feed_id || bj.job_data.feed_id,
+    articleId: bj.job_data?.article_id,
+    feedId: bj.feed_id || bj.job_data?.feed_id,
     feedTitle: bj.feed_title,
   } as unknown as any // using 'any' mapping bridge for groupJobs
 }

@@ -76,9 +76,12 @@ fn greader_to_item_id(greader_id: &str) -> Option<i64> {
 // --- Auth Handlers ---
 
 #[derive(Deserialize)]
-#[serde(rename_all = "PascalCase")]
 struct GReaderLoginRequest {
+    #[serde(alias = "email")]
+    #[serde(rename = "Email")]
     email: String,
+    #[serde(alias = "passwd")]
+    #[serde(rename = "Passwd")]
     passwd: String,
 }
 
@@ -108,11 +111,21 @@ async fn client_login(
     let token = auth::create_token(user.id, &user.username)
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
-    Ok(format!("SID=ignored\nLSID=ignored\nAuth={}\n", token))
+    let body = format!("SID=ignored\nLSID=ignored\nAuth={}", token);
+    
+    Ok((
+        StatusCode::OK,
+        [(axum::http::header::CONTENT_TYPE, "text/plain")],
+        body,
+    ))
 }
 
 async fn get_token(_auth: AuthUser) -> impl IntoResponse {
-    "antigravity_token"
+    (
+        StatusCode::OK,
+        [(axum::http::header::CONTENT_TYPE, "text/plain")],
+        "antigravity_token",
+    )
 }
 
 // --- User Info ---
