@@ -618,7 +618,7 @@ const clearCompleted = async () => {
             rounded="lg"
             class="mt-2 mb-2 text-caption"
           >
-            {{ job.error }}
+            <div class="wrap-text">{{ job.error }}</div>
             <template #append>
               <v-btn size="x-small" variant="text" color="error" class="text-none" @click="retryJob({ groupedIds: [job.id] } as any)">
                 {{ $t('common.retry') }}
@@ -632,7 +632,7 @@ const clearCompleted = async () => {
                 <div class="d-flex align-center gap-2 min-w-0 flex-1">
                   <v-icon :color="statusInfo(sub.status).color" size="18" :class="{ 'mdi-spin': sub.status === 'running' }">{{ statusInfo(sub.status).icon }}</v-icon>
                   <span class="text-caption text-truncate font-weight-medium flex-1">{{ sub.title }}</span>
-                  <span v-if="sub.error" class="text-caption text-error text-truncate ml-2 max-w-sm" style="max-width: 300px;">{{ sub.error }}</span>
+                  <span v-if="sub.error" class="text-caption text-error ml-2 wrap-text">{{ sub.error }}</span>
                 </div>
                 <div class="d-flex align-center gap-2">
                   <v-tooltip v-if="sub.error" :text="$t('queue.view_error')" location="top">
@@ -676,7 +676,7 @@ const clearCompleted = async () => {
                 size="x-small" variant="tonal" class="mr-2"
               >{{ log.level }}</v-chip>
             </template>
-            <v-list-item-title class="text-caption font-weight-medium">{{ log.message }}</v-list-item-title>
+            <v-list-item-title class="text-caption font-weight-medium wrap-text">{{ log.message }}</v-list-item-title>
             <v-list-item-subtitle style="font-size: 11px">{{ log.target }} · {{ log.time }}</v-list-item-subtitle>
           </v-list-item>
         </v-list>
@@ -705,7 +705,13 @@ const clearCompleted = async () => {
   box-shadow: 0 4px 20px rgba(var(--v-theme-primary), 0.1) !important;
   transform: translateY(-2px);
 }
+.wrap-text {
+  white-space: pre-wrap !important;
+  word-break: break-all !important;
+  overflow-wrap: break-word !important;
+}
 .gap-2 { gap: 8px; }
+
 .gap-3 { gap: 12px; }
 .gap-4 { gap: 16px; }
 .gap-5 { gap: 20px; }

@@ -351,8 +351,8 @@ pub async fn fetch_and_process_feed(db: &SqlitePool, user_id: i64, feed_id: i64)
                         continue;
                     }
                 } else {
-                    let xml_content = match response.text().await {
-                        Ok(text) => text,
+                    let xml_bytes = match response.bytes().await {
+                        Ok(b) => b,
                         Err(e) => {
                             last_err_msg = Some(format!("Error reading response body: {}", e));
                             if attempt < 3 {
@@ -381,11 +381,11 @@ pub async fn fetch_and_process_feed(db: &SqlitePool, user_id: i64, feed_id: i64)
                         "🚀 抓取成功 (feed_id={}, attempt={})，开始解析 XML ({} bytes)...",
                         feed_id,
                         attempt,
-                        xml_content.len()
+                        xml_bytes.len()
                     );
 
                     // 3. 处理并同步到数据库
-                    let synced_ids = process_xml_content(db, &xml_content, user_id, feed_id).await?;
+                    let synced_ids = process_xml_content(db, &xml_bytes, user_id, feed_id).await?;
 
                     // 4. 如果 icon_base64 为空，尝试同步获取一次
                     if icon_base64.is_none() {
@@ -476,13 +476,15 @@ struct ParsedFeed {
 }
 
 /// 同步解析 XML，返回 Send 安全的数据结构
-fn parse_feed_entries(xml: &str, _feed_id: i64) -> Result<ParsedFeed> {
+fn parse_feed_entries(xml: &[u8], _feed_id: i64) -> Result<ParsedFeed> {
     // 1. 预处理 XML：修复非标准的 pubDate 格式
+    // 针对 bytes，我们先转为 string 做正则替换。feed-rs 内部也会做类似的 UTF-8 处理。
+    let xml_str = String::from_utf8_lossy(xml);
     let date_fixed_xml = regex::Regex::new(r"<pubDate>(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})</pubDate>")
         .unwrap()
-        .replace_all(xml, "<pubDate>$1 +0800</pubDate>");
+        .replace_all(&xml_str, "<pubDate>$1 +0800</pubDate>");
 
-    // 容错解析：如果解析彻底失败，返回空列表而不是 Err 以保证同步流程不崩溃
+    // 容错解析
     let feed = match parser::parse(date_fixed_xml.as_bytes()) {
         Ok(f) => f,
         Err(e) => {
@@ -554,14 +556,14 @@ fn parse_feed_entries(xml: &str, _feed_id: i64) -> Result<ParsedFeed> {
 /// 将解析后的 XML 字符串转换为 Article 骨架和翻译任务包，并同步到数据库
 pub async fn process_xml_content(
     db: &SqlitePool,
-    xml: &str,
+    xml: &[u8],
     user_id: i64,
     feed_id: i64,
 ) -> Result<Vec<i64>> {
     // 1. 同步解析（移至 spawn_blocking 以免阻塞异步线程）
-    let xml_for_parse = xml.to_string();
+    let xml_vec = xml.to_vec();
     let parsed_feed = tokio::task::spawn_blocking(move || {
-        parse_feed_entries(&xml_for_parse, feed_id)
+        parse_feed_entries(&xml_vec, feed_id)
     }).await??;
     
     let articles = parsed_feed.articles;

@@ -3751,6 +3751,7 @@ dependencies = [
  "bcrypt",
  "chrono",
  "ego-tree",
+ "encoding_rs",
  "feed-rs",
  "futures",
  "hex",

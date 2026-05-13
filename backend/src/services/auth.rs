@@ -76,10 +76,10 @@ where
             ))?;
 
         // 2. 检查并截取 Token
-        let token = if auth_header.starts_with("Bearer ") {
-            &auth_header[7..]
-        } else if auth_header.starts_with("GoogleLogin auth=") {
-            &auth_header[17..]
+        let token = if let Some(t) = auth_header.strip_prefix("Bearer ") {
+            t.trim()
+        } else if let Some(t) = auth_header.strip_prefix("GoogleLogin auth=") {
+            t.trim_matches('"').trim()
         } else {
             return Err((
                 StatusCode::UNAUTHORIZED,

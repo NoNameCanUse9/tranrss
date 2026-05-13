@@ -20,6 +20,7 @@ pub struct SubscriptionDetail {
     pub language: String,
     pub auto_translate: bool,
     pub need_summary: bool,
+    pub is_shared: bool,
     pub site_url: Option<String>,
     pub description: Option<String>,
     pub icon_url: Option<String>,
@@ -45,6 +46,7 @@ pub struct CreateSubscriptionRequest {
     pub target_language: Option<String>,
     pub num: Option<i64>,
     pub refresh_interval: Option<i64>,
+    pub is_shared: Option<bool>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -58,4 +60,5 @@ pub struct UpdateSubscriptionRequest {
     pub target_language: Option<String>,
     pub num: Option<i64>,
     pub refresh_interval: Option<i64>,
+    pub is_shared: Option<bool>,
 }

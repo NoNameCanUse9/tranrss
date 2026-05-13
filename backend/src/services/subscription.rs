@@ -26,6 +26,7 @@ pub async fn list_subscriptions(
             COALESCE(s.target_language, 'en') as language,
             s.need_translate as auto_translate,
             s.need_summary,
+            s.is_shared,
             f.site_url,
             f.description,
             f.icon_url,
@@ -149,7 +150,7 @@ pub async fn create_subscription(
     }
 
     // 3. Create subscription
-    let result = sqlx::query("INSERT INTO subscriptions (user_id, feed_id, folder_id, custom_title, need_translate, need_summary, target_language, num, refresh_interval) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)")
+    let result = sqlx::query("INSERT INTO subscriptions (user_id, feed_id, folder_id, custom_title, need_translate, need_summary, target_language, num, refresh_interval, is_shared) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
         .bind(user_id)
         .bind(feed_id.0)
         .bind(resolved_folder_id)
@@ -159,6 +160,7 @@ pub async fn create_subscription(
         .bind(payload.target_language.as_ref().unwrap_or(&"Chinese".to_string()))
         .bind(payload.num.unwrap_or(200))
         .bind(payload.refresh_interval.unwrap_or(30))
+        .bind(payload.is_shared.unwrap_or(false))
         .execute(db)
         .await?;
 
@@ -207,7 +209,8 @@ pub async fn update_subscription(
             need_summary = COALESCE(?, need_summary),
             target_language = COALESCE(?, target_language),
             num = COALESCE(?, num),
-            refresh_interval = COALESCE(?, refresh_interval)
+            refresh_interval = COALESCE(?, refresh_interval),
+            is_shared = COALESCE(?, is_shared)
         WHERE id = ? AND user_id = ?
         "#,
     )
@@ -219,6 +222,7 @@ pub async fn update_subscription(
     .bind(payload.target_language)
     .bind(payload.num)
     .bind(payload.refresh_interval)
+    .bind(payload.is_shared)
     .bind(id)
     .bind(user_id)
     .execute(db)
@@ -308,6 +312,7 @@ pub async fn get_subscription_detail(
             COALESCE(s.target_language, 'en') as language,
             s.need_translate as auto_translate,
             s.need_summary,
+            s.is_shared,
             f.site_url,
             f.description,
             f.icon_url,

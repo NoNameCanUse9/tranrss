@@ -371,7 +371,20 @@ async fn import_opml(
                 .bytes()
                 .await
                 .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
-            content = String::from_utf8_lossy(&data).to_string();
+            
+            // 尝试 UTF-8，如果失败或看起来像乱码，则尝试 GBK
+            content = match String::from_utf8(data.to_vec()) {
+                Ok(s) => s,
+                Err(_) => {
+                    // 如果 UTF-8 失败，尝试用 GBK 解码 (针对中国用户常见情况)
+                    let (res, _, has_error) = encoding_rs::GBK.decode(&data);
+                    if has_error {
+                         String::from_utf8_lossy(&data).to_string()
+                    } else {
+                         res.into_owned()
+                    }
+                }
+            };
             break;
         }
     }
@@ -406,6 +419,7 @@ async fn import_opml(
             target_language: None,
             num: Some(200),
             refresh_interval: Some(30),
+            is_shared: Some(false),
         };
 
         if let Ok((_sub_id, feed_id)) =

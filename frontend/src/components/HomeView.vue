@@ -165,7 +165,7 @@ const getCategoryUnreadCount = (subs: any[]) => {
 </script>
 
 <template>
-  <v-layout>
+  <v-layout style="height: 100vh;">
     <!-- ========== Mobile Navigation Drawer ========== -->
     <v-navigation-drawer
       v-if="!mdAndUp"
@@ -311,12 +311,12 @@ const getCategoryUnreadCount = (subs: any[]) => {
       app
       :rail="!drawerOpen"
       rail-width="88"
-      width="240"
+      width="256"
       color="surface"
       class="border-e custom-sidebar"
     >
       <!-- Logo container: matched height to top bar (64px) for perfect divider alignment -->
-      <div class="px-6 d-flex align-center border-b sidebar-header">
+      <div class="px-4 d-flex align-center border-b sidebar-header">
         <v-avatar class="logo-avatar cursor-pointer" size="32" rounded="lg" @click="drawerOpen = !drawerOpen">
           <img src="/favicon.svg?v=latest" alt="logo" style="width: 100%; height: 100%; object-fit: cover;" />
         </v-avatar>
@@ -328,7 +328,7 @@ const getCategoryUnreadCount = (subs: any[]) => {
 
 
       <!-- Nav Items -->
-      <v-list nav :class="[drawerOpen ? 'pa-3' : 'pa-1', 'custom-sidebar-list']" v-model:opened="openedGroups">
+      <v-list nav :class="[drawerOpen ? 'pa-2' : 'pa-1', 'custom-sidebar-list']" v-model:opened="openedGroups">
         <!-- Articles Group -->
         <div class="articles-group-container">
           <!-- Group header: using v-list-item for consistency with other items -->
@@ -376,7 +376,7 @@ const getCategoryUnreadCount = (subs: any[]) => {
           <template v-if="drawerOpen && articlesExpanded">
             <v-list-item 
               :prepend-icon="mdiCircleMedium"              density="compact" 
-              class="pl-10 mb-1 text-body-2 rounded-lg" 
+              class="pl-8 mb-1 text-body-2 rounded-lg" 
               :active="activeTab === 0 && filterRead === false" 
               @click="selectFeed(undefined, false)" 
             >
@@ -387,7 +387,7 @@ const getCategoryUnreadCount = (subs: any[]) => {
             </v-list-item>
             <v-list-item 
               :prepend-icon="mdiStarOutline"              density="compact" 
-              class="pl-10 mb-1 text-body-2 rounded-lg" 
+              class="pl-8 mb-1 text-body-2 rounded-lg" 
               :active="activeTab === 0 && filterStarred === true" 
               @click="selectFeed(undefined, undefined, true)" 
             >
@@ -401,7 +401,7 @@ const getCategoryUnreadCount = (subs: any[]) => {
               <!-- Custom Category Header with Expand/Collapse -->
               <v-list-item 
                 density="compact" 
-                class="text-body-2 pl-10 cursor-pointer rounded-lg mb-1" 
+                class="text-body-2 pl-8 cursor-pointer rounded-lg mb-1" 
                 @click="toggleCategory(cat as string)"
               >
                 <template #prepend>
@@ -424,7 +424,7 @@ const getCategoryUnreadCount = (subs: any[]) => {
                   :key="sub.id"
                   :title="sub.title"
                   density="compact"
-                  class="pl-14 text-caption rounded-lg mb-1"
+                  class="pl-11 text-caption rounded-lg mb-1"
                   :active="activeTab === 0 && selectedFeedId === sub.feedId"
                   @click="selectFeed(sub.feedId)"
                 >
@@ -466,7 +466,7 @@ const getCategoryUnreadCount = (subs: any[]) => {
 
       <template #append>
         <v-divider class="mx-3" />
-        <div :class="drawerOpen ? 'pa-3' : 'pa-2 d-flex justify-center'">
+        <div :class="drawerOpen ? 'pa-2' : 'pa-2 d-flex justify-center'">
           <v-list-item
             v-if="drawerOpen"
             :prepend-icon="mdiAccountCircleOutline"
@@ -595,7 +595,8 @@ const getCategoryUnreadCount = (subs: any[]) => {
 
 .main-content {
   background-color: rgb(var(--v-theme-background));
-  min-height: 100vh;
+  height: 100%;
+  overflow-y: auto !important;
 }
 
 .max-content-width {
@@ -651,6 +652,11 @@ const getCategoryUnreadCount = (subs: any[]) => {
 .custom-sidebar-list {
   flex: 1 1 auto !important;
   overflow-y: auto !important;
+}
+
+.custom-sidebar-list :deep(.v-list-item-title) {
+  line-height: 1.5 !important;
+  padding: 2px 0;
 }
 
 /* Fixed alignment for rail icons to match logo position */

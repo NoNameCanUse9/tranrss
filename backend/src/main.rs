@@ -20,6 +20,7 @@ use std::net::SocketAddr;
 use std::str::FromStr;
 use std::sync::Arc;
 use tracing_subscriber::prelude::*;
+use tower_http::cors::{Any, CorsLayer};
 use crate::utils::broadcast_layer::BroadcastLayer;
 
 mod model;
@@ -71,7 +72,7 @@ async fn main() -> anyhow::Result<()> {
 
     // 2. 初始化日志（含 SSE 广播层）
     let env_filter = tracing_subscriber::EnvFilter::try_from_default_env()
-        .unwrap_or_else(|_| "tranrss_backend=info,tower_http=warn".into());
+        .unwrap_or_else(|_| "tranrss_backend=debug,tower_http=info".into());
 
     let fmt_layer = tracing_subscriber::fmt::layer();
     let broadcast_layer = BroadcastLayer::new(event_tx.clone());
@@ -137,10 +138,19 @@ async fn main() -> anyhow::Result<()> {
         .nest("/api/articles", route::articles::router())
         .nest("/api/jobs", route::jobs::router())
         .nest("/api/greader", route::greader::router())
+        // 同时在根路径挂载 GReader 路由，兼容 FeedMe 等不带前缀的客户端
+        .merge(route::greader::router())
         .nest("/api/fever", route::fever::router())
+        .route("/share/{feed_title}", get(route::share::share_feed))
         // 内嵌前端：发布模式走 SPA fallback，开发模式无此路由（由 Vite dev server 提供）
         .fallback(get(serve_frontend))
         .layer(TraceLayer::new_for_http())
+        .layer(
+            CorsLayer::new()
+                .allow_origin(Any)
+                .allow_methods(Any)
+                .allow_headers(Any),
+        )
         .with_state(state);
 
     // 6. 启动服务器

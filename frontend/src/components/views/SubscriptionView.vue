@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import {
   mdiSync,
@@ -30,6 +30,8 @@ import {
   mdiAutoFix,
   mdiAlertDecagram,
   mdiCogOutline,
+  mdiShareVariant,
+  mdiContentCopy,
   // mdiArchiveOutline,
   // mdiHeartOutline,
   // mdiHeart
@@ -49,6 +51,7 @@ interface Subscription {
   targetLanguage: string
   autoTranslate: boolean
   needSummary: boolean
+  isShared: boolean
   siteUrl?: string | null
   description?: string | null
   iconUrl?: string | null
@@ -175,6 +178,7 @@ const form = ref({
   iconBase64: '',
   num: 200,
   refreshInterval: 30,
+  isShared: false,
 })
 
 const filtered = computed(() => {
@@ -242,7 +246,7 @@ const syncAll = async () => {
 const openAddDialog = () => {
   form.value = { 
     title: '', url: '', category: '', targetLanguage: 'Chinese', autoTranslate: false, needSummary: false,
-    siteUrl: '', description: '', iconUrl: '', iconBase64: '', num: 200, refreshInterval: 30
+    siteUrl: '', description: '', iconUrl: '', iconBase64: '', num: 200, refreshInterval: 30, isShared: false
   }
   selectedSub.value = null
   isNonStandard.value = false
@@ -263,6 +267,7 @@ const openEditDialog = (sub: Subscription) => {
     iconBase64: sub.iconBase64 || '',
     num: sub.num || 200,
     refreshInterval: sub.refreshInterval || 30,
+    isShared: sub.isShared || false,
   }
   selectedSub.value = sub
   isNonStandard.value = false
@@ -309,7 +314,9 @@ const saveSub = async () => {
       iconBase64: form.value.iconBase64,
       targetLanguage: form.value.targetLanguage,
       num: form.value.num,
-      refreshInterval: form.value.refreshInterval,      // folderId: ... // 暂时默认由后端根据 category 自动处理
+      refreshInterval: form.value.refreshInterval,
+      isShared: form.value.isShared,
+      // folderId: ... // 暂时默认由后端根据 category 自动处理
     }
 
     const response = await apiFetch(url, {
@@ -388,6 +395,32 @@ const handleUrlBlur = async () => {
     fetchingPreview.value = false
   }
 }
+
+const shareUrl = computed(() => {
+  const title = form.value.title || selectedSub.value?.title || ''
+  if (!title) return ''
+  return `${window.location.origin}/share/${encodeURIComponent(title)}`
+})
+
+const copyToClipboard = async (text: string) => {
+  try {
+    await navigator.clipboard.writeText(text)
+    snackbar.value = { show: true, text: '链接已复制到剪贴板', color: 'success' }
+  } catch (err) {
+    snackbar.value = { show: true, text: '复制失败', color: 'error' }
+  }
+}
+
+const copyShareUrl = () => {
+  copyToClipboard(shareUrl.value)
+}
+
+watch([() => form.value.autoTranslate, () => form.value.needSummary], ([trans, summary]) => {
+  if (!trans && !summary) {
+    form.value.isShared = false
+  }
+})
+
 </script>
 
 <template>
@@ -795,6 +828,37 @@ const handleUrlBlur = async () => {
                   </div>
                   <v-switch v-model="form.needSummary" color="secondary" hide-details density="compact" />
                 </div>
+
+                <v-divider class="my-3 opacity-20" />
+
+                <div class="d-flex align-center justify-space-between">
+                  <div class="d-flex align-center">
+                    <v-avatar color="info" size="32" class="mr-3">
+                      <v-icon size="18" color="white">{{ mdiShareVariant }}</v-icon>
+                    </v-avatar>
+                    <div>
+                      <p class="text-body-2 font-weight-bold">共享发布 (RSS)</p>
+                      <p class="text-caption text-medium-emphasis">启用后可通过公开 URL 订阅该源的翻译版</p>
+                    </div>
+                  </div>
+                  <v-switch 
+                    v-model="form.isShared" 
+                    color="info" 
+                    hide-details 
+                    density="compact"
+                    :disabled="!form.autoTranslate && !form.needSummary"
+                  />
+                </div>
+
+                <v-expand-transition>
+                  <div v-if="form.isShared" class="mt-4 pa-3 bg-surface rounded-lg border-thin d-flex align-center gap-2">
+                    <code class="text-caption text-truncate flex-1">{{ shareUrl }}</code>
+                    <v-btn size="x-small" variant="tonal" color="primary" @click="copyShareUrl">
+                      <v-icon start size="14">{{ mdiContentCopy }}</v-icon>
+                      复制
+                    </v-btn>
+                  </div>
+                </v-expand-transition>
 
                 <!-- 目标语言选择：仅在开启 AI 功能时显示 -->
                 <v-expand-transition>

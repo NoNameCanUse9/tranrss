@@ -28,6 +28,11 @@ const handleAuthSuccess = () => {
 html, body {
   margin: 0;
   padding: 0;
-  overflow-x: hidden;
+  overflow: hidden !important;
+  height: 100%;
+  width: 100%;
+}
+#app {
+  height: 100%;
 }
 </style>
