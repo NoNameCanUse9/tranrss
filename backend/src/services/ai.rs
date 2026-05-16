@@ -64,7 +64,13 @@ struct OpenaiChoice {
 }
 
 impl AiService {
-    pub fn new(db: sqlx::SqlitePool, user_id: i64, target_lang: String, model: String, config: ApiConfig) -> Self {
+    pub fn new(
+        db: sqlx::SqlitePool,
+        user_id: i64,
+        target_lang: String,
+        model: String,
+        config: ApiConfig,
+    ) -> Self {
         // 使用数据库中配置的超时时间
         let timeout_secs = config.timeout_seconds as u64;
 
@@ -197,11 +203,7 @@ impl AiService {
     }
 
     /// 批量翻译所有需要翻译且尚未翻译的文章标题
-    pub async fn translate_titles_batch(
-        &self,
-        state: &AppState,
-        user_id: i64,
-    ) -> Result<usize> {
+    pub async fn translate_titles_batch(&self, state: &AppState, user_id: i64) -> Result<usize> {
         // 1. 获取最多 50 个尚未翻译标题的文章
         let untranslated = sqlx::query_as::<_, (i64, String)>(
             r#"
@@ -325,13 +327,13 @@ impl AiService {
             .base_url
             .as_deref()
             .unwrap_or("https://api.openai.com/v1/");
-            
+
         let encrypted_key = self
             .config
             .api_key
             .as_deref()
             .ok_or_else(|| anyhow!("未配置 API Key"))?;
-            
+
         let api_key = crate::utils::crypto::decrypt_safe(encrypted_key);
 
         let mut full_url = base_url.to_string();
@@ -369,7 +371,11 @@ impl AiService {
         if !response.status().is_success() {
             let status = response.status();
             let err_text = response.text().await.unwrap_or_default();
-            return Err(anyhow!("HTTP {} - OpenAI API 错误: {}", status.as_u16(), err_text));
+            return Err(anyhow!(
+                "HTTP {} - OpenAI API 错误: {}",
+                status.as_u16(),
+                err_text
+            ));
         }
 
         let body: OpenaiResponse = response.json().await.context("解析 OpenAI 摘要响应失败")?;
@@ -433,7 +439,11 @@ impl AiService {
 
         if !response.status().is_success() {
             let status = response.status();
-            return Err(anyhow!("HTTP {} - DeepLX API 错误: {}", status.as_u16(), status.canonical_reason().unwrap_or("Unknown")));
+            return Err(anyhow!(
+                "HTTP {} - DeepLX API 错误: {}",
+                status.as_u16(),
+                status.canonical_reason().unwrap_or("Unknown")
+            ));
         }
 
         let body: DeepLXResponse = response.json().await?;
@@ -462,9 +472,13 @@ impl AiService {
 
         for (i, block) in blocks.iter().enumerate() {
             let block_tokens = self.estimate_tokens(&block.raw_text);
-            
+
             if !current_batch.is_empty() && current_tokens + block_tokens > token_limit {
-                tracing::info!("(OpenAI) 发送批次翻译：包含 {} 个区块，预估 {} tokens", current_batch.len(), current_tokens);
+                tracing::info!(
+                    "(OpenAI) 发送批次翻译：包含 {} 个区块，预估 {} tokens",
+                    current_batch.len(),
+                    current_tokens
+                );
                 let batch_results = self.process_openai_batch(&current_batch).await?;
                 for (idx, trans) in batch_results {
                     final_results[idx] = trans;
@@ -472,9 +486,13 @@ impl AiService {
                 current_batch.clear();
                 current_tokens = 0;
             }
-            
+
             if block_tokens > token_limit {
-                tracing::warn!("(OpenAI) 单个区块预估 {} tokens，超过限制 {}，可能会导致翻译失败", block_tokens, token_limit);
+                tracing::warn!(
+                    "(OpenAI) 单个区块预估 {} tokens，超过限制 {}，可能会导致翻译失败",
+                    block_tokens,
+                    token_limit
+                );
             }
 
             current_batch.push((i, block));
@@ -483,7 +501,11 @@ impl AiService {
         }
 
         if !current_batch.is_empty() {
-            tracing::info!("(OpenAI) 发送最后一批翻译：包含 {} 个区块，预估 {} tokens", current_batch.len(), current_tokens);
+            tracing::info!(
+                "(OpenAI) 发送最后一批翻译：包含 {} 个区块，预估 {} tokens",
+                current_batch.len(),
+                current_tokens
+            );
             let batch_results = self.process_openai_batch(&current_batch).await?;
             for (idx, trans) in batch_results {
                 final_results[idx] = trans;
@@ -491,12 +513,15 @@ impl AiService {
         }
 
         // 检查并记录总消耗
-        tracing::info!("(OpenAI) 文章翻译完成，总预估消耗: {} tokens", total_estimated_tokens);
+        tracing::info!(
+            "(OpenAI) 文章翻译完成，总预估消耗: {} tokens",
+            total_estimated_tokens
+        );
 
         // 填充漏掉的翻译（理论上不应该发生，除非 AI 返回的 JSON 包含错误的 ID）
         for (i, res) in final_results.iter_mut().enumerate() {
             if res.is_empty() {
-                 *res = blocks[i].raw_text.clone(); 
+                *res = blocks[i].raw_text.clone();
             }
         }
 
@@ -509,7 +534,8 @@ impl AiService {
             if (c >= '\u{4e00}' && c <= '\u{9fff}') || // CJK 统一汉字
                (c >= '\u{3040}' && c <= '\u{309f}') || // 平假名
                (c >= '\u{30a0}' && c <= '\u{30ff}') || // 片假名
-               (c >= '\u{ac00}' && c <= '\u{d7af}')    // 谚文 (韩文)
+               (c >= '\u{ac00}' && c <= '\u{d7af}')
+            // 谚文 (韩文)
             {
                 tokens += 1.5;
             } else if c.is_ascii_alphanumeric() {
@@ -523,7 +549,10 @@ impl AiService {
         tokens as usize + 150 // 给 Prompt 和 JSON 结构预留 150 tokens 的空间
     }
 
-    async fn process_openai_batch(&self, batch: &[(usize, &ArticleBlock)]) -> Result<HashMap<usize, String>> {
+    async fn process_openai_batch(
+        &self,
+        batch: &[(usize, &ArticleBlock)],
+    ) -> Result<HashMap<usize, String>> {
         let base_url = self
             .config
             .base_url
@@ -597,7 +626,11 @@ impl AiService {
         if !response.status().is_success() {
             let status = response.status();
             let err_text = response.text().await.unwrap_or_default();
-            return Err(anyhow!("HTTP {} - OpenAI API 请求失败: {}", status.as_u16(), err_text));
+            return Err(anyhow!(
+                "HTTP {} - OpenAI API 请求失败: {}",
+                status.as_u16(),
+                err_text
+            ));
         }
 
         let body: OpenaiResponse = response.json().await.context("解析 OpenAI 响应失败")?;

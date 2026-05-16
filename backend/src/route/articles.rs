@@ -10,8 +10,9 @@ use axum::{
 };
 use serde::Deserialize;
 use std::sync::Arc;
+use utoipa::IntoParams;
 
-#[derive(Deserialize)]
+#[derive(Deserialize, IntoParams)]
 pub struct ListArticlesQuery {
     pub feed_id: Option<i64>,
     pub is_read: Option<bool>,
@@ -29,6 +30,18 @@ pub fn router() -> Router<Arc<AppState>> {
         .route("/translate-titles", post(batch_translate_titles))
 }
 
+/// 批量翻译标题
+#[utoipa::path(
+    post,
+    path = "/api/articles/translate-titles",
+    responses(
+        (status = 200, description = "Success", body = serde_json::Value)
+    ),
+    security(
+        ("jwt" = [])
+    ),
+    tag = "Articles"
+)]
 async fn batch_translate_titles(
     State(state): State<Arc<AppState>>,
     auth: AuthUser,
@@ -48,6 +61,23 @@ async fn batch_translate_titles(
     })))
 }
 
+/// 翻译单篇文章
+#[utoipa::path(
+    post,
+    path = "/api/articles/{id}/translate",
+    params(
+        ("id" = i64, Path, description = "Article ID")
+    ),
+    responses(
+        (status = 202, description = "Accepted"),
+        (status = 401, description = "Unauthorized"),
+        (status = 400, description = "Bad Request")
+    ),
+    security(
+        ("jwt" = [])
+    ),
+    tag = "Articles"
+)]
 async fn translate_article(
     State(state): State<Arc<AppState>>,
     auth: AuthUser,
@@ -96,6 +126,23 @@ async fn translate_article(
     Ok(StatusCode::ACCEPTED)
 }
 
+/// 总结单篇文章
+#[utoipa::path(
+    post,
+    path = "/api/articles/{id}/summarize",
+    params(
+        ("id" = i64, Path, description = "Article ID")
+    ),
+    responses(
+        (status = 202, description = "Accepted"),
+        (status = 401, description = "Unauthorized"),
+        (status = 400, description = "Bad Request")
+    ),
+    security(
+        ("jwt" = [])
+    ),
+    tag = "Articles"
+)]
 async fn summarize_article(
     State(state): State<Arc<AppState>>,
     auth: AuthUser,
@@ -143,6 +190,21 @@ async fn summarize_article(
     Ok(StatusCode::ACCEPTED)
 }
 
+/// 获取文章列表
+#[utoipa::path(
+    get,
+    path = "/api/articles",
+    params(
+        ListArticlesQuery
+    ),
+    responses(
+        (status = 200, description = "Success", body = Vec<crate::model::articles::ArticleListItem>)
+    ),
+    security(
+        ("jwt" = [])
+    ),
+    tag = "Articles"
+)]
 async fn list_articles(
     State(state): State<Arc<AppState>>,
     auth: AuthUser,
@@ -161,6 +223,23 @@ async fn list_articles(
     Ok(Json(articles))
 }
 
+/// 标记星标
+#[utoipa::path(
+    post,
+    path = "/api/articles/{id}/star",
+    params(
+        ("id" = i64, Path, description = "Article ID")
+    ),
+    request_body = serde_json::Value,
+    responses(
+        (status = 200, description = "Success"),
+        (status = 401, description = "Unauthorized")
+    ),
+    security(
+        ("jwt" = [])
+    ),
+    tag = "Articles"
+)]
 async fn mark_starred(
     State(state): State<Arc<AppState>>,
     auth: AuthUser,
@@ -178,6 +257,22 @@ async fn mark_starred(
     Ok(StatusCode::OK)
 }
 
+/// 获取文章详情
+#[utoipa::path(
+    get,
+    path = "/api/articles/{id}",
+    params(
+        ("id" = i64, Path, description = "Article ID")
+    ),
+    responses(
+        (status = 200, description = "Success", body = serde_json::Value),
+        (status = 404, description = "Not Found")
+    ),
+    security(
+        ("jwt" = [])
+    ),
+    tag = "Articles"
+)]
 async fn get_article(
     State(state): State<Arc<AppState>>,
     auth: AuthUser,
@@ -222,6 +317,23 @@ async fn get_article(
     })))
 }
 
+/// 标记已读
+#[utoipa::path(
+    post,
+    path = "/api/articles/{id}/read",
+    params(
+        ("id" = i64, Path, description = "Article ID")
+    ),
+    request_body = serde_json::Value,
+    responses(
+        (status = 200, description = "Success"),
+        (status = 401, description = "Unauthorized")
+    ),
+    security(
+        ("jwt" = [])
+    ),
+    tag = "Articles"
+)]
 async fn mark_read(
     State(state): State<Arc<AppState>>,
     auth: AuthUser,

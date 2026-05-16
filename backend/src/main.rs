@@ -14,6 +14,8 @@ use axum::{
     http::{Response, header},
 };
 use tower_http::trace::TraceLayer;
+use utoipa::OpenApi;
+use utoipa_swagger_ui::SwaggerUi;
 
 use sqlx::sqlite::{SqliteConnectOptions, SqliteJournalMode, SqlitePool, SqliteSynchronous, SqlitePoolOptions};
 use std::net::SocketAddr;
@@ -22,6 +24,109 @@ use std::sync::Arc;
 use tracing_subscriber::prelude::*;
 use tower_http::cors::{Any, CorsLayer};
 use crate::utils::broadcast_layer::BroadcastLayer;
+
+#[derive(OpenApi)]
+#[openapi(
+    paths(
+        route::user::get_reg_status,
+        route::user::toggle_reg,
+        route::user::register,
+        route::user::login,
+        route::user::update_password,
+        route::user::update_username,
+        route::user::get_setting,
+        route::user::update_setting,
+        route::articles::batch_translate_titles,
+        route::articles::translate_article,
+        route::articles::summarize_article,
+        route::articles::list_articles,
+        route::articles::mark_starred,
+        route::articles::get_article,
+        route::articles::mark_read,
+        route::subscriptions::list_inactive_feeds,
+        route::subscriptions::activate_inactive_feeds,
+        route::subscriptions::create_subscription,
+        route::subscriptions::list_subscriptions,
+        route::subscriptions::get_subscription,
+        route::subscriptions::update_subscription,
+        route::subscriptions::delete_subscription,
+        route::subscriptions::sync_subscription,
+        route::subscriptions::sync_all_subscriptions,
+        route::subscriptions::preview_feed,
+        route::subscriptions::export_opml,
+        route::subscriptions::import_opml,
+        route::translate_api::create_api,
+        route::translate_api::list_apis,
+        route::translate_api::get_api,
+        route::translate_api::update_api,
+        route::translate_api::delete_api,
+        route::translate_api::get_usage,
+        route::translate_api::get_usage_history,
+        route::jobs::trigger_refresh_all,
+        route::jobs::clear_completed,
+        route::jobs::retry_job,
+        route::jobs::get_jobs,
+        route::share::share_feed,
+        route::fever::fever_handler,
+    ),
+    components(
+        schemas(
+            crate::model::user::RegisterRequest,
+            crate::model::user::User,
+            crate::model::user::LoginRequest,
+            crate::model::user::LoginResponse,
+            crate::model::user::UpdatePasswordRequest,
+            crate::model::user::UpdateUsernameRequest,
+            crate::model::user::UpdateUserSettingRequest,
+            crate::model::user::UserSetting,
+            crate::model::articles::ArticleListItem,
+            crate::model::articles::ArticleDetail,
+            crate::model::articles::ArticleBlock,
+            crate::model::subscriptions::SubscriptionDetail,
+            crate::model::subscriptions::CreateSubscriptionRequest,
+            crate::model::subscriptions::UpdateSubscriptionRequest,
+            crate::route::subscriptions::InactiveFeed,
+            crate::route::subscriptions::ActivateRequest,
+            crate::route::subscriptions::PreviewRequest,
+            crate::model::api_config::ApiConfig,
+            crate::model::api_config::CreateApiConfigRequest,
+            crate::model::api_config::UpdateApiConfigRequest,
+            crate::model::api_usage::ApiUsageStats,
+            crate::model::api_usage::ModelUsage,
+            crate::model::api_usage::TimeSeriesUsage,
+            crate::route::jobs::JobInfo,
+            crate::model::feed::CreateFeedRequest,
+        )
+    ),
+    tags(
+        (name = "User", description = "User management APIs"),
+        (name = "Articles", description = "Article management APIs"),
+        (name = "Subscriptions", description = "RSS Subscription management APIs"),
+        (name = "API Config", description = "AI API configuration management APIs"),
+        (name = "Jobs", description = "Background jobs monitoring APIs"),
+        (name = "Compatibility", description = "Third-party protocol compatibility APIs (Fever, GReader, etc.)"),
+    ),
+    modifiers(&SecurityAddon)
+)]
+struct ApiDoc;
+
+struct SecurityAddon;
+
+impl utoipa::Modify for SecurityAddon {
+    fn modify(&self, openapi: &mut utoipa::openapi::OpenApi) {
+        if let Some(components) = openapi.components.as_mut() {
+            components.add_security_scheme(
+                "jwt",
+                utoipa::openapi::security::SecurityScheme::Http(
+                    utoipa::openapi::security::HttpBuilder::new()
+                        .scheme(utoipa::openapi::security::HttpAuthScheme::Bearer)
+                        .bearer_format("JWT")
+                        .build(),
+                ),
+            )
+        }
+    }
+}
 
 mod model;
 mod route;
@@ -128,6 +233,7 @@ async fn main() -> anyhow::Result<()> {
 
     // 5. 定义路由
     let app = Router::new()
+        .merge(SwaggerUi::new("/swagger-ui").url("/api-docs/openapi.json", ApiDoc::openapi()))
         .route("/health", get(health_check))
         .route("/api/events", get(sse_handler))
         .route("/api/internal/trigger_refresh_all", axum::routing::post(trigger_refresh_all_internal))

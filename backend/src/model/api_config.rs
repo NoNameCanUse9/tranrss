@@ -1,7 +1,8 @@
 use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
+use utoipa::ToSchema;
 
-#[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
+#[derive(Debug, Clone, Serialize, Deserialize, FromRow, ToSchema)]
 pub struct ApiConfig {
     pub id: i64,
     pub user_id: i64,
@@ -16,7 +17,7 @@ pub struct ApiConfig {
     pub retry_enabled: bool,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, ToSchema)]
 pub struct CreateApiConfigRequest {
     pub name: String,
     pub api_type: String,
@@ -29,7 +30,7 @@ pub struct CreateApiConfigRequest {
     pub retry_enabled: Option<bool>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, ToSchema)]
 pub struct UpdateApiConfigRequest {
     pub name: Option<String>,
     pub api_type: Option<String>,

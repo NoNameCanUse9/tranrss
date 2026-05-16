@@ -18,6 +18,19 @@ pub fn router() -> Router<Arc<AppState>> {
         .route("/{id}", get(get_api).put(update_api).delete(delete_api))
 }
 
+/// 创建 API 配置
+#[utoipa::path(
+    post,
+    path = "/api/translate-configs",
+    request_body = CreateApiConfigRequest,
+    responses(
+        (status = 201, description = "Created", body = i64)
+    ),
+    security(
+        ("jwt" = [])
+    ),
+    tag = "API Config"
+)]
 async fn create_api(
     State(state): State<Arc<AppState>>,
     auth: AuthUser,
@@ -30,6 +43,18 @@ async fn create_api(
     Ok((StatusCode::CREATED, Json(id)))
 }
 
+/// 获取所有 API 配置
+#[utoipa::path(
+    get,
+    path = "/api/translate-configs",
+    responses(
+        (status = 200, description = "Success", body = Vec<ApiConfig>)
+    ),
+    security(
+        ("jwt" = [])
+    ),
+    tag = "API Config"
+)]
 async fn list_apis(
     State(state): State<Arc<AppState>>,
     auth: AuthUser,
@@ -46,6 +71,22 @@ async fn list_apis(
     Ok(Json(configs))
 }
 
+/// 获取单个 API 配置
+#[utoipa::path(
+    get,
+    path = "/api/translate-configs/{id}",
+    params(
+        ("id" = i64, Path, description = "API Config ID")
+    ),
+    responses(
+        (status = 200, description = "Success", body = ApiConfig),
+        (status = 404, description = "Not Found")
+    ),
+    security(
+        ("jwt" = [])
+    ),
+    tag = "API Config"
+)]
 async fn get_api(
     State(state): State<Arc<AppState>>,
     auth: AuthUser,
@@ -63,6 +104,23 @@ async fn get_api(
     Ok(Json(config))
 }
 
+/// 更新 API 配置
+#[utoipa::path(
+    put,
+    path = "/api/translate-configs/{id}",
+    params(
+        ("id" = i64, Path, description = "API Config ID")
+    ),
+    request_body = UpdateApiConfigRequest,
+    responses(
+        (status = 200, description = "Success"),
+        (status = 404, description = "Not Found")
+    ),
+    security(
+        ("jwt" = [])
+    ),
+    tag = "API Config"
+)]
 async fn update_api(
     State(state): State<Arc<AppState>>,
     auth: AuthUser,
@@ -76,6 +134,21 @@ async fn update_api(
     Ok(StatusCode::OK)
 }
 
+/// 删除 API 配置
+#[utoipa::path(
+    delete,
+    path = "/api/translate-configs/{id}",
+    params(
+        ("id" = i64, Path, description = "API Config ID")
+    ),
+    responses(
+        (status = 204, description = "Deleted")
+    ),
+    security(
+        ("jwt" = [])
+    ),
+    tag = "API Config"
+)]
 async fn delete_api(
     State(state): State<Arc<AppState>>,
     auth: AuthUser,
@@ -88,6 +161,18 @@ async fn delete_api(
     Ok(StatusCode::NO_CONTENT)
 }
 
+/// 获取 API 使用统计
+#[utoipa::path(
+    get,
+    path = "/api/translate-configs/usage",
+    responses(
+        (status = 200, description = "Success", body = crate::model::api_usage::ApiUsageStats)
+    ),
+    security(
+        ("jwt" = [])
+    ),
+    tag = "API Config"
+)]
 async fn get_usage(
     State(state): State<Arc<AppState>>,
     auth: AuthUser,
@@ -98,6 +183,19 @@ async fn get_usage(
 
     Ok(Json(stats))
 }
+
+/// 获取 API 使用历史
+#[utoipa::path(
+    get,
+    path = "/api/translate-configs/usage/history",
+    responses(
+        (status = 200, description = "Success", body = Vec<crate::model::api_usage::TimeSeriesUsage>)
+    ),
+    security(
+        ("jwt" = [])
+    ),
+    tag = "API Config"
+)]
 async fn get_usage_history(
     State(state): State<Arc<AppState>>,
     auth: AuthUser,

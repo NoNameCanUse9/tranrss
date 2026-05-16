@@ -8,6 +8,19 @@ use std::sync::Arc;
 use crate::AppState;
 use crate::services::articles;
 
+/// 获取共享的 RSS 订阅源（带翻译内容）
+#[utoipa::path(
+    get,
+    path = "/share/{feed_title}",
+    params(
+        ("feed_title" = String, Path, description = "Feed title or ID")
+    ),
+    responses(
+        (status = 200, description = "Success (Returns RSS XML)", body = String),
+        (status = 404, description = "Feed not found")
+    ),
+    tag = "Share"
+)]
 pub async fn share_feed(
     State(state): State<Arc<AppState>>,
     Path(feed_title): Path<String>,

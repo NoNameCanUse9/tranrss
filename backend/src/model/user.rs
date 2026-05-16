@@ -1,25 +1,26 @@
 use serde::{Deserialize, Serialize};
+use utoipa::ToSchema;
 
-#[derive(Deserialize)]
+#[derive(Deserialize, ToSchema)]
 pub struct RegisterRequest {
     pub username: String,
     pub password: String,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
+#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow, ToSchema)]
 pub struct User {
     pub id: i64,
     pub username: String,
     pub password_hash: String,
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, ToSchema)]
 pub struct LoginRequest {
     pub username: String,
     pub password: String,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, ToSchema)]
 pub struct LoginResponse {
     pub token: String,
     pub username: String,
@@ -30,18 +31,18 @@ pub struct LoginResponse {
     pub log_num_limit: Option<i32>,
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, ToSchema)]
 pub struct UpdatePasswordRequest {
     pub old_password: String,
     pub new_password: String,
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, ToSchema)]
 pub struct UpdateUsernameRequest {
     pub new_username: String,
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, ToSchema)]
 pub struct UpdateUserSettingRequest {
     pub translate_api_id: Option<i64>,
     pub summary_api_id: Option<i64>,
@@ -55,7 +56,7 @@ pub struct UpdateUserSettingRequest {
     pub custom_trans_style: Option<String>,
 }
 
-#[derive(Serialize, Deserialize, sqlx::FromRow)]
+#[derive(Serialize, Deserialize, sqlx::FromRow, ToSchema)]
 pub struct UserSetting {
     pub translate_api_id: Option<i64>,
     pub summary_api_id: Option<i64>,

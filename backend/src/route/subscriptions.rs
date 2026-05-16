@@ -15,6 +15,7 @@ use axum::{
     routing::{get, post},
 };
 use std::sync::Arc;
+use utoipa::ToSchema;
 
 pub fn router() -> Router<Arc<AppState>> {
     Router::new()
@@ -33,7 +34,7 @@ pub fn router() -> Router<Arc<AppState>> {
         .route("/inactive/activate", post(activate_inactive_feeds))
 }
 
-#[derive(serde::Serialize, sqlx::FromRow)]
+#[derive(serde::Serialize, sqlx::FromRow, ToSchema)]
 pub struct InactiveFeed {
     pub feed_id: i64,
     pub title: String,
@@ -42,6 +43,18 @@ pub struct InactiveFeed {
     pub disabled_at: String,
 }
 
+/// 获取失效订阅列表
+#[utoipa::path(
+    get,
+    path = "/api/feeds/inactive",
+    responses(
+        (status = 200, description = "Success", body = Vec<InactiveFeed>)
+    ),
+    security(
+        ("jwt" = [])
+    ),
+    tag = "Subscriptions"
+)]
 async fn list_inactive_feeds(
     State(state): State<Arc<AppState>>,
     auth: AuthUser,
@@ -63,11 +76,24 @@ async fn list_inactive_feeds(
     Ok(Json(inactive))
 }
 
-#[derive(serde::Deserialize)]
+#[derive(serde::Deserialize, ToSchema)]
 pub struct ActivateRequest {
     pub feed_ids: Vec<i64>,
 }
 
+/// 重新激活失效订阅
+#[utoipa::path(
+    post,
+    path = "/api/feeds/inactive/activate",
+    request_body = ActivateRequest,
+    responses(
+        (status = 200, description = "Success")
+    ),
+    security(
+        ("jwt" = [])
+    ),
+    tag = "Subscriptions"
+)]
 async fn activate_inactive_feeds(
     State(state): State<Arc<AppState>>,
     auth: AuthUser,
@@ -114,6 +140,19 @@ async fn activate_inactive_feeds(
     Ok(StatusCode::OK)
 }
 
+/// 创建新订阅
+#[utoipa::path(
+    post,
+    path = "/api/feeds",
+    request_body = CreateSubscriptionRequest,
+    responses(
+        (status = 201, description = "Created", body = i64)
+    ),
+    security(
+        ("jwt" = [])
+    ),
+    tag = "Subscriptions"
+)]
 async fn create_subscription(
     State(state): State<Arc<AppState>>,
     auth: AuthUser,
@@ -135,6 +174,18 @@ async fn create_subscription(
     Ok((StatusCode::CREATED, Json(id)))
 }
 
+/// 获取用户所有订阅
+#[utoipa::path(
+    get,
+    path = "/api/feeds",
+    responses(
+        (status = 200, description = "Success", body = Vec<SubscriptionDetail>)
+    ),
+    security(
+        ("jwt" = [])
+    ),
+    tag = "Subscriptions"
+)]
 async fn list_subscriptions(
     State(state): State<Arc<AppState>>,
     auth: AuthUser,
@@ -153,6 +204,22 @@ async fn list_subscriptions(
     Ok(Json(subscriptions))
 }
 
+/// 获取订阅详情
+#[utoipa::path(
+    get,
+    path = "/api/feeds/{id}",
+    params(
+        ("id" = i64, Path, description = "Subscription ID")
+    ),
+    responses(
+        (status = 200, description = "Success", body = SubscriptionDetail),
+        (status = 404, description = "Not Found")
+    ),
+    security(
+        ("jwt" = [])
+    ),
+    tag = "Subscriptions"
+)]
 async fn get_subscription(
     State(state): State<Arc<AppState>>,
     auth: AuthUser,
@@ -165,6 +232,23 @@ async fn get_subscription(
     Ok(Json(sub))
 }
 
+/// 更新订阅设置
+#[utoipa::path(
+    put,
+    path = "/api/feeds/{id}",
+    params(
+        ("id" = i64, Path, description = "Subscription ID")
+    ),
+    request_body = UpdateSubscriptionRequest,
+    responses(
+        (status = 200, description = "Success"),
+        (status = 404, description = "Not Found")
+    ),
+    security(
+        ("jwt" = [])
+    ),
+    tag = "Subscriptions"
+)]
 async fn update_subscription(
     State(state): State<Arc<AppState>>,
     auth: AuthUser,
@@ -193,6 +277,21 @@ async fn update_subscription(
     Ok(StatusCode::OK)
 }
 
+/// 删除订阅
+#[utoipa::path(
+    delete,
+    path = "/api/feeds/{id}",
+    params(
+        ("id" = i64, Path, description = "Subscription ID")
+    ),
+    responses(
+        (status = 204, description = "Deleted")
+    ),
+    security(
+        ("jwt" = [])
+    ),
+    tag = "Subscriptions"
+)]
 async fn delete_subscription(
     State(state): State<Arc<AppState>>,
     auth: AuthUser,
@@ -205,6 +304,21 @@ async fn delete_subscription(
     Ok(StatusCode::NO_CONTENT)
 }
 
+/// 同步单个订阅
+#[utoipa::path(
+    post,
+    path = "/api/feeds/{id}/sync",
+    params(
+        ("id" = i64, Path, description = "Subscription ID")
+    ),
+    responses(
+        (status = 200, description = "Success")
+    ),
+    security(
+        ("jwt" = [])
+    ),
+    tag = "Subscriptions"
+)]
 #[axum::debug_handler]
 async fn sync_subscription(
     State(state): State<Arc<AppState>>,
@@ -234,6 +348,18 @@ async fn sync_subscription(
     Ok(StatusCode::OK)
 }
 
+/// 同步所有订阅
+#[utoipa::path(
+    post,
+    path = "/api/feeds/sync_all",
+    responses(
+        (status = 200, description = "Success")
+    ),
+    security(
+        ("jwt" = [])
+    ),
+    tag = "Subscriptions"
+)]
 async fn sync_all_subscriptions(
     State(state): State<Arc<AppState>>,
     auth: AuthUser,
@@ -256,11 +382,21 @@ async fn sync_all_subscriptions(
     Ok(StatusCode::OK)
 }
 
-#[derive(serde::Deserialize)]
+#[derive(serde::Deserialize, ToSchema)]
 pub struct PreviewRequest {
     pub url: String,
 }
 
+/// 预览 RSS 源内容
+#[utoipa::path(
+    post,
+    path = "/api/feeds/preview",
+    request_body = PreviewRequest,
+    responses(
+        (status = 200, description = "Success", body = CreateFeedRequest)
+    ),
+    tag = "Subscriptions"
+)]
 async fn preview_feed(
     _auth: AuthUser,
     Json(payload): Json<PreviewRequest>,
@@ -271,6 +407,19 @@ async fn preview_feed(
 
     Ok(Json(preview))
 }
+
+/// 导出 OPML 文件
+#[utoipa::path(
+    get,
+    path = "/api/feeds/opml",
+    responses(
+        (status = 200, description = "Success", body = String)
+    ),
+    security(
+        ("jwt" = [])
+    ),
+    tag = "Subscriptions"
+)]
 async fn export_opml(
     State(state): State<Arc<AppState>>,
     auth: AuthUser,
@@ -354,6 +503,18 @@ fn escape_xml(s: &str) -> String {
         .replace('\'', "&apos;")
 }
 
+/// 导入 OPML 文件
+#[utoipa::path(
+    post,
+    path = "/api/feeds/opml",
+    responses(
+        (status = 200, description = "Success")
+    ),
+    security(
+        ("jwt" = [])
+    ),
+    tag = "Subscriptions"
+)]
 async fn import_opml(
     State(state): State<Arc<AppState>>,
     auth: AuthUser,

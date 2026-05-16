@@ -26,6 +26,15 @@ pub fn router() -> Router<Arc<AppState>> {
         )
 }
 
+/// 获取注册状态
+#[utoipa::path(
+    get,
+    path = "/api/user/registration-status",
+    responses(
+        (status = 200, description = "Success", body = serde_json::Value)
+    ),
+    tag = "User"
+)]
 async fn get_reg_status(
     State(state): State<Arc<AppState>>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
@@ -38,6 +47,20 @@ async fn get_reg_status(
     Ok(Json(serde_json::json!({ "allow": allow })))
 }
 
+/// 切换注册功能（需登录）
+#[utoipa::path(
+    post,
+    path = "/api/user/registration-toggle",
+    request_body = serde_json::Value,
+    responses(
+        (status = 200, description = "Success"),
+        (status = 401, description = "Unauthorized")
+    ),
+    security(
+        ("jwt" = [])
+    ),
+    tag = "User"
+)]
 async fn toggle_reg(
     State(state): State<Arc<AppState>>,
     _auth: AuthUser, 
@@ -54,6 +77,18 @@ async fn toggle_reg(
     Ok(StatusCode::OK)
 }
 
+/// 用户注册
+#[utoipa::path(
+    post,
+    path = "/api/user/register",
+    request_body = RegisterRequest,
+    responses(
+        (status = 201, description = "Created"),
+        (status = 400, description = "Bad Request"),
+        (status = 403, description = "Forbidden - Registration disabled")
+    ),
+    tag = "User"
+)]
 async fn register(
     State(state): State<Arc<AppState>>,
     body: axum::body::Bytes,
@@ -128,6 +163,17 @@ border-left: 2px solid rgba(var(--v-theme-primary), 0.4);")
     Ok(StatusCode::CREATED)
 }
 
+/// 用户登录
+#[utoipa::path(
+    post,
+    path = "/api/user/login",
+    request_body = LoginRequest,
+    responses(
+        (status = 200, description = "Success", body = LoginResponse),
+        (status = 401, description = "Unauthorized")
+    ),
+    tag = "User"
+)]
 async fn login(
     State(state): State<Arc<AppState>>,
     body: axum::body::Bytes,
@@ -180,6 +226,21 @@ async fn login(
     }))
 }
 
+/// 修改密码
+#[utoipa::path(
+    put,
+    path = "/api/user/password",
+    request_body = UpdatePasswordRequest,
+    responses(
+        (status = 200, description = "Success"),
+        (status = 401, description = "Unauthorized"),
+        (status = 400, description = "Bad Request")
+    ),
+    security(
+        ("jwt" = [])
+    ),
+    tag = "User"
+)]
 async fn update_password(
     State(state): State<Arc<AppState>>,
     auth_user: AuthUser,
@@ -217,6 +278,21 @@ async fn update_password(
     Ok(StatusCode::OK)
 }
 
+/// 修改用户名
+#[utoipa::path(
+    put,
+    path = "/api/user/username",
+    request_body = UpdateUsernameRequest,
+    responses(
+        (status = 200, description = "Success"),
+        (status = 401, description = "Unauthorized"),
+        (status = 400, description = "Bad Request")
+    ),
+    security(
+        ("jwt" = [])
+    ),
+    tag = "User"
+)]
 async fn update_username(
     State(state): State<Arc<AppState>>,
     auth_user: AuthUser,
@@ -244,6 +320,19 @@ async fn update_username(
     Ok(StatusCode::OK)
 }
 
+/// 获取个人设置
+#[utoipa::path(
+    get,
+    path = "/api/user/setting",
+    responses(
+        (status = 200, description = "Success", body = UserSetting),
+        (status = 401, description = "Unauthorized")
+    ),
+    security(
+        ("jwt" = [])
+    ),
+    tag = "User"
+)]
 async fn get_setting(
     State(state): State<Arc<AppState>>,
     auth_user: AuthUser,
@@ -257,6 +346,20 @@ async fn get_setting(
     Ok(Json(setting))
 }
 
+/// 更新个人设置
+#[utoipa::path(
+    put,
+    path = "/api/user/setting",
+    request_body = UpdateUserSettingRequest,
+    responses(
+        (status = 200, description = "Success"),
+        (status = 401, description = "Unauthorized")
+    ),
+    security(
+        ("jwt" = [])
+    ),
+    tag = "User"
+)]
 async fn update_setting(
     State(state): State<Arc<AppState>>,
     auth_user: AuthUser,

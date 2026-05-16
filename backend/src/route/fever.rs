@@ -142,6 +142,15 @@ struct FeverItem {
     created_on_time: i64,
 }
 
+/// Fever API 兼容接口
+#[utoipa::path(
+    post,
+    path = "/api/fever",
+    responses(
+        (status = 200, description = "Success", body = serde_json::Value)
+    ),
+    tag = "Compatibility"
+)]
 #[axum::debug_handler]
 async fn fever_handler(
     State(state): State<Arc<AppState>>,

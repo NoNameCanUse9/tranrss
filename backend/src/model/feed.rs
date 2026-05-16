@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
+use utoipa::ToSchema;
 
-
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct CreateFeedRequest {
     pub feed_url: String,

@@ -59,15 +59,24 @@ pub async fn create_config(
 
         // 3. 总结默认：如果没设置过，且类型是 OpenAI 类 (openai / azure / deepseek 等)，则设为总结默认
         if sum_id.is_none() {
-             // 常见 OpenAI 兼容类型
-             let is_openai_type = ["openai", "azure", "deepseek", "anthropic", "gemini", "ollama", "moonshot"].contains(&req.api_type.to_lowercase().as_str());
-             if is_openai_type {
-                 sqlx::query("UPDATE user_setting SET summary_api_id = ? WHERE user_id = ?")
+            // 常见 OpenAI 兼容类型
+            let is_openai_type = [
+                "openai",
+                "azure",
+                "deepseek",
+                "anthropic",
+                "gemini",
+                "ollama",
+                "moonshot",
+            ]
+            .contains(&req.api_type.to_lowercase().as_str());
+            if is_openai_type {
+                sqlx::query("UPDATE user_setting SET summary_api_id = ? WHERE user_id = ?")
                     .bind(id)
                     .bind(user_id)
                     .execute(pool)
                     .await?;
-             }
+            }
         }
     }
 
@@ -130,11 +139,12 @@ pub async fn update_config(
 
 /// 获取单个配置 (含所有权校验)
 pub async fn get_config(pool: &SqlitePool, id: i64, user_id: i64) -> anyhow::Result<ApiConfig> {
-    let mut config: ApiConfig = sqlx::query_as("SELECT * FROM api_configs WHERE id = ? AND user_id = ?")
-        .bind(id)
-        .bind(user_id)
-        .fetch_one(pool)
-        .await?;
+    let mut config: ApiConfig =
+        sqlx::query_as("SELECT * FROM api_configs WHERE id = ? AND user_id = ?")
+            .bind(id)
+            .bind(user_id)
+            .fetch_one(pool)
+            .await?;
 
     // 解密给前端使用
     if let Some(ref k) = config.api_key {
@@ -204,10 +214,7 @@ pub async fn get_effective_api_id(
 }
 
 /// 获取用户 API 使用统计摘要
-pub async fn get_usage_summary(
-    pool: &SqlitePool,
-    user_id: i64,
-) -> anyhow::Result<ApiUsageStats> {
+pub async fn get_usage_summary(pool: &SqlitePool, user_id: i64) -> anyhow::Result<ApiUsageStats> {
     // 1. 获取总代币使用情况
     let total: (i64, i64, i64) = sqlx::query_as(
         "SELECT COALESCE(SUM(prompt_tokens), 0), COALESCE(SUM(completion_tokens), 0), COALESCE(SUM(total_tokens), 0) FROM api_usage WHERE user_id = ?"
@@ -250,7 +257,7 @@ pub async fn get_usage_history(
         WHERE user_id = ? 
         GROUP BY date, api_config_id, model
         ORDER BY date ASC
-        "#
+        "#,
     )
     .bind(user_id)
     .fetch_all(pool)
@@ -258,4 +265,3 @@ pub async fn get_usage_history(
 
     Ok(history)
 }
-

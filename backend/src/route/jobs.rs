@@ -4,8 +4,9 @@ use axum::{Json, Router, extract::State, http::StatusCode, routing::get};
 use serde::{Deserialize, Serialize};
 use sqlx::Row;
 use std::sync::Arc;
+use utoipa::ToSchema;
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct JobInfo {
     pub id: String,
     pub job_type: String,
@@ -29,6 +30,18 @@ pub fn router() -> Router<Arc<AppState>> {
         .route("/trigger_refresh_all", axum::routing::post(trigger_refresh_all))
 }
 
+/// 手动触发所有订阅源刷新
+#[utoipa::path(
+    post,
+    path = "/api/jobs/trigger_refresh_all",
+    responses(
+        (status = 200, description = "Success")
+    ),
+    security(
+        ("jwt" = [])
+    ),
+    tag = "Jobs"
+)]
 async fn trigger_refresh_all(
     State(state): State<Arc<AppState>>,
     _auth: AuthUser,
@@ -45,6 +58,18 @@ async fn trigger_refresh_all(
     Ok(StatusCode::OK)
 }
 
+/// 清理已完成的任务日志
+#[utoipa::path(
+    post,
+    path = "/api/jobs/clear_completed",
+    responses(
+        (status = 200, description = "Success")
+    ),
+    security(
+        ("jwt" = [])
+    ),
+    tag = "Jobs"
+)]
 async fn clear_completed(
     State(state): State<Arc<AppState>>,
     _auth: AuthUser,
@@ -56,6 +81,21 @@ async fn clear_completed(
     Ok(StatusCode::OK)
 }
 
+/// 重试特定任务
+#[utoipa::path(
+    post,
+    path = "/api/jobs/{id}/retry",
+    params(
+        ("id" = String, Path, description = "Job ID")
+    ),
+    responses(
+        (status = 200, description = "Success")
+    ),
+    security(
+        ("jwt" = [])
+    ),
+    tag = "Jobs"
+)]
 async fn retry_job(
     State(state): State<Arc<AppState>>,
     _auth: AuthUser,
@@ -69,6 +109,18 @@ async fn retry_job(
     Ok(StatusCode::OK)
 }
 
+/// 获取任务日志列表
+#[utoipa::path(
+    get,
+    path = "/api/jobs",
+    responses(
+        (status = 200, description = "Success", body = Vec<JobInfo>)
+    ),
+    security(
+        ("jwt" = [])
+    ),
+    tag = "Jobs"
+)]
 async fn get_jobs(
     State(state): State<Arc<AppState>>,
     auth: AuthUser,
