@@ -13,7 +13,7 @@ RUN pnpm build
 # --- 2. Backend Build Stage (with cargo-chef for better caching) ---
 FROM rust:alpine AS chef
 # Install build tools and libraries for musl compatibility
-RUN apk add --no-cache musl-dev gcc make openssl-dev openssl-libs-static pkgconfig
+RUN apk add --no-cache musl-dev gcc make openssl-dev openssl-libs-static pkgconfig curl
 RUN cargo install cargo-chef
 WORKDIR /app/backend
 
