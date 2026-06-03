@@ -1,15 +1,12 @@
-#[global_allocator]
-static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
-
+use anyhow::Result;
 use tracing_subscriber::prelude::*;
 use tranrss_backend::utils::broadcast_layer::BroadcastLayer;
 
-#[tokio::main]
-async fn main() -> anyhow::Result<()> {
+pub async fn run(port: u16, with_tui: bool, no_cron: bool) -> Result<()> {
     // 1. 创建广播频道
     let (event_tx, _) = tokio::sync::broadcast::channel::<String>(256);
 
-    // 2. 初始化日志
+    // 2. 初始化日志（含 SSE 广播层）
     let env_filter = tracing_subscriber::EnvFilter::try_from_default_env()
         .unwrap_or_else(|_| "tranrss_backend=debug,tower_http=info".into());
     let fmt_layer = tracing_subscriber::fmt::layer();
@@ -25,20 +22,29 @@ async fn main() -> anyhow::Result<()> {
     let database_url = std::env::var("DATABASE_URL")
         .unwrap_or_else(|_| "sqlite:/app/data/data.database".to_string());
     let pool = tranrss_backend::init_db(&database_url).await?;
-
-    // 4. 自动建表 + 默认账号
     tranrss_backend::auto_init_db(&pool).await?;
 
-    // 5. 构建应用状态
+    // 4. 构建应用状态
     let state = tranrss_backend::build_app_state(pool, event_tx).await?;
 
-    // 6. 启动后台 Workers
+    // 5. 启动后台 Workers
     tranrss_backend::services::jobs::start_workers(state.clone()).await?;
 
-    // 7. 构建路由并启动
+    // 6. 构建路由
     let app = tranrss_backend::build_router(state);
-    let addr: std::net::SocketAddr = ([0, 0, 0, 0], 8000).into();
+
+    // 7. 启动服务器
+    let addr: std::net::SocketAddr = ([0, 0, 0, 0], port).into();
     tracing::info!("🚀 TranRSS 启动于 http://{}", addr);
+
+    if !no_cron {
+        tracing::info!("⏰ 定时任务已启用（系统调度器模式）");
+    }
+
+    if with_tui {
+        tracing::info!("🖥️  TUI 模式已启用");
+        // TODO: 在后台线程启动 TUI
+    }
 
     let listener = tokio::net::TcpListener::bind(addr).await?;
     axum::serve(listener, app).await?;
