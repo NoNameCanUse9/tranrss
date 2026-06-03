@@ -1,0 +1,140 @@
+name: Build TUI Binaries
+
+on:
+  push:
+    branches: [ "tui" ]
+    paths:
+      - 'tui/**'
+      - 'backend/**'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - '.github/workflows/tui.yml'
+  pull_request:
+    branches: [ "tui" ]
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+  BINARY_NAME: tranrss
+
+jobs:
+  build:
+    strategy:
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            artifact_name: tranrss-linux-x64
+          - os: ubuntu-latest
+            target: aarch64-unknown-linux-gnu
+            artifact_name: tranrss-linux-arm64
+          - os: macos-latest
+            target: aarch64-apple-darwin
+            artifact_name: tranrss-macos-arm64
+          - os: macos-latest
+            target: x86_64-apple-darwin
+            artifact_name: tranrss-macos-x64
+
+    runs-on: ${{ matrix.os }}
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Install cross-compilation tools (Linux ARM64)
+        if: matrix.target == 'aarch64-unknown-linux-gnu'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc-aarch64-linux-gnu g++-aarch64-linux-gnu
+          echo "CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER=aarch64-linux-gnu-gcc" >> $GITHUB_ENV
+
+      - name: Cache cargo registry and build
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-${{ matrix.target }}-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-${{ matrix.target }}-
+
+      - name: Build release binary
+        run: cargo build -p tranrss-tui --release --target ${{ matrix.target }}
+
+      - name: Rename binary
+        run: |
+          cp target/${{ matrix.target }}/release/${{ env.BINARY_NAME }}-tui ${{ matrix.artifact_name }}
+          chmod +x ${{ matrix.artifact_name }}
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact_name }}
+          path: ${{ matrix.artifact_name }}
+          retention-days: 30
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' && github.ref == 'refs/heads/tui'
+    permissions:
+      contents: write
+
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: List artifacts
+        run: ls -la artifacts/
+
+      - name: Create release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: tui-${{ github.sha }}
+          name: TUI Build ${{ github.sha }}
+          draft: false
+          prerelease: true
+          files: |
+            artifacts/tranrss-linux-x64/tranrss-linux-x64
+            artifacts/tranrss-linux-arm64/tranrss-linux-arm64
+            artifacts/tranrss-macos-arm64/tranrss-macos-arm64
+            artifacts/tranrss-macos-x64/tranrss-macos-x64
+          body: |
+            ## TranRSS TUI Build
+
+            ### 下载
+
+            | 平台 | 文件 |
+            |------|------|
+            | Linux x64 | `tranrss-linux-x64` |
+            | Linux ARM64 | `tranrss-linux-arm64` |
+            | macOS ARM64 (Apple Silicon) | `tranrss-macos-arm64` |
+            | macOS x64 (Intel) | `tranrss-macos-x64` |
+
+            ### 使用
+
+            ```bash
+            # 下载后添加执行权限
+            chmod +x tranrss-*
+
+            # 移动到系统路径
+            sudo mv tranrss-* /usr/local/bin/tranrss
+
+            # 配置
+            tranrss config remote --server http://your-server:8000 --api-key trss_xxx
+
+            # 运行
+            tranrss tui
+            ```
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
