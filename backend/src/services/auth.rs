@@ -1,13 +1,14 @@
 use anyhow::Result;
-use axum::{
-    extract::FromRequestParts,
-    http::{StatusCode, header::AUTHORIZATION, request::Parts},
-};
+use axum::extract::State;
+use axum::http::{StatusCode, header::AUTHORIZATION, request::Parts};
 use chrono::{Duration, Utc};
 use jsonwebtoken::{DecodingKey, EncodingKey, Header, Validation, encode};
 use rand::RngCore;
 use serde::{Deserialize, Serialize};
-use std::sync::OnceLock;
+use std::sync::{Arc, OnceLock};
+
+use crate::AppState;
+use crate::model::access_key::check_permission;
 
 /// JWT Secret 全局单例 —— 优先从环境变量加载，其次从数据库加载，最后从文件/自动生成加载
 pub static JWT_SECRET: OnceLock<Vec<u8>> = OnceLock::new();
@@ -32,7 +33,7 @@ pub fn get_jwt_secret() -> &'static [u8] {
 
         // 2. 如果没有任何预设（环境变量或数据库初始化），则生成一个临时的
         // 注意：生产环境下 main.rs 会负责从数据库加载并通过 init_jwt_secret 初始化
-        // 如果运行到这一步，说明是真正意义上的“首次启动”或“数据库刚被删”
+        // 如果运行到这一步，说明是真正意义上的"首次启动"或"数据库刚被删"
         let mut secret = vec![0u8; 32];
         rand::thread_rng().fill_bytes(&mut secret);
         tracing::info!("已生成新的随机 JWT secret");
@@ -49,22 +50,56 @@ pub struct Claims {
 }
 
 /// 用于在 Handler 中直接提取用户信息
+/// 支持 JWT 和 API Key 两种认证方式
 pub struct AuthUser {
     pub user_id: i64,
     pub username: String,
+    /// API Key 认证时携带的权限列表；JWT 认证时为 None（拥有全部权限）
+    pub key_permissions: Option<Vec<String>>,
+}
+
+impl AuthUser {
+    /// 检查是否有指定权限。JWT 用户（key_permissions 为 None）始终返回 true。
+    pub fn require_permission(&self, resource: &str, action: &str) -> Result<(), (StatusCode, String)> {
+        match &self.key_permissions {
+            None => Ok(()), // JWT 用户，全部权限
+            Some(perms) => {
+                if check_permission(perms, resource, action) {
+                    Ok(())
+                } else {
+                    Err((
+                        StatusCode::FORBIDDEN,
+                        format!("Insufficient permissions: need {}:{}", resource, action),
+                    ))
+                }
+            }
+        }
+    }
 }
 
 // --- 核心：为 AuthUser 实现 Axum 提取器 ---
-impl<S> FromRequestParts<S> for AuthUser
+// 使用 State<Arc<AppState>> 在 from_request_parts 中访问数据库
+impl<S> axum::extract::FromRequestParts<S> for AuthUser
 where
+    State<Arc<AppState>>: axum::extract::FromRequestParts<S>,
     S: Send + Sync,
 {
     type Rejection = (StatusCode, String);
 
     async fn from_request_parts(
         parts: &mut Parts,
-        _state: &S,
+        state: &S,
     ) -> std::result::Result<Self, Self::Rejection> {
+        // 通过 State 提取器获取数据库连接
+        let State(state) = State::<Arc<AppState>>::from_request_parts(parts, state)
+            .await
+            .map_err(|_| {
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "Failed to extract app state".to_string(),
+                )
+            })?;
+
         // 1. 获取 Authorization Header
         let auth_header = parts
             .headers
@@ -87,17 +122,57 @@ where
             ));
         };
 
-        // 3. 调用下面的 decode_token
-        let claims = decode_token(token)
-            .map_err(|e| (StatusCode::UNAUTHORIZED, format!("Invalid Token: {}", e)))?;
+        // 3. 先尝试 JWT 认证
+        if let Ok(claims) = decode_token(token) {
+            let user_id = claims.sub.parse::<i64>().unwrap_or(0);
+            return Ok(AuthUser {
+                user_id,
+                username: claims.username,
+                key_permissions: None, // JWT 用户拥有全部权限
+            });
+        }
 
-        // 4. 将 Claims 转换为 AuthUser
-        let user_id = claims.sub.parse::<i64>().unwrap_or(0);
+        // 4. JWT 失败，尝试 API Key 认证
+        let key_row: Option<(i64, i64, String)> =
+            sqlx::query_as("SELECT id, user_id, permissions FROM access_keys WHERE key = ?")
+                .bind(token)
+                .fetch_optional(&state.db)
+                .await
+                .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
-        Ok(AuthUser {
-            user_id,
-            username: claims.username,
-        })
+        if let Some((key_id, user_id, permissions_json)) = key_row {
+            // 查询用户名
+            let username: String =
+                sqlx::query_scalar("SELECT username FROM users WHERE id = ?")
+                    .bind(user_id)
+                    .fetch_one(&state.db)
+                    .await
+                    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+
+            // 解析权限
+            let permissions: Vec<String> =
+                serde_json::from_str(&permissions_json).unwrap_or_default();
+
+            // 更新最后使用时间
+            let _ = sqlx::query(
+                "UPDATE access_keys SET last_used_at = datetime('now') WHERE id = ?",
+            )
+            .bind(key_id)
+            .execute(&state.db)
+            .await;
+
+            return Ok(AuthUser {
+                user_id,
+                username,
+                key_permissions: Some(permissions),
+            });
+        }
+
+        // 5. 都失败
+        Err((
+            StatusCode::UNAUTHORIZED,
+            "Invalid Token or API Key".to_string(),
+        ))
     }
 }
 

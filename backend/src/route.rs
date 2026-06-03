@@ -1,3 +1,4 @@
+pub mod access_key;
 pub mod articles;
 pub mod jobs;
 pub mod subscriptions;

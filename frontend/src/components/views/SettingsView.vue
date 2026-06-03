@@ -20,7 +20,14 @@ import {
   mdiAccountCog,
   mdiLockReset,
   mdiShieldLock,
-  mdiAccountOutline
+  mdiAccountOutline,
+  mdiKeyOutline,
+  mdiPlus,
+  mdiDeleteOutline,
+  mdiClose,
+  mdiKey,
+  mdiEyeOff,
+  mdiAlertCircleOutline
 } from '@mdi/js'
 import { apiFetch } from '../../utils/api'
 
@@ -67,6 +74,104 @@ const greaderUrl = ref(`${window.location.origin}/api/greader`)
 const feverUrl = ref(`${window.location.origin}/api/fever`)
 const loadingConfigs = ref(true)
 const apiConfigs = ref<any[]>([])
+
+// Access Key management
+interface AccessKeyInfo {
+  id: number
+  name: string
+  keyPrefix: string
+  permissions: string[]
+  createdAt: string | null
+  lastUsedAt: string | null
+}
+
+const accessKeys = ref<AccessKeyInfo[]>([])
+const accessKeyDialog = ref(false)
+const newKeyName = ref('')
+const newKeyPerms = ref<string[]>([])
+const createdKey = ref<string | null>(null)
+const accessKeyLoading = ref(false)
+
+const PERMISSION_GROUPS = [
+  { label: '文章', resource: 'articles', actions: ['read', 'write'] },
+  { label: '订阅', resource: 'subscriptions', actions: ['read', 'write'] },
+  { label: '任务', resource: 'jobs', actions: ['read', 'write'] },
+  { label: '设置', resource: 'settings', actions: ['read', 'write'] },
+  { label: 'GReader', resource: 'greader', actions: ['read', 'write'] },
+]
+
+const fetchAccessKeys = async () => {
+  try {
+    const res = await apiFetch('/api/user/access-keys')
+    if (res.ok) {
+      accessKeys.value = await res.json()
+    }
+  } catch (e) {
+    console.error('Failed to load access keys', e)
+  }
+}
+
+const openCreateKeyDialog = () => {
+  newKeyName.value = ''
+  newKeyPerms.value = []
+  createdKey.value = null
+  accessKeyDialog.value = true
+}
+
+const createAccessKey = async () => {
+  if (!newKeyName.value) return
+  accessKeyLoading.value = true
+  try {
+    const res = await apiFetch('/api/user/access-keys', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        name: newKeyName.value,
+        permissions: newKeyPerms.value,
+      })
+    })
+    if (res.ok) {
+      const data = await res.json()
+      createdKey.value = data.key
+      await fetchAccessKeys()
+    }
+  } catch (e) {
+    console.error('Failed to create access key', e)
+  } finally {
+    accessKeyLoading.value = false
+  }
+}
+
+const deleteAccessKey = async (id: number) => {
+  if (!confirm('确定要删除此 Access Key 吗？使用此 Key 的应用将无法访问。')) return
+  try {
+    const res = await apiFetch(`/api/user/access-keys/${id}`, { method: 'DELETE' })
+    if (res.ok) {
+      await fetchAccessKeys()
+    }
+  } catch (e) {
+    console.error('Failed to delete access key', e)
+  }
+}
+
+const togglePerm = (perm: string) => {
+  const idx = newKeyPerms.value.indexOf(perm)
+  if (idx >= 0) {
+    newKeyPerms.value.splice(idx, 1)
+  } else {
+    newKeyPerms.value.push(perm)
+  }
+}
+
+const toggleAllPerms = () => {
+  if (newKeyPerms.value.includes('*')) {
+    newKeyPerms.value = []
+  } else {
+    newKeyPerms.value = ['*']
+  }
+}
+
+const hasPerm = (perm: string) => newKeyPerms.value.includes(perm) || newKeyPerms.value.includes('*')
 
 const copyToClipboard = (text: string) => {
   navigator.clipboard.writeText(text)
@@ -198,6 +303,7 @@ onMounted(async () => {
   await fetchApiConfigs()
   await loadSettings()
   await fetchExtSettings()
+  await fetchAccessKeys()
 })
 
 const saveSettings = async () => {
@@ -374,13 +480,13 @@ const triggerImport = () => {
                 />
                 
                 <div class="d-flex justify-end">
-                    <v-btn 
-                        color="primary" 
-                        rounded="pill" 
-                        size="large" 
-                        variant="tonal" 
-                        min-width="180" 
-                        @click="updatePasswordAction" 
+                    <v-btn
+                        color="primary"
+                        rounded="pill"
+                        size="large"
+                        variant="tonal"
+                        min-width="180"
+                        @click="updatePasswordAction"
                         class="text-none font-weight-bold"
                     >
                         确认重置密码
@@ -389,6 +495,200 @@ const triggerImport = () => {
             </div>
           </v-card-text>
         </v-card>
+
+        <!-- API 访问密钥 -->
+        <v-card rounded="xl" variant="flat" color="surface-variant" class="mb-10">
+          <v-card-item class="pa-8 pb-4">
+            <template #prepend>
+              <v-icon color="primary" class="mr-3" size="28">{{ mdiKeyOutline }}</v-icon>
+            </template>
+            <v-card-title class="text-h6 font-weight-bold">API 访问密钥</v-card-title>
+            <template #append>
+              <v-btn
+                color="primary"
+                variant="tonal"
+                rounded="lg"
+                size="small"
+                :prepend-icon="mdiPlus"
+                class="text-none"
+                @click="openCreateKeyDialog"
+              >
+                创建密钥
+              </v-btn>
+            </template>
+          </v-card-item>
+          <v-divider />
+          <v-card-text class="pa-8">
+            <p class="text-body-2 text-medium-emphasis mb-6">用于 CLI、TUI 或 Agent 程序访问 TranRSS API。创建后请妥善保存，密钥仅显示一次。</p>
+
+            <div v-if="accessKeys.length === 0" class="text-center py-8">
+              <v-icon size="48" color="medium-emphasis" class="mb-3">{{ mdiKey }}</v-icon>
+              <p class="text-body-1 text-medium-emphasis">暂无访问密钥</p>
+              <p class="text-caption text-medium-emphasis">点击上方「创建密钥」生成第一个 API Key</p>
+            </div>
+
+            <v-list v-else lines="two" density="comfortable" bg-color="surface" rounded="lg">
+              <v-list-item
+                v-for="key in accessKeys"
+                :key="key.id"
+                class="px-4"
+              >
+                <template #prepend>
+                  <v-icon color="primary" size="20">{{ mdiKey }}</v-icon>
+                </template>
+                <v-list-item-title class="font-weight-medium">
+                  {{ key.name }}
+                  <code class="ml-2 text-caption" style="opacity: 0.6;">{{ key.keyPrefix }}</code>
+                </v-list-item-title>
+                <v-list-item-subtitle>
+                  <span v-if="key.permissions.includes('*')">全部权限</span>
+                  <span v-else>{{ key.permissions.join(', ') }}</span>
+                  <span v-if="key.lastUsedAt" class="ml-2">· 最后使用: {{ key.lastUsedAt }}</span>
+                </v-list-item-subtitle>
+                <template #append>
+                  <v-btn
+                    icon
+                    variant="text"
+                    size="small"
+                    color="error"
+                    @click="deleteAccessKey(key.id)"
+                  >
+                    <v-icon size="18">{{ mdiDeleteOutline }}</v-icon>
+                  </v-btn>
+                </template>
+              </v-list-item>
+            </v-list>
+          </v-card-text>
+        </v-card>
+
+        <!-- 创建 Access Key 对话框 -->
+        <v-dialog v-model="accessKeyDialog" max-width="560" persistent>
+          <v-card rounded="xl">
+            <v-card-title class="d-flex align-center justify-space-between pa-6 pb-2">
+              <span class="text-h6 font-weight-bold">创建访问密钥</span>
+              <v-btn icon variant="text" size="small" @click="accessKeyDialog = false">
+                <v-icon>{{ mdiClose }}</v-icon>
+              </v-btn>
+            </v-card-title>
+            <v-divider />
+            <v-card-text class="pa-6">
+              <!-- 创建成功后显示完整 key -->
+              <div v-if="createdKey" class="text-center py-4">
+                <v-icon size="48" color="success" class="mb-3">{{ mdiCheckCircleOutline }}</v-icon>
+                <p class="text-body-1 font-weight-bold mb-2">密钥创建成功</p>
+                <p class="text-caption text-medium-emphasis mb-4">请立即复制保存，关闭后将无法再次查看完整密钥。</p>
+                <div class="d-flex align-center border-sm border-opacity-25 rounded-lg px-3 py-3 bg-surface mb-4">
+                  <code class="text-body-2 flex-grow-1" style="word-break: break-all;">{{ createdKey }}</code>
+                  <v-btn
+                    variant="tonal"
+                    size="small"
+                    color="primary"
+                    :prepend-icon="mdiContentCopy"
+                    class="text-none ml-2"
+                    @click="copyToClipboard(createdKey!)"
+                  >
+                    {{ t('common.copy') }}
+                  </v-btn>
+                </div>
+                <v-btn
+                  color="primary"
+                  variant="flat"
+                  rounded="lg"
+                  class="text-none"
+                  @click="accessKeyDialog = false"
+                >
+                  完成
+                </v-btn>
+              </div>
+
+              <!-- 创建表单 -->
+              <div v-else>
+                <v-text-field
+                  v-model="newKeyName"
+                  label="密钥名称"
+                  placeholder="例如: tui, agent, script"
+                  variant="outlined"
+                  density="comfortable"
+                  rounded="lg"
+                  class="mb-6"
+                  hide-details
+                  :prepend-inner-icon="mdiKeyOutline"
+                  color="primary"
+                  bg-color="surface"
+                />
+
+                <p class="text-subtitle-2 font-weight-bold mb-3">权限设置</p>
+                <v-card variant="outlined" rounded="lg" class="mb-4">
+                  <v-card-text class="pa-4">
+                    <!-- 全选 -->
+                    <div class="d-flex align-center justify-space-between mb-3 pb-3 border-b-sm border-opacity-10">
+                      <span class="text-body-2 font-weight-medium">全部权限</span>
+                      <v-switch
+                        :model-value="newKeyPerms.includes('*')"
+                        color="primary"
+                        hide-details
+                        density="compact"
+                        @update:model-value="toggleAllPerms"
+                      />
+                    </div>
+
+                    <!-- 分组权限 -->
+                    <div v-for="group in PERMISSION_GROUPS" :key="group.resource" class="mb-2">
+                      <p class="text-caption text-medium-emphasis font-weight-bold mb-1">{{ group.label }}</p>
+                      <div class="d-flex flex-wrap" style="gap: 8px;">
+                        <v-chip
+                          v-for="action in group.actions"
+                          :key="`${group.resource}:${action}`"
+                          :color="hasPerm(`${group.resource}:${action}`) ? 'primary' : 'default'"
+                          :variant="hasPerm(`${group.resource}:${action}`) ? 'flat' : 'outlined'"
+                          size="small"
+                          class="text-none"
+                          @click="togglePerm(`${group.resource}:${action}`)"
+                        >
+                          {{ action === 'read' ? '读取' : '写入' }}
+                        </v-chip>
+                      </div>
+                    </div>
+                  </v-card-text>
+                </v-card>
+
+                <v-alert
+                  v-if="newKeyPerms.length === 0"
+                  type="warning"
+                  variant="tonal"
+                  density="compact"
+                  rounded="lg"
+                  class="mb-4"
+                  :icon="mdiAlertCircleOutline"
+                >
+                  请至少选择一项权限
+                </v-alert>
+              </div>
+            </v-card-text>
+            <v-card-actions v-if="!createdKey" class="pa-6 pt-0">
+              <v-spacer />
+              <v-btn
+                variant="text"
+                rounded="lg"
+                class="text-none"
+                @click="accessKeyDialog = false"
+              >
+                取消
+              </v-btn>
+              <v-btn
+                color="primary"
+                variant="flat"
+                rounded="lg"
+                class="text-none"
+                :loading="accessKeyLoading"
+                :disabled="!newKeyName || newKeyPerms.length === 0"
+                @click="createAccessKey"
+              >
+                创建
+              </v-btn>
+            </v-card-actions>
+          </v-card>
+        </v-dialog>
 
         <!-- 安全设置 -->
         <v-card rounded="xl" variant="flat" color="surface-variant" class="mb-6">

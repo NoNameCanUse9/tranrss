@@ -24,6 +24,7 @@ async fn unread_count(
     State(state): State<Arc<AppState>>,
     auth: AuthUser,
 ) -> Result<impl IntoResponse, (StatusCode, String)> {
+    auth.require_permission("greader", "read")?;
     tracing::info!("[GReader] unread_count for user: {}", auth.user_id);
 
     let rows: Vec<(i64, i64, Option<i64>)> = sqlx::query_as(
@@ -216,7 +217,8 @@ async fn client_login(
     ))
 }
 
-async fn get_token(_auth: AuthUser) -> impl IntoResponse {
+async fn get_token(auth: AuthUser) -> impl IntoResponse {
+    let _ = auth.require_permission("greader", "read");
     (
         StatusCode::OK,
         [(axum::http::header::CONTENT_TYPE, "text/plain")],
@@ -238,6 +240,7 @@ struct GReaderUserInfo {
 }
 
 async fn user_info(auth: AuthUser) -> Json<GReaderUserInfo> {
+    let _ = auth.require_permission("greader", "read");
     Json(GReaderUserInfo {
         user_id: auth.user_id.to_string(),
         user_name: auth.username.clone(),
@@ -280,6 +283,7 @@ async fn subscription_list(
     State(state): State<Arc<AppState>>,
     auth: AuthUser,
 ) -> Result<impl IntoResponse, (StatusCode, String)> {
+    auth.require_permission("greader", "read")?;
     tracing::info!("[GReader] subscription_list for user: {}", auth.user_id);
     // 自动刷新逻辑：GReader 客户端访问时触发过期 Feed 同步
     let state_thread = (*state).clone();
@@ -359,6 +363,7 @@ async fn tag_list(
     State(state): State<Arc<AppState>>,
     auth: AuthUser,
 ) -> Result<impl IntoResponse, (StatusCode, String)> {
+    auth.require_permission("greader", "read")?;
     let folders: Vec<(String,)> = sqlx::query_as("SELECT title FROM folders WHERE user_id = ?")
         .bind(auth.user_id)
         .fetch_all(&state.db)
@@ -490,6 +495,7 @@ async fn stream_contents(
     Path(stream_id): Path<String>,
     Query(params): Query<StreamQuery>,
 ) -> Result<impl IntoResponse, (StatusCode, String)> {
+    auth.require_permission("greader", "read")?;
     let state_thread = (*state).clone();
     let uid = auth.user_id;
     tokio::spawn(async move {
@@ -765,6 +771,7 @@ async fn stream_items_ids(
     auth: auth::AuthUser,
     Query(params): Query<StreamQuery>,
 ) -> Result<impl IntoResponse, (StatusCode, String)> {
+    auth.require_permission("greader", "read")?;
     tracing::info!("[GReader] stream_items_ids, params: {:?}", params);
     let limit = params.n.unwrap_or(1000).min(10000);
     let offset = params.c.as_deref().map(parse_continuation).unwrap_or(0);
@@ -859,6 +866,7 @@ async fn stream_items_contents(
     headers: HeaderMap,
     body: Bytes,
 ) -> Result<impl IntoResponse, (StatusCode, String)> {
+    auth.require_permission("greader", "read")?;
     tracing::info!("[GReader] stream_items_contents, query: {:?}", query_params);
     let mut ids = query_params.ids;
 
@@ -1102,6 +1110,7 @@ async fn edit_tag(
     auth: AuthUser,
     body: axum::body::Bytes,
 ) -> Result<impl IntoResponse, (StatusCode, String)> {
+    auth.require_permission("greader", "write")?;
     let body_str = String::from_utf8_lossy(&body);
     tracing::info!("[GReader] edit_tag for user {}: {}", auth.user_id, body_str);
     let mut ids_list = Vec::new();
@@ -1195,6 +1204,7 @@ async fn mark_all_as_read(
     auth: AuthUser,
     Form(params): Form<MarkAllAsReadForm>,
 ) -> Result<String, (StatusCode, String)> {
+    auth.require_permission("greader", "write")?;
     tracing::info!("[GReader] mark_all_as_read for user {}: {:?}", auth.user_id, params);
     let mut query_str = format!(
         "UPDATE articles SET is_read = 1 WHERE is_read = 0 AND feed_id IN (SELECT feed_id FROM subscriptions WHERE user_id = {})",
@@ -1250,6 +1260,7 @@ async fn subscription_quickadd(
     auth: AuthUser,
     Form(payload): Form<QuickAddForm>,
 ) -> Result<Json<QuickAddResponse>, (StatusCode, String)> {
+    auth.require_permission("greader", "write")?;
     let feed_url = payload.quickadd.trim();
     if feed_url.is_empty() {
         return Err((StatusCode::BAD_REQUEST, "empty url".into()));
@@ -1295,6 +1306,7 @@ async fn subscription_edit(
     auth: AuthUser,
     Form(payload): Form<SubscriptionEditForm>,
 ) -> Result<impl IntoResponse, (StatusCode, String)> {
+    auth.require_permission("greader", "write")?;
     if !payload.s.starts_with("feed/") {
         return Ok("OK");
     }
@@ -1379,6 +1391,7 @@ async fn disable_tag(
     auth: AuthUser,
     Form(payload): Form<DisableTagForm>,
 ) -> Result<impl IntoResponse, (StatusCode, String)> {
+    auth.require_permission("greader", "write")?;
     if let Some(label) = payload.s.split("/label/").last() {
         // Delete folder
         let folder_rec: Result<(i64,), _> =
@@ -1422,6 +1435,7 @@ async fn rename_tag(
     auth: AuthUser,
     Form(payload): Form<RenameTagForm>,
 ) -> Result<impl IntoResponse, (StatusCode, String)> {
+    auth.require_permission("greader", "write")?;
     if let (Some(old_label), Some(new_label)) = (
         payload.s.split("/label/").last(),
         payload.dest.split("/label/").last(),

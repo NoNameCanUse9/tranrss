@@ -68,6 +68,9 @@ use crate::utils::broadcast_layer::BroadcastLayer;
         route::jobs::get_jobs,
         route::share::share_feed,
         route::fever::fever_handler,
+        route::access_key::list_access_keys,
+        route::access_key::create_access_key,
+        route::access_key::delete_access_key,
     ),
     components(
         schemas(
@@ -91,6 +94,10 @@ use crate::utils::broadcast_layer::BroadcastLayer;
             crate::model::api_config::ApiConfig,
             crate::model::api_config::CreateApiConfigRequest,
             crate::model::api_config::UpdateApiConfigRequest,
+            crate::model::access_key::AccessKey,
+            crate::model::access_key::AccessKeyInfo,
+            crate::model::access_key::CreateAccessKeyRequest,
+            crate::model::access_key::CreateAccessKeyResponse,
             crate::model::api_usage::ApiUsageStats,
             crate::model::api_usage::ModelUsage,
             crate::model::api_usage::TimeSeriesUsage,
@@ -105,6 +112,7 @@ use crate::utils::broadcast_layer::BroadcastLayer;
         (name = "API Config", description = "AI API configuration management APIs"),
         (name = "Jobs", description = "Background jobs monitoring APIs"),
         (name = "Compatibility", description = "Third-party protocol compatibility APIs (Fever, GReader, etc.)"),
+        (name = "AccessKey", description = "Access Key management APIs for CLI/TUI/Agent"),
     ),
     modifiers(&SecurityAddon)
 )]
@@ -239,6 +247,7 @@ async fn main() -> anyhow::Result<()> {
         .route("/api/internal/trigger_refresh_all", axum::routing::post(trigger_refresh_all_internal))
         .route("/users/count", get(get_user_count))
         .nest("/api/user", route::user::router())
+        .nest("/api/user/access-keys", route::access_key::router())
         .nest("/api/translate-configs", route::translate_api::router())
         .nest("/api/feeds", route::subscriptions::router())
         .nest("/api/articles", route::articles::router())

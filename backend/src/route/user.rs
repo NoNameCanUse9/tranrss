@@ -63,9 +63,10 @@ async fn get_reg_status(
 )]
 async fn toggle_reg(
     State(state): State<Arc<AppState>>,
-    _auth: AuthUser, 
+    auth: AuthUser,
     Json(payload): Json<serde_json::Value>,
 ) -> Result<StatusCode, (StatusCode, String)> {
+    auth.require_permission("settings", "write")?;
     let allow = payload.get("allow").and_then(|v| v.as_bool()).unwrap_or(true);
     
     sqlx::query("INSERT OR REPLACE INTO system_config (key, value) VALUES ('allow_registration', ?)")
@@ -246,6 +247,7 @@ async fn update_password(
     auth_user: AuthUser,
     body: axum::body::Bytes,
 ) -> Result<StatusCode, (StatusCode, String)> {
+    auth_user.require_permission("settings", "write")?;
     let payload: UpdatePasswordRequest = serde_json::from_slice(body.as_ref())
         .map_err(|e| (StatusCode::BAD_REQUEST, format!("Invalid JSON: {}", e)))?;
 
@@ -298,6 +300,7 @@ async fn update_username(
     auth_user: AuthUser,
     body: axum::body::Bytes,
 ) -> Result<StatusCode, (StatusCode, String)> {
+    auth_user.require_permission("settings", "write")?;
     let payload: UpdateUsernameRequest = serde_json::from_slice(body.as_ref())
         .map_err(|e| (StatusCode::BAD_REQUEST, format!("Invalid JSON: {}", e)))?;
 
@@ -337,6 +340,7 @@ async fn get_setting(
     State(state): State<Arc<AppState>>,
     auth_user: AuthUser,
 ) -> Result<Json<UserSetting>, (StatusCode, String)> {
+    auth_user.require_permission("settings", "read")?;
     let setting: UserSetting = sqlx::query_as("SELECT translate_api_id, summary_api_id, default_api_id, greader_api, fever_api, api_proxy, api_proxy_url, app_mode, user_id, log_num_limit, custom_trans_style FROM user_setting WHERE user_id = ?")
         .bind(auth_user.user_id)
         .fetch_one(&state.db)
@@ -365,6 +369,7 @@ async fn update_setting(
     auth_user: AuthUser,
     body: axum::body::Bytes,
 ) -> Result<StatusCode, (StatusCode, String)> {
+    auth_user.require_permission("settings", "write")?;
     let payload: UpdateUserSettingRequest = serde_json::from_slice(body.as_ref())
         .map_err(|e| (StatusCode::BAD_REQUEST, format!("Invalid JSON: {}", e)))?;
 

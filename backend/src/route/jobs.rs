@@ -44,8 +44,9 @@ pub fn router() -> Router<Arc<AppState>> {
 )]
 async fn trigger_refresh_all(
     State(state): State<Arc<AppState>>,
-    _auth: AuthUser,
+    auth: AuthUser,
 ) -> Result<StatusCode, (StatusCode, String)> {
+    auth.require_permission("jobs", "write")?;
     use crate::services::jobs::RefreshFeedsJob;
     use apalis::prelude::Storage;
 
@@ -72,8 +73,9 @@ async fn trigger_refresh_all(
 )]
 async fn clear_completed(
     State(state): State<Arc<AppState>>,
-    _auth: AuthUser,
+    auth: AuthUser,
 ) -> Result<StatusCode, (StatusCode, String)> {
+    auth.require_permission("jobs", "write")?;
     sqlx::query("DELETE FROM Jobs WHERE status = 'Done'")
         .execute(&state.db)
         .await
@@ -98,9 +100,10 @@ async fn clear_completed(
 )]
 async fn retry_job(
     State(state): State<Arc<AppState>>,
-    _auth: AuthUser,
+    auth: AuthUser,
     axum::extract::Path(id): axum::extract::Path<String>,
 ) -> Result<StatusCode, (StatusCode, String)> {
+    auth.require_permission("jobs", "write")?;
     sqlx::query("UPDATE Jobs SET status = 'Pending', attempts = 0, last_error = NULL, run_at = (strftime('%s', 'now')) WHERE id = ?")
         .bind(id)
         .execute(&state.db)
@@ -125,6 +128,7 @@ async fn get_jobs(
     State(state): State<Arc<AppState>>,
     auth: AuthUser,
 ) -> Result<Json<Vec<JobInfo>>, (StatusCode, String)> {
+    auth.require_permission("jobs", "read")?;
     // 获取用户设置中定义的日志数量上限
     let log_num_limit: i32 =
         sqlx::query_scalar("SELECT log_num_limit FROM user_setting WHERE user_id = ?")

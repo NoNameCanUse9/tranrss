@@ -59,6 +59,7 @@ async fn list_inactive_feeds(
     State(state): State<Arc<AppState>>,
     auth: AuthUser,
 ) -> Result<Json<Vec<InactiveFeed>>, (StatusCode, String)> {
+    auth.require_permission("subscriptions", "read")?;
     let inactive = sqlx::query_as::<_, InactiveFeed>(
         r#"
         SELECT f.id as feed_id, f.title, f.feed_url as url, inf.reason, inf.disabled_at
@@ -99,6 +100,7 @@ async fn activate_inactive_feeds(
     auth: AuthUser,
     Json(payload): Json<ActivateRequest>,
 ) -> Result<StatusCode, (StatusCode, String)> {
+    auth.require_permission("subscriptions", "write")?;
     let mut tx = state
         .db
         .begin()
@@ -158,6 +160,7 @@ async fn create_subscription(
     auth: AuthUser,
     Json(payload): Json<CreateSubscriptionRequest>,
 ) -> Result<(StatusCode, Json<i64>), (StatusCode, String)> {
+    auth.require_permission("subscriptions", "write")?;
     let (id, feed_id) = subscription::create_subscription(&state.db, auth.user_id, payload)
         .await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
@@ -190,6 +193,7 @@ async fn list_subscriptions(
     State(state): State<Arc<AppState>>,
     auth: AuthUser,
 ) -> Result<Json<Vec<SubscriptionDetail>>, (StatusCode, String)> {
+    auth.require_permission("subscriptions", "read")?;
     // FreshRSS 风格：用户访问时顺带检查并触发过期任务 (Pseudo-cron)
     let state_thread = (*state).clone();
     let uid = auth.user_id;
@@ -225,6 +229,7 @@ async fn get_subscription(
     auth: AuthUser,
     Path(id): Path<i64>,
 ) -> Result<Json<SubscriptionDetail>, (StatusCode, String)> {
+    auth.require_permission("subscriptions", "read")?;
     let sub = subscription::get_subscription_detail(&state.db, auth.user_id, id)
         .await
         .map_err(|e| (StatusCode::NOT_FOUND, e.to_string()))?;
@@ -255,6 +260,7 @@ async fn update_subscription(
     Path(id): Path<i64>,
     Json(payload): Json<UpdateSubscriptionRequest>,
 ) -> Result<StatusCode, (StatusCode, String)> {
+    auth.require_permission("subscriptions", "write")?;
     // 1. 获取 feed_id 以便后续触发任务
     let feed_id = subscription::get_feed_id_by_subscription(&state.db, auth.user_id, id)
         .await
@@ -297,6 +303,7 @@ async fn delete_subscription(
     auth: AuthUser,
     Path(id): Path<i64>,
 ) -> Result<StatusCode, (StatusCode, String)> {
+    auth.require_permission("subscriptions", "write")?;
     subscription::delete_subscription(&state.db, auth.user_id, id)
         .await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
@@ -325,6 +332,7 @@ async fn sync_subscription(
     auth: AuthUser,
     Path(id): Path<i64>,
 ) -> Result<StatusCode, (StatusCode, String)> {
+    auth.require_permission("subscriptions", "write")?;
     let feed_id = subscription::get_feed_id_by_subscription(&state.db, auth.user_id, id)
         .await
         .map_err(|e| (StatusCode::NOT_FOUND, format!("订阅不存在: {}", e)))?;
@@ -364,6 +372,7 @@ async fn sync_all_subscriptions(
     State(state): State<Arc<AppState>>,
     auth: AuthUser,
 ) -> Result<StatusCode, (StatusCode, String)> {
+    auth.require_permission("subscriptions", "write")?;
     let feed_ids = subscription::list_user_feed_ids(&state.db, auth.user_id)
         .await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
@@ -398,9 +407,10 @@ pub struct PreviewRequest {
     tag = "Subscriptions"
 )]
 async fn preview_feed(
-    _auth: AuthUser,
+    auth: AuthUser,
     Json(payload): Json<PreviewRequest>,
 ) -> Result<Json<CreateFeedRequest>, (StatusCode, String)> {
+    auth.require_permission("subscriptions", "read")?;
     let preview = feeds::fetch_feed_preview(&payload.url)
         .await
         .map_err(|e| (StatusCode::BAD_REQUEST, e.to_string()))?;
@@ -424,6 +434,7 @@ async fn export_opml(
     State(state): State<Arc<AppState>>,
     auth: AuthUser,
 ) -> Result<impl axum::response::IntoResponse, (StatusCode, String)> {
+    auth.require_permission("subscriptions", "read")?;
     let subscriptions = subscription::list_subscriptions(&state.db, auth.user_id)
         .await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
@@ -520,6 +531,7 @@ async fn import_opml(
     auth: AuthUser,
     mut multipart: axum::extract::Multipart,
 ) -> Result<StatusCode, (StatusCode, String)> {
+    auth.require_permission("subscriptions", "write")?;
     let mut content = String::new();
 
     while let Some(field) = multipart

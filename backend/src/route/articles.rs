@@ -46,6 +46,7 @@ async fn batch_translate_titles(
     State(state): State<Arc<AppState>>,
     auth: AuthUser,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    auth.require_permission("articles", "write")?;
     let ai = crate::services::jobs::get_default_ai_service_for_user(&state.db, auth.user_id)
         .await
         .map_err(|e| (StatusCode::BAD_REQUEST, e.to_string()))?;
@@ -83,6 +84,7 @@ async fn translate_article(
     auth: AuthUser,
     Path(id): Path<i64>,
 ) -> Result<StatusCode, (StatusCode, String)> {
+    auth.require_permission("articles", "write")?;
     // 1. 获取有效 API ID (优先指定，次之默认，最后回退至最前)
     let translate_api_id: Option<i64> =
         sqlx::query_scalar("SELECT translate_api_id FROM user_setting WHERE user_id = ?")
@@ -148,6 +150,7 @@ async fn summarize_article(
     auth: AuthUser,
     Path(id): Path<i64>,
 ) -> Result<StatusCode, (StatusCode, String)> {
+    auth.require_permission("articles", "write")?;
     // 1. 获取有效 API ID
     let summary_api_id: Option<i64> =
         sqlx::query_scalar("SELECT summary_api_id FROM user_setting WHERE user_id = ?")
@@ -210,6 +213,7 @@ async fn list_articles(
     auth: AuthUser,
     Query(params): Query<ListArticlesQuery>,
 ) -> Result<Json<Vec<crate::model::articles::ArticleListItem>>, (StatusCode, String)> {
+    auth.require_permission("articles", "read")?;
     let articles = articles::list_articles(
         &state.db,
         auth.user_id,
@@ -246,6 +250,7 @@ async fn mark_starred(
     Path(id): Path<i64>,
     Json(payload): Json<serde_json::Value>,
 ) -> Result<StatusCode, (StatusCode, String)> {
+    auth.require_permission("articles", "write")?;
     let starred = payload
         .get("starred")
         .and_then(|v| v.as_bool())
@@ -278,6 +283,7 @@ async fn get_article(
     auth: AuthUser,
     Path(id): Path<i64>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    auth.require_permission("articles", "read")?;
     let detail = articles::get_article_detail(&state.db, auth.user_id, id)
         .await
         .map_err(|e| (StatusCode::NOT_FOUND, e.to_string()))?;
@@ -340,6 +346,7 @@ async fn mark_read(
     Path(id): Path<i64>,
     Json(payload): Json<serde_json::Value>,
 ) -> Result<StatusCode, (StatusCode, String)> {
+    auth.require_permission("articles", "write")?;
     let read = payload
         .get("read")
         .and_then(|v| v.as_bool())

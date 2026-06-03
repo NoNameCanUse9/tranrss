@@ -36,6 +36,7 @@ async fn create_api(
     auth: AuthUser,
     Json(payload): Json<CreateApiConfigRequest>,
 ) -> Result<(StatusCode, Json<i64>), (StatusCode, String)> {
+    auth.require_permission("settings", "write")?;
     let id = api::create_config(&state.db, auth.user_id, payload)
         .await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
@@ -59,6 +60,7 @@ async fn list_apis(
     State(state): State<Arc<AppState>>,
     auth: AuthUser,
 ) -> Result<Json<Vec<ApiConfig>>, (StatusCode, String)> {
+    auth.require_permission("settings", "read")?;
     let configs = api::list_configs(&state.db, auth.user_id)
         .await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
@@ -92,6 +94,7 @@ async fn get_api(
     auth: AuthUser,
     Path(id): Path<i64>,
 ) -> Result<Json<ApiConfig>, (StatusCode, String)> {
+    auth.require_permission("settings", "read")?;
     let config = api::get_config(&state.db, id, auth.user_id)
         .await
         .map_err(|_| {
@@ -127,6 +130,7 @@ async fn update_api(
     Path(id): Path<i64>,
     Json(payload): Json<UpdateApiConfigRequest>,
 ) -> Result<StatusCode, (StatusCode, String)> {
+    auth.require_permission("settings", "write")?;
     api::update_config(&state.db, id, auth.user_id, payload)
         .await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
@@ -154,6 +158,7 @@ async fn delete_api(
     auth: AuthUser,
     Path(id): Path<i64>,
 ) -> Result<StatusCode, (StatusCode, String)> {
+    auth.require_permission("settings", "write")?;
     api::delete_config(&state.db, id, auth.user_id)
         .await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
@@ -177,6 +182,7 @@ async fn get_usage(
     State(state): State<Arc<AppState>>,
     auth: AuthUser,
 ) -> Result<Json<crate::model::api_usage::ApiUsageStats>, (StatusCode, String)> {
+    auth.require_permission("settings", "read")?;
     let stats = api::get_usage_summary(&state.db, auth.user_id)
         .await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
@@ -200,6 +206,7 @@ async fn get_usage_history(
     State(state): State<Arc<AppState>>,
     auth: AuthUser,
 ) -> Result<Json<Vec<crate::model::api_usage::TimeSeriesUsage>>, (StatusCode, String)> {
+    auth.require_permission("settings", "read")?;
     let history = api::get_usage_history(&state.db, auth.user_id)
         .await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;

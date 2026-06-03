@@ -1,3 +1,4 @@
+pub mod access_key;
 pub mod api_config;
 pub mod api_usage;
 pub mod articles;
