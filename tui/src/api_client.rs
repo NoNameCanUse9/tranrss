@@ -108,8 +108,8 @@ impl ApiClient {
             .build()?;
         Ok(Self {
             client,
-            server: config.server.trim_end_matches('/').to_string(),
-            api_key: config.api_key.clone(),
+            server: config.api_base(),
+            api_key: config.api_key_value(),
         })
     }
 
@@ -341,8 +341,10 @@ mod tests {
     #[test]
     fn test_auth_header_format() {
         let config = Config {
-            server: "http://localhost:8000".to_string(),
-            api_key: "trss_abc123".to_string(),
+            database: crate::config::DatabaseMode::Remote {
+                server: "http://localhost:8000".to_string(),
+                api_key: "trss_abc123".to_string(),
+            },
             ..Default::default()
         };
         let client = ApiClient::new(&config).unwrap();
@@ -352,8 +354,10 @@ mod tests {
     #[test]
     fn test_client_new_trailing_slash() {
         let config = Config {
-            server: "http://localhost:8000/".to_string(),
-            api_key: "trss_test".to_string(),
+            database: crate::config::DatabaseMode::Remote {
+                server: "http://localhost:8000/".to_string(),
+                api_key: "trss_test".to_string(),
+            },
             ..Default::default()
         };
         let client = ApiClient::new(&config).unwrap();

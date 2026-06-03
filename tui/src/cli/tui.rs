@@ -6,27 +6,50 @@ use crossterm::{
 use ratatui::{Terminal, backend::CrosstermBackend};
 
 use crate::api_client::ApiClient;
-use crate::config::Config;
+use crate::config::{Config, DatabaseMode};
 use crate::tui_app::App;
 
 pub async fn run() -> Result<()> {
     let config = Config::load()?;
 
-    if config.server.is_empty() || config.api_key.is_empty() {
-        eprintln!("请先配置服务器地址和 API Key:");
-        eprintln!("  tranrss config set server http://your-server:8000");
-        eprintln!("  tranrss config set api_key trss_xxx");
-        return Ok(());
+    match &config.database {
+        DatabaseMode::Remote { server, api_key } => {
+            if server.is_empty() || api_key.is_empty() {
+                eprintln!("请先配置服务器地址和 API Key:");
+                eprintln!("  tranrss config remote --server http://your-server:8000 --api-key trss_xxx");
+                return Ok(());
+            }
+        }
+        DatabaseMode::Local { db_path } => {
+            if db_path.is_empty() {
+                eprintln!("请先配置 SQLite 数据库路径:");
+                eprintln!("  tranrss config local --db-path /path/to/data.database");
+                return Ok(());
+            }
+            if !std::path::Path::new(db_path).exists() {
+                eprintln!("数据库文件不存在: {}", db_path);
+                return Ok(());
+            }
+        }
+        DatabaseMode::Fresh { data_dir } => {
+            if data_dir.is_empty() {
+                eprintln!("请先配置数据目录:");
+                eprintln!("  tranrss config fresh --data-dir /path/to/data");
+                return Ok(());
+            }
+        }
     }
 
     let client = ApiClient::new(&config)?;
 
-    // 测试连接
-    match client.get_subscriptions().await {
-        Ok(subs) => eprintln!("✓ 连接成功，共 {} 个订阅", subs.len()),
-        Err(e) => {
-            eprintln!("✗ 连接失败: {}", e);
-            return Ok(());
+    // 测试连接（仅远程模式）
+    if config.is_remote() {
+        match client.get_subscriptions().await {
+            Ok(subs) => eprintln!("✓ 连接成功，共 {} 个订阅", subs.len()),
+            Err(e) => {
+                eprintln!("✗ 连接失败: {}", e);
+                return Ok(());
+            }
         }
     }
 
