@@ -86,3 +86,93 @@ fn home_dir() -> PathBuf {
         .map(PathBuf::from)
         .unwrap_or_else(|_| PathBuf::from("."))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_default_config() {
+        let config = Config::default();
+        assert!(config.server.is_empty());
+        assert!(config.api_key.is_empty());
+        assert_eq!(config.log.output, "auto");
+        assert_eq!(config.log.level, "info");
+        assert!(config.log.file.is_none());
+        assert_eq!(config.tui.theme, "dark");
+        assert_eq!(config.tui.language, "zh");
+    }
+
+    #[test]
+    fn test_api_base_trailing_slash() {
+        let mut config = Config::default();
+        config.server = "http://localhost:8000/".to_string();
+        assert_eq!(config.api_base(), "http://localhost:8000");
+    }
+
+    #[test]
+    fn test_api_base_no_trailing_slash() {
+        let mut config = Config::default();
+        config.server = "http://localhost:8000".to_string();
+        assert_eq!(config.api_base(), "http://localhost:8000");
+    }
+
+    #[test]
+    fn test_serialize_deserialize() {
+        let config = Config {
+            server: "http://example.com".to_string(),
+            api_key: "trss_abc123".to_string(),
+            log: LogConfig {
+                output: "file".to_string(),
+                level: "debug".to_string(),
+                file: Some("/var/log/tranrss.log".to_string()),
+            },
+            tui: TuiConfig {
+                theme: "light".to_string(),
+                language: "en".to_string(),
+            },
+        };
+
+        let toml_str = toml::to_string(&config).unwrap();
+        let deserialized: Config = toml::from_str(&toml_str).unwrap();
+
+        assert_eq!(deserialized.server, "http://example.com");
+        assert_eq!(deserialized.api_key, "trss_abc123");
+        assert_eq!(deserialized.log.output, "file");
+        assert_eq!(deserialized.log.level, "debug");
+        assert_eq!(deserialized.log.file, Some("/var/log/tranrss.log".to_string()));
+        assert_eq!(deserialized.tui.theme, "light");
+        assert_eq!(deserialized.tui.language, "en");
+    }
+
+    #[test]
+    fn test_partial_config_defaults() {
+        let toml_str = r#"
+server = "http://example.com"
+api_key = "trss_test"
+"#;
+        let config: Config = toml::from_str(toml_str).unwrap();
+        assert_eq!(config.server, "http://example.com");
+        assert_eq!(config.log.output, "auto");
+        assert_eq!(config.tui.theme, "dark");
+    }
+
+    #[test]
+    fn test_save_and_load() {
+        let dir = tempfile::tempdir().unwrap();
+        let config_path = dir.path().join("config.toml");
+
+        let config = Config {
+            server: "http://test.com".to_string(),
+            api_key: "trss_test".to_string(),
+            ..Default::default()
+        };
+
+        let content = toml::to_string_pretty(&config).unwrap();
+        std::fs::write(&config_path, content).unwrap();
+
+        let loaded: Config = toml::from_str(&std::fs::read_to_string(&config_path).unwrap()).unwrap();
+        assert_eq!(loaded.server, "http://test.com");
+        assert_eq!(loaded.api_key, "trss_test");
+    }
+}

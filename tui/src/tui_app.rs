@@ -13,7 +13,7 @@ use crate::api_client::{ApiClient, Article, JobInfo, Subscription};
 
 // ── Tab 定义 ──
 
-#[derive(Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, PartialEq, Debug)]
 enum Tab {
     Articles,
     Subscriptions,
@@ -626,4 +626,125 @@ fn html_to_text(html: &str) -> String {
         .map(|line: &str| line.trim_end())
         .collect::<Vec<_>>()
         .join("\n")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_html_to_text_paragraph() {
+        let html = "<p>Hello World</p>";
+        let text = html_to_text(html);
+        assert!(text.contains("Hello World"));
+    }
+
+    #[test]
+    fn test_html_to_text_heading() {
+        let html = "<h1>Title</h1><p>Content</p>";
+        let text = html_to_text(html);
+        assert!(text.contains("Title"));
+        assert!(text.contains("Content"));
+    }
+
+    #[test]
+    fn test_html_to_text_link() {
+        let html = r#"<p><a href="https://example.com">Click here</a></p>"#;
+        let text = html_to_text(html);
+        assert!(text.contains("Click here"));
+    }
+
+    #[test]
+    fn test_html_to_text_list() {
+        let html = "<ul><li>Item 1</li><li>Item 2</li><li>Item 3</li></ul>";
+        let text = html_to_text(html);
+        assert!(text.contains("Item 1"));
+        assert!(text.contains("Item 2"));
+        assert!(text.contains("Item 3"));
+    }
+
+    #[test]
+    fn test_html_to_text_nested() {
+        let html = r#"
+            <article>
+                <h2>Article Title</h2>
+                <p>First paragraph with <strong>bold</strong> text.</p>
+                <p>Second paragraph with <em>italic</em> text.</p>
+                <ul>
+                    <li>List item 1</li>
+                    <li>List item 2</li>
+                </ul>
+            </article>
+        "#;
+        let text = html_to_text(html);
+        assert!(text.contains("Article Title"));
+        assert!(text.contains("First paragraph"));
+        assert!(text.contains("List item 1"));
+    }
+
+    #[test]
+    fn test_html_to_text_empty() {
+        let html = "";
+        let text = html_to_text(html);
+        assert!(text.is_empty() || text.trim().is_empty());
+    }
+
+    #[test]
+    fn test_html_to_text_plain_text() {
+        let html = "Just plain text, no HTML";
+        let text = html_to_text(html);
+        assert!(text.contains("Just plain text"));
+    }
+
+    #[test]
+    fn test_html_to_text_translation_block() {
+        let html = r#"
+            <p>Original text</p>
+            <em class="trans-text">Translated text</em>
+        "#;
+        let text = html_to_text(html);
+        assert!(text.contains("Original text"));
+        assert!(text.contains("Translated text"));
+    }
+
+    #[test]
+    fn test_html_to_text_image() {
+        let html = r#"<p><img src="https://example.com/image.png" alt="Test Image"></p>"#;
+        let text = html_to_text(html);
+        assert!(text.contains("Test Image"));
+    }
+
+    #[test]
+    fn test_tab_all_variants() {
+        let tabs = Tab::all();
+        assert_eq!(tabs.len(), 5);
+    }
+
+    #[test]
+    fn test_tab_titles() {
+        assert_eq!(Tab::Articles.title(), "1:文章");
+        assert_eq!(Tab::Subscriptions.title(), "2:订阅");
+        assert_eq!(Tab::Jobs.title(), "3:队列");
+        assert_eq!(Tab::Api.title(), "4:API");
+        assert_eq!(Tab::Settings.title(), "5:设置");
+    }
+
+    #[test]
+    fn test_tab_index() {
+        assert_eq!(Tab::Articles.index(), 0);
+        assert_eq!(Tab::Subscriptions.index(), 1);
+        assert_eq!(Tab::Jobs.index(), 2);
+        assert_eq!(Tab::Api.index(), 3);
+        assert_eq!(Tab::Settings.index(), 4);
+    }
+
+    #[test]
+    fn test_tab_from_index() {
+        assert_eq!(Tab::from_index(0), Tab::Articles);
+        assert_eq!(Tab::from_index(1), Tab::Subscriptions);
+        assert_eq!(Tab::from_index(2), Tab::Jobs);
+        assert_eq!(Tab::from_index(3), Tab::Api);
+        assert_eq!(Tab::from_index(4), Tab::Settings);
+        assert_eq!(Tab::from_index(99), Tab::Articles); // default
+    }
 }

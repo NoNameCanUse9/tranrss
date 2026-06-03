@@ -218,3 +218,145 @@ impl ApiClient {
         self.get("/api/translate-configs").await
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_deserialize_subscription() {
+        let json = r#"{
+            "id": 1,
+            "feedId": 10,
+            "title": "Hacker News",
+            "url": "https://news.ycombinator.com/rss",
+            "siteUrl": "https://news.ycombinator.com",
+            "category": "tech",
+            "customTitle": null,
+            "needTranslate": true,
+            "needSummary": false
+        }"#;
+
+        let sub: Subscription = serde_json::from_str(json).unwrap();
+        assert_eq!(sub.id, 1);
+        assert_eq!(sub.feed_id, 10);
+        assert_eq!(sub.title, "Hacker News");
+        assert_eq!(sub.category, "tech");
+        assert_eq!(sub.need_translate, Some(true));
+        assert_eq!(sub.need_summary, Some(false));
+    }
+
+    #[test]
+    fn test_deserialize_article() {
+        let json = r#"{
+            "id": 42,
+            "title": "Test Article",
+            "link": "https://example.com/article",
+            "author": "John Doe",
+            "feedId": 10,
+            "feedTitle": "Test Feed",
+            "isRead": false,
+            "isStarred": true,
+            "publishedAt": 1704067200
+        }"#;
+
+        let article: Article = serde_json::from_str(json).unwrap();
+        assert_eq!(article.id, 42);
+        assert_eq!(article.title, "Test Article");
+        assert!(!article.is_read);
+        assert!(article.is_starred);
+        assert_eq!(article.published_at, Some(1704067200));
+    }
+
+    #[test]
+    fn test_deserialize_article_detail() {
+        let json = r#"{
+            "detail": {
+                "id": 42,
+                "title": "Test",
+                "link": null,
+                "author": null,
+                "summary": null,
+                "publishedAt": null
+            },
+            "blocks": [
+                {
+                    "blockIndex": -1,
+                    "rawText": "Title",
+                    "transText": "标题"
+                },
+                {
+                    "blockIndex": 0,
+                    "rawText": "Content",
+                    "transText": null
+                }
+            ],
+            "content": "<p>Hello</p>",
+            "is_need_translated": true
+        }"#;
+
+        let detail: ArticleDetail = serde_json::from_str(json).unwrap();
+        assert_eq!(detail.detail.id, 42);
+        assert_eq!(detail.blocks.len(), 2);
+        assert_eq!(detail.blocks[0].block_index, -1);
+        assert_eq!(detail.blocks[0].trans_text, Some("标题".to_string()));
+        assert!(detail.is_need_translated);
+    }
+
+    #[test]
+    fn test_deserialize_job_info() {
+        let json = r#"{
+            "id": "abc-123",
+            "jobType": "SyncFeedJob",
+            "category": "sync",
+            "status": "Done",
+            "attempts": 1,
+            "lastError": null,
+            "feedTitle": "HN",
+            "titleLabel": "Hacker News"
+        }"#;
+
+        let job: JobInfo = serde_json::from_str(json).unwrap();
+        assert_eq!(job.id, "abc-123");
+        assert_eq!(job.job_type, "SyncFeedJob");
+        assert_eq!(job.status, "Done");
+        assert_eq!(job.feed_title, Some("HN".to_string()));
+    }
+
+    #[test]
+    fn test_deserialize_api_config() {
+        let json = r#"{
+            "id": 1,
+            "name": "OpenAI",
+            "apiType": "openai",
+            "baseUrl": "https://api.openai.com/v1"
+        }"#;
+
+        let config: ApiConfigInfo = serde_json::from_str(json).unwrap();
+        assert_eq!(config.id, 1);
+        assert_eq!(config.name, "OpenAI");
+        assert_eq!(config.api_type, "openai");
+    }
+
+    #[test]
+    fn test_auth_header_format() {
+        let config = Config {
+            server: "http://localhost:8000".to_string(),
+            api_key: "trss_abc123".to_string(),
+            ..Default::default()
+        };
+        let client = ApiClient::new(&config).unwrap();
+        assert_eq!(client.auth_header(), "Bearer trss_abc123");
+    }
+
+    #[test]
+    fn test_client_new_trailing_slash() {
+        let config = Config {
+            server: "http://localhost:8000/".to_string(),
+            api_key: "trss_test".to_string(),
+            ..Default::default()
+        };
+        let client = ApiClient::new(&config).unwrap();
+        assert_eq!(client.server, "http://localhost:8000");
+    }
+}
