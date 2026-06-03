@@ -26,7 +26,6 @@ import {
   mdiDeleteOutline,
   mdiClose,
   mdiKey,
-  mdiEyeOff,
   mdiAlertCircleOutline
 } from '@mdi/js'
 import { apiFetch } from '../../utils/api'
