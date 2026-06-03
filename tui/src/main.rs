@@ -1,6 +1,8 @@
+mod api_client;
 mod cli;
 mod config;
 mod logging;
+mod tui_app;
 
 use anyhow::Result;
 use clap::{Parser, Subcommand};
