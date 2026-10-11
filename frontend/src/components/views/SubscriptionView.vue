@@ -426,12 +426,12 @@ watch([() => form.value.autoTranslate, () => form.value.needSummary], ([trans, s
 <template>
   <div class="subscription-view">
     <div class="sticky-header pa-4 pb-0 mb-4">
-      <div class="d-flex align-center justify-space-between mb-6">
-        <div>
+      <div class="d-flex align-center justify-space-between flex-wrap gap-3 mb-6">
+        <div class="page-header-title min-w-0">
           <h1 class="text-h3 font-weight-bold">{{ $t('sub.title') }}</h1>
           <p class="text-body-1 text-medium-emphasis mt-2">{{ $t('sub.active_count', { n: subscriptions.length }) }}</p>
         </div>
-        <div class="d-flex gap-2">
+        <div class="page-header-actions d-flex flex-wrap gap-2">
           <v-btn 
             variant="tonal" 
             color="secondary" 
@@ -492,9 +492,9 @@ watch([() => form.value.autoTranslate, () => form.value.needSummary], ([trans, s
       <v-col v-for="sub in filtered" :key="sub.id" cols="12" sm="6" md="6" lg="4" xl="3" class="d-flex sub-card-col">
         <v-card rounded="xl" variant="flat" color="surface" class="sub-card h-100 w-100">
           <v-card-text class="pa-5 d-flex flex-column h-100">
-            <div class="d-flex align-start justify-space-between mb-2">
-              <div class="flex-1 min-w-0 mr-2">
-                <div class="d-flex align-center gap-2 mb-1 overflow-hidden" style="min-width: 0">
+            <div class="d-flex align-start justify-space-between gap-2 mb-2">
+              <div class="flex-1 min-w-0">
+                <div class="d-flex align-center gap-2 mb-1 min-w-0">
                 <v-avatar size="20" rounded="sm" v-if="sub.iconBase64 || sub.iconUrl" class="bg-grey-lighten-4 flex-shrink-0">
                   <v-img :src="sub.iconBase64 || sub.iconUrl">
                       <template v-slot:placeholder>
@@ -504,7 +504,7 @@ watch([() => form.value.autoTranslate, () => form.value.needSummary], ([trans, s
                   </v-avatar>
                   <p class="text-body-1 font-weight-semibold text-truncate flex-grow-1 mb-0">{{ sub.title }}</p>
                 </div>
-                <p class="text-caption text-medium-emphasis text-truncate mb-0" style="width: 0; min-width: 100%;">{{ sub.url }}</p>
+                <p class="text-caption text-medium-emphasis text-truncate mb-0">{{ sub.url }}</p>
               </div>
               <v-tooltip v-if="sub.lastError" location="top" offset="10">
                 <template v-slot:activator="{ props }">
@@ -533,7 +533,7 @@ watch([() => form.value.autoTranslate, () => form.value.needSummary], ([trans, s
               </v-chip>
             </div>
 
-            <div class="d-flex align-center gap-2 mb-3">
+            <div class="d-flex flex-wrap align-center gap-2 mb-3">
               <v-chip size="x-small" variant="outlined" color="primary" class="text-none">
                 <v-icon start size="12" :icon="mdiTagOutline" />
                 {{ sub.category === '未分类' ? $t('common.uncategorized') : sub.category }}
@@ -542,7 +542,7 @@ watch([() => form.value.autoTranslate, () => form.value.needSummary], ([trans, s
                 <v-icon start size="12" :icon="mdiTranslate" />
                 {{ $t('sub.auto_translate') }}
               </v-chip>
-              <v-chip v-if="sub.needSummary" size="x-small" variant="outlined" color="info" class="text-none ml-1">
+              <v-chip v-if="sub.needSummary" size="x-small" variant="outlined" color="info" class="text-none">
                 <v-icon start size="12" :icon="mdiTextBoxSearchOutline" />
                 {{ $t('sub.summary') }}
               </v-chip>
@@ -557,8 +557,11 @@ watch([() => form.value.autoTranslate, () => form.value.needSummary], ([trans, s
             <v-spacer />
 
             <div class="d-flex align-center gap-4 text-caption text-medium-emphasis mb-4 flex-wrap">
-              <span class="d-flex align-center text-no-wrap"><v-icon size="14" class="mr-1" :icon="mdiNewspaper" />{{ sub.articleCount }} 篇</span>
-              <span class="d-flex align-center text-no-wrap text-truncate"><v-icon size="14" class="mr-1" :icon="mdiClockOutline" />{{ formatDate(sub.lastSync) }}</span>
+              <span class="d-flex align-center text-no-wrap flex-shrink-0"><v-icon size="14" class="mr-1" :icon="mdiNewspaper" />{{ sub.articleCount }} 篇</span>
+              <span class="d-flex align-center min-w-0">
+                <v-icon size="14" class="mr-1 flex-shrink-0" :icon="mdiClockOutline" />
+                <span class="text-truncate">{{ formatDate(sub.lastSync) }}</span>
+              </span>
             </div>
 
             <div class="d-flex align-center gap-2">
@@ -1038,6 +1041,37 @@ watch([() => form.value.autoTranslate, () => form.value.needSummary], ([trans, s
 </template>
 
 <style scoped>
+.subscription-view {
+  --view-pad: 16px;
+  min-width: 0;
+}
+
+/* 与外层 v-container 的 pa-4 / pa-sm-6 / pa-md-8 保持一致 */
+@media (min-width: 600px) {
+  .subscription-view { --view-pad: 24px; }
+}
+
+@media (min-width: 960px) {
+  .subscription-view { --view-pad: 32px; }
+}
+
+.page-header-title {
+  flex: 1 1 260px;
+  min-width: 0;
+}
+
+.page-header-actions {
+  flex: 0 0 auto;
+}
+
+/* 超长标签（如分类名）在 chip 内部以省略号截断，而不是硬裁切 */
+.sub-card :deep(.v-chip__content) {
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 .sub-card {
   display: flex;
   flex-direction: column;
@@ -1119,10 +1153,10 @@ watch([() => form.value.autoTranslate, () => form.value.needSummary], ([trans, s
   z-index: 100;
   background: rgba(var(--v-theme-background), 0.85); /* 稍微透明背景 */
   backdrop-filter: blur(10px); /* 磨砂效果 */
-  margin-left: -16px; /* 补偿外层 padding */
-  margin-right: -16px; 
-  padding-left: 32px !important;
-  padding-right: 32px !important;
+  margin-left: calc(var(--view-pad) * -1); /* 与容器内边距对齐，避免横向溢出 */
+  margin-right: calc(var(--view-pad) * -1);
+  padding-left: var(--view-pad) !important;
+  padding-right: var(--view-pad) !important;
   border-bottom: 1px solid rgba(var(--v-theme-primary), 0.05);
 }
 </style>

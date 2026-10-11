@@ -433,8 +433,8 @@ const clearCompleted = async () => {
 
 <template>
   <div class="queue-view">
-    <div class="d-flex align-center justify-space-between mb-6">
-      <div>
+    <div class="d-flex align-center justify-space-between flex-wrap gap-3 mb-6">
+      <div class="min-w-0">
         <h2 class="text-h5 font-weight-bold">{{ $t('queue.title') }}</h2>
         <p class="text-body-2 text-medium-emphasis mt-1">{{ $t('queue.subtitle') }}</p>
       </div>
@@ -485,7 +485,7 @@ const clearCompleted = async () => {
         </v-chip>
       </v-chip-group>
 
-      <v-divider vertical class="mx-2 my-2" />
+      <v-divider vertical class="mx-2 my-2 filter-divider" />
 
       <!-- 任务状态 -->
       <v-chip-group v-model="filterStatus" selected-class="bg-primary" mandatory>
@@ -520,20 +520,19 @@ const clearCompleted = async () => {
         @click="job.isGroup && (job.expanded = !job.expanded)"
       >
         <v-card-text class="pa-5">
-          <div class="d-flex align-start gap-4 mb-3">
+          <div class="d-flex align-start gap-3 mb-3">
             <!-- 类型图标 -->
-            <v-avatar :color="typeInfo(job.type).color" size="36" rounded="lg">
+            <v-avatar :color="typeInfo(job.type).color" size="36" rounded="lg" class="flex-shrink-0">
               <v-icon color="white" size="18">{{ typeInfo(job.type).icon }}</v-icon>
             </v-avatar>
 
-            <div class="flex-1 min-w-0 d-flex flex-column">
+            <div class="flex-1 min-w-0">
               <!-- 第一行：标题和主要的聚合统计 -->
-              <div class="d-flex align-center gap-2 mb-1">
-                <span class="text-h6 font-weight-bold text-truncate" style="max-width: 300px;">{{ job.title }}</span>
+              <div class="d-flex flex-wrap align-center gap-2 mb-1 min-w-0">
+                <span class="text-h6 font-weight-bold text-truncate job-title">{{ job.title }}</span>
                 <v-chip size="x-small" variant="tonal" class="flex-shrink-0">{{ job.type === 'sync' ? `${job.groupedIds.length}${ $t('queue.unit_source') }` : `${job.titles.length}${ $t('queue.unit_article') }` }}</v-chip>
-                
-                <!-- 统计数据放在标题行，但使用 flex-grow 占据中间空间并不行，这里直接放 -->
-                <div v-if="job.isGroup" class="d-flex align-center gap-4 ml-4 flex-nowrap">
+
+                <div v-if="job.isGroup" class="d-flex align-center gap-4 flex-shrink-0 job-stats">
                   <span v-if="job.stats?.done" class="d-flex align-center text-success text-body-2 font-weight-medium">
                     <v-icon size="16" class="mr-1">{{ mdiCheckCircle }}</v-icon>{{ job.stats.done }}
                   </span>
@@ -550,26 +549,26 @@ const clearCompleted = async () => {
               </div>
 
               <!-- 第二行：详细信息、类型及可能的错误摘要 -->
-              <div class="d-flex align-center gap-3 text-caption text-medium-emphasis">
-                <span v-if="!job.isGroup" class="d-flex align-center">
+              <div class="d-flex flex-wrap align-center gap-3 text-caption text-medium-emphasis min-w-0">
+                <span v-if="!job.isGroup" class="d-flex align-center flex-shrink-0">
                   <v-icon size="14" class="mr-1">{{ mdiIdentifier }}</v-icon>{{ job.subscription }}
                 </span>
-                <span v-else class="d-flex align-center">
+                <span v-else class="d-flex align-center flex-shrink-0">
                   <v-icon size="14" class="mr-1">{{ mdiFormatListBulletedType }}</v-icon>{{ job.type === 'sync' ? $t('queue.sync_agg') : $t('queue.trans_agg') }}
                 </span>
                 
-                <span class="d-flex align-center">
+                <span class="d-flex align-center flex-shrink-0">
                   <v-icon size="14" class="mr-1">{{ mdiClockOutline }}</v-icon>{{ job.startedAt }}
                 </span>
-                <v-chip :color="typeInfo(job.type).color" size="x-small" variant="tonal" class="text-none">
+                <v-chip :color="typeInfo(job.type).color" size="x-small" variant="tonal" class="text-none flex-shrink-0">
                   {{ typeInfo(job.type).label }}
                 </v-chip>
-                <span v-if="job.error" class="text-error ml-1 text-truncate" style="max-width: 300px;">({{ job.error }})</span>
+                <span v-if="job.error" class="text-error text-truncate job-error">({{ job.error }})</span>
               </div>
             </div>
 
             <!-- 最右侧动作：绝对靠右对齐 -->
-            <div class="flex-shrink-0 d-flex align-center ml-auto pl-4">
+            <div class="flex-shrink-0 d-flex align-center gap-1 job-actions">
               <v-chip
                 v-if="!job.isGroup"
                 :color="statusInfo(job.status).color"
@@ -630,11 +629,11 @@ const clearCompleted = async () => {
             <div v-if="job.isGroup && job.expanded" class="pt-3 d-flex flex-column gap-2">
               <div v-for="sub in job.subJobs" :key="sub.id" class="d-flex align-center justify-space-between bg-surface pa-2 rounded-lg border-thin">
                 <div class="d-flex align-center gap-2 min-w-0 flex-1">
-                  <v-icon :color="statusInfo(sub.status).color" size="18" :class="{ 'mdi-spin': sub.status === 'running' }">{{ statusInfo(sub.status).icon }}</v-icon>
+                  <v-icon :color="statusInfo(sub.status).color" size="18" :class="{ 'mdi-spin': sub.status === 'running' }" class="flex-shrink-0">{{ statusInfo(sub.status).icon }}</v-icon>
                   <span class="text-caption text-truncate font-weight-medium flex-1">{{ sub.title }}</span>
-                  <span v-if="sub.error" class="text-caption text-error ml-2 wrap-text">{{ sub.error }}</span>
+                  <span v-if="sub.error" class="text-caption text-error ml-2 text-truncate">{{ sub.error }}</span>
                 </div>
-                <div class="d-flex align-center gap-2">
+                <div class="d-flex align-center gap-2 flex-shrink-0">
                   <v-tooltip v-if="sub.error" :text="$t('queue.view_error')" location="top">
                     <template v-slot:activator="{ props }">
                       <v-btn v-bind="props" icon variant="text" size="small" color="error" density="compact">
@@ -668,16 +667,16 @@ const clearCompleted = async () => {
         <v-list density="compact" class="pa-0 bg-transparent">
           <v-list-item
             v-for="(log, i) in systemLogs" :key="i"
-            class="text-caption"
+            class="text-caption log-item"
           >
             <template #prepend>
               <v-chip
                 :color="log.level === 'ERROR' ? 'error' : 'warning'"
-                size="x-small" variant="tonal" class="mr-2"
+                size="x-small" variant="tonal" class="mr-2 log-level"
               >{{ log.level }}</v-chip>
             </template>
-            <v-list-item-title class="text-caption font-weight-medium wrap-text">{{ log.message }}</v-list-item-title>
-            <v-list-item-subtitle style="font-size: 11px">{{ log.target }} · {{ log.time }}</v-list-item-subtitle>
+            <v-list-item-title class="text-caption font-weight-medium log-message">{{ log.message }}</v-list-item-title>
+            <v-list-item-subtitle class="log-meta">{{ log.target }} · {{ log.time }}</v-list-item-subtitle>
           </v-list-item>
         </v-list>
       </v-card-text>
@@ -707,8 +706,8 @@ const clearCompleted = async () => {
 }
 .wrap-text {
   white-space: pre-wrap !important;
-  word-break: break-all !important;
-  overflow-wrap: break-word !important;
+  overflow-wrap: anywhere !important;
+  word-break: normal !important;
 }
 .gap-2 { gap: 8px; }
 
@@ -717,6 +716,50 @@ const clearCompleted = async () => {
 .gap-5 { gap: 20px; }
 .min-w-0 { min-width: 0; }
 .cursor-pointer { cursor: pointer; }
+
+/* 任务卡片：标题与错误信息在窄屏下换行而不是被压扁 */
+.job-title {
+  flex: 1 1 240px;
+  min-width: 0;
+}
+
+.job-error {
+  flex: 1 1 200px;
+  min-width: 0;
+}
+
+.job-actions {
+  align-self: flex-start;
+}
+
+/* 任务筛选工具栏的垂直分隔线固定高度，避免随 chip 换行而拉伸 */
+.filter-divider {
+  height: 24px;
+  align-self: center;
+}
+
+/* 系统日志：等级标签定宽 + 信息列对齐，长文本仅在必要时断行 */
+.log-level {
+  min-width: 46px;
+  justify-content: center;
+}
+
+.log-item + .log-item {
+  border-top: 1px solid rgba(var(--v-border-color), 0.08);
+}
+
+.log-message {
+  white-space: pre-wrap !important;
+  overflow-wrap: anywhere !important;
+  word-break: normal !important;
+  line-height: 1.55 !important;
+}
+
+.log-meta {
+  font-size: 11px !important;
+  margin-top: 2px;
+  overflow-wrap: anywhere;
+}
 
 /* Google Play / Material 3 风格的线性进度条 */
 .wavy-progress :deep(.v-progress-linear__indeterminate) {

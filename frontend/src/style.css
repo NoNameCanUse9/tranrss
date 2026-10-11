@@ -168,13 +168,16 @@ body {
 }
 
 .text-truncate {
-  display: block !important;
   white-space: nowrap !important;
   overflow: hidden !important;
   text-overflow: ellipsis !important;
-  width: 100% !important;
-  max-width: 100% !important;
   min-width: 0 !important;
+  max-width: 100%;
+}
+
+/* 仅当元素不是 flex/隐藏工具类时，才将其转为块级以启用省略号 */
+.text-truncate:not(.d-flex):not(.d-inline-flex):not(.d-none) {
+  display: block;
 }
 
 .line-clamp-desc {
@@ -251,7 +254,7 @@ h3,
 
 .sub-card:hover {
   background-color: var(--md-sys-color-surface-container-high) !important;
-  transform: translateY(-4px) scale(1.01);
+  transform: translateY(-4px);
   box-shadow: 0 12px 24px -8px rgba(var(--md-sys-color-primary-rgb), 0.15) !important;
 }
 
