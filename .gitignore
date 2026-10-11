@@ -15,6 +15,10 @@ Thumbs.db
 rssdata.db
 *.log
 
+# Build artifacts
+/tranrss
+*/target/
+
 # Backend (Rust)
 backend/target/
 backend/.env

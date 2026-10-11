@@ -1,8 +1,9 @@
 # --- 1. Frontend Build Stage ---
 FROM node:22-alpine AS frontend-builder
 WORKDIR /app/frontend
-# Enable pnpm
-RUN corepack enable && corepack prepare pnpm@latest --activate
+# Enable pnpm (固定 10.x：pnpm 11+ 不再读取 package.json 的 pnpm.overrides/supportedArchitectures，
+# 会导致 node_modules 与 lockfile 不一致并报 ERR_PNPM_VERIFY_DEPS_BEFORE_RUN)
+RUN corepack enable && corepack prepare pnpm@10.30.2 --activate
 COPY frontend/package.json frontend/pnpm-lock.yaml ./
 # Install all dependencies including devDependencies to support build
 RUN pnpm install --production=false
