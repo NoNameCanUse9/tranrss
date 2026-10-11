@@ -167,6 +167,9 @@ body {
   background-attachment: fixed;
 }
 
+/* 注意：display 不能加 !important；本项目样式未分层，会覆盖 Vuetify 分层的
+   响应式 display 工具类（如 d-sm-flex）。当前用法均不与响应式 display 组合，
+   新增用法时请使用块级元素或自行处理。 */
 .text-truncate {
   white-space: nowrap !important;
   overflow: hidden !important;

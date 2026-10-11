@@ -1064,7 +1064,8 @@ watch([() => form.value.autoTranslate, () => form.value.needSummary], ([trans, s
   flex: 0 0 auto;
 }
 
-/* 超长标签（如分类名）在 chip 内部以省略号截断，而不是硬裁切 */
+/* 超长标签（如分类名）在 chip 内部以省略号截断，而不是硬裁切。
+   此处内容区仅含纯文本（图标在 __prepend），block 化不会影响垂直居中。 */
 .sub-card :deep(.v-chip__content) {
   display: block;
   min-width: 0;
@@ -1094,6 +1095,7 @@ watch([() => form.value.autoTranslate, () => form.value.needSummary], ([trans, s
   min-height: 3.2em;
 }
 .gap-2 { gap: 8px; }
+.gap-3 { gap: 12px; }
 .gap-4 { gap: 16px; }
 .gap-6 { gap: 24px; }
 .min-w-0 { min-width: 0; }
@@ -1153,10 +1155,11 @@ watch([() => form.value.autoTranslate, () => form.value.needSummary], ([trans, s
   z-index: 100;
   background: rgba(var(--v-theme-background), 0.85); /* 稍微透明背景 */
   backdrop-filter: blur(10px); /* 磨砂效果 */
-  margin-left: calc(var(--view-pad) * -1); /* 与容器内边距对齐，避免横向溢出 */
+  margin-left: calc(var(--view-pad) * -1); /* 背景延伸到容器内边距，避免横向溢出 */
   margin-right: calc(var(--view-pad) * -1);
-  padding-left: var(--view-pad) !important;
-  padding-right: var(--view-pad) !important;
+  /* +16px 与卡片区外层 .pa-4 对齐，保证页头与卡片左边缘齐平 */
+  padding-left: calc(var(--view-pad) + 16px) !important;
+  padding-right: calc(var(--view-pad) + 16px) !important;
   border-bottom: 1px solid rgba(var(--v-theme-primary), 0.05);
 }
 </style>
