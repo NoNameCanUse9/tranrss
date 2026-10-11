@@ -10,7 +10,7 @@ use axum::{
     response::IntoResponse,
     routing::{get, post},
 };
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
 use std::sync::Arc;
 
 // --- GReader 协议常量 ---
@@ -128,6 +128,13 @@ fn item_id_to_greader(id: i64) -> String {
     format!("tag:google.com,2005:reader/item/{:016x}", id as u64)
 }
 
+/// 十六进制字符串 → i64（拒绝超出 i64 范围的值，避免 as 转换回绕成负数）
+fn hex_to_i64(hex: &str) -> Option<i64> {
+    u64::from_str_radix(hex, 16)
+        .ok()
+        .and_then(|v| i64::try_from(v).ok())
+}
+
 /// 从 GReader item ID 解析回整数 ID
 fn greader_to_item_id(greader_id: &str) -> Option<i64> {
     // 支持三种格式:
@@ -139,21 +146,21 @@ fn greader_to_item_id(greader_id: &str) -> Option<i64> {
     // 而客户端也会把长格式 ID 零填充后回传（如 "0000000000000123"）。
     // 因此：以 0 开头或含 a-f 的 16 位串按十六进制，其余按十进制。
     if let Some(hex) = greader_id.strip_prefix("tag:google.com,2005:reader/item/") {
-        return u64::from_str_radix(hex, 16).ok().map(|i| i as i64);
+        return hex_to_i64(hex);
     }
     let is_hex16 = greader_id.len() == 16 && greader_id.chars().all(|c| c.is_ascii_hexdigit());
     if is_hex16
         && (greader_id.starts_with('0') || greader_id.chars().any(|c| c.is_ascii_alphabetic()))
     {
-        if let Ok(id) = u64::from_str_radix(greader_id, 16) {
-            return Some(id as i64);
+        if let Some(id) = hex_to_i64(greader_id) {
+            return Some(id);
         }
     }
     if let Ok(id) = greader_id.parse::<i64>() {
         return Some(id);
     }
     if is_hex16 {
-        return u64::from_str_radix(greader_id, 16).ok().map(|i| i as i64);
+        return hex_to_i64(greader_id);
     }
     None
 }
@@ -435,26 +442,32 @@ struct StreamQuery {
     ot: Option<i64>,    // Newer than timestamp
     nt: Option<i64>,    // Older than timestamp
     c: Option<String>,  // Continuation token
-    #[allow(dead_code)]
-    output: Option<String>,
+}
+
+/// 解码 percent-encoding，并把 '+' 视为空格（form-urlencoded 兼容）
+fn decode_component(s: &str) -> String {
+    urlencoding::decode(&s.replace('+', " "))
+        .map(|c| c.into_owned())
+        .unwrap_or_else(|_| s.replace('+', " "))
+}
+
+/// 解析 URL 编码的 key=value 列表（支持重复键），用于 query string 与表单 body
+fn parse_pairs(raw: &str) -> Vec<(String, String)> {
+    raw.split('&')
+        .filter(|p| !p.is_empty())
+        .map(|part| {
+            let (k, v) = part.split_once('=').unwrap_or((part, ""));
+            (decode_component(k), decode_component(v))
+        })
+        .collect()
 }
 
 /// 手动解析 query string，支持重复参数（GReader 客户端的 xt/it/s/i 都可能出现多次）
 fn parse_stream_query(raw: Option<&str>) -> StreamQuery {
     let mut q = StreamQuery::default();
     let Some(raw) = raw else { return q };
-    for pair in raw.split('&') {
-        if pair.is_empty() {
-            continue;
-        }
-        let (k, v) = match pair.split_once('=') {
-            Some((k, v)) => (k, v),
-            None => (pair, ""),
-        };
-        let v = urlencoding::decode(&v.replace('+', " "))
-            .map(|c| c.into_owned())
-            .unwrap_or_else(|_| v.replace('+', " "));
-        match k {
+    for (k, v) in parse_pairs(raw) {
+        match k.as_str() {
             "s" => q.s.push(v),
             "xt" => q.xt.push(v),
             "it" => q.it.push(v),
@@ -483,11 +496,6 @@ fn parse_stream_query(raw: Option<&str>) -> StreamQuery {
                     q.c = Some(v);
                 }
             }
-            "output" => {
-                if q.output.is_none() {
-                    q.output = Some(v);
-                }
-            }
             _ => {}
         }
     }
@@ -496,18 +504,12 @@ fn parse_stream_query(raw: Option<&str>) -> StreamQuery {
 
 /// 从 GET query 中解析重复的 i / i[] 参数（stream/items/contents 的 GET 形式）
 fn parse_item_ids_from_query(raw: Option<&str>) -> Vec<String> {
-    let mut ids = Vec::new();
-    let Some(raw) = raw else { return ids };
-    for pair in raw.split('&') {
-        if let Some((k, v)) = pair.split_once('=') {
-            if k == "i" || k == "i[]" {
-                if let Ok(decoded) = urlencoding::decode(&v.replace('+', " ")) {
-                    ids.push(decoded.into_owned());
-                }
-            }
-        }
-    }
-    ids
+    let Some(raw) = raw else { return Vec::new() };
+    parse_pairs(raw)
+        .into_iter()
+        .filter(|(k, _)| k == "i" || k == "i[]")
+        .map(|(_, v)| v)
+        .collect()
 }
 
 #[derive(Serialize)]
@@ -601,7 +603,9 @@ async fn stream_contents(
     Path(stream_id): Path<String>,
     RawQuery(raw): RawQuery,
 ) -> Result<axum::response::Response, (StatusCode, String)> {
-    let params = parse_stream_query(raw.as_deref());
+    let mut params = parse_stream_query(raw.as_deref());
+    // 带路径时以路径中的 stream 为准（Miniflux 语义），忽略同名 query 参数
+    params.s.clear();
     stream_contents_impl(State(state), auth, stream_id, params).await
 }
 
@@ -620,6 +624,7 @@ async fn stream_contents_impl(
 
     let limit = params.n.filter(|n| *n > 0).unwrap_or(1000).min(1000);
     let offset = params.c.as_deref().map(parse_continuation).unwrap_or(0);
+    let dir = if params.r.as_deref() == Some("o") { "ASC" } else { "DESC" };
 
     let mut query_str = String::from(
         r#"
@@ -637,11 +642,12 @@ async fn stream_contents_impl(
 
     apply_stream_filters(&mut query_str, &stream_id, &params, auth.user_id);
 
-    if params.r.as_deref() == Some("o") {
-        query_str.push_str(" ORDER BY a.published_at ASC");
-    } else {
-        query_str.push_str(" ORDER BY a.published_at DESC");
-    }
+    // 排序必须与 apply_stream_filters 的时间字段一致（COALESCE），
+    // 并用 a.id 作为 tie-breaker，否则分页（LIMIT/OFFSET）可能重复或漏文。
+    query_str.push_str(&format!(
+        " ORDER BY COALESCE(a.published_at, a.crawl_time, 0) {}, a.id {}",
+        dir, dir
+    ));
 
     query_str.push_str(&format!(" LIMIT {} OFFSET {}", limit + 1, offset));
 
@@ -798,6 +804,17 @@ fn resolve_stream_title(stream_id: &str) -> String {
     }
 }
 
+/// 把 ot/nt 的秒/毫秒/微秒统一成秒
+fn normalize_timestamp(ts: i64) -> i64 {
+    if ts > 10_000_000_000_000 {
+        ts / 1_000_000
+    } else if ts > 10_000_000_000 {
+        ts / 1000
+    } else {
+        ts
+    }
+}
+
 fn apply_stream_filters(
     query_str: &mut String,
     stream_id: &str,
@@ -806,27 +823,44 @@ fn apply_stream_filters(
 ) {
     // 按 stream_id 过滤（多个 s 时取第一个，与 Miniflux 的“只期望一个 stream”兼容）
     let s = params.s.first().map(|s| s.as_str()).unwrap_or(stream_id);
+    let mut matched = s.is_empty(); // 未指定 stream → 全部
+
     if s.starts_with("feed/") {
         if let Ok(feed_id) = s[5..].parse::<i64>() {
             query_str.push_str(&format!(" AND a.feed_id = {}", feed_id));
+            matched = true;
         }
     } else if s.contains("state/com.google/starred") {
         query_str.push_str(" AND a.is_starred = 1");
+        matched = true;
     } else if s.contains("/label/") {
         if let Some(label) = s.split("/label/").last() {
             query_str.push_str(&format!(" AND f.id IN (SELECT feed_id FROM subscriptions s2 JOIN folders fo ON s2.folder_id = fo.id WHERE s2.user_id = {} AND fo.title = '{}')", user_id, label.replace("'", "''")));
+            matched = true;
         }
     } else if s.contains("reading-list") {
         // user/-/state/com.google/reading-list → 不过滤（全部）
+        matched = true;
+    } else if s.contains("state/com.google/fresh") {
+        // fresh：未读且 24 小时内抓取（与 categories 中的 fresh 标记一致）
+        query_str.push_str(" AND a.is_read = 0 AND a.crawl_time >= strftime('%s','now') - 86400");
+        matched = true;
     } else if s.contains("state/com.google/kept-unread") {
         query_str.push_str(" AND a.is_read = 0");
+        matched = true;
     } else if s.contains("state/com.google/read") {
         // 注意：必须放在 reading-list 判断之后，
         // 否则 "reading-list" 会被子串 "read" 误匹配
         query_str.push_str(" AND a.is_read = 1");
+        matched = true;
     }
 
-    // 排除过滤（xt 可重复）
+    if !matched {
+        // 未识别的 stream：返回空结果，避免客户端拿到整个阅读列表
+        query_str.push_str(" AND 1 = 0");
+    }
+
+    // 排除过滤（xt 可重复，多个条件取交集）
     for xt in &params.xt {
         if xt.contains("state/com.google/read") {
             query_str.push_str(" AND a.is_read = 0");
@@ -836,48 +870,43 @@ fn apply_stream_filters(
         }
     }
 
-    // 包含过滤（it 可重复）
+    // 包含过滤（it 可重复，多个条件取并集）
+    let mut it_conds: Vec<&str> = Vec::new();
     for it in &params.it {
-        if it.contains("state/com.google/read") {
-            query_str.push_str(" AND a.is_read = 1");
+        let cond = if it.contains("state/com.google/starred") {
+            Some("a.is_starred = 1")
+        } else if it.contains("state/com.google/kept-unread") {
+            Some("a.is_read = 0")
+        } else if it.contains("state/com.google/read") {
+            Some("a.is_read = 1")
+        } else {
+            None
+        };
+        if let Some(c) = cond {
+            if !it_conds.contains(&c) {
+                it_conds.push(c);
+            }
         }
-        if it.contains("state/com.google/starred") {
-            query_str.push_str(" AND a.is_starred = 1");
-        }
+    }
+    if !it_conds.is_empty() {
+        query_str.push_str(&format!(" AND ({})", it_conds.join(" OR ")));
     }
 
     // ot = oldest time：只取发布时间比此时间戳更新的文章（与 Miniflux 的 published date 语义一致）
     if let Some(ot) = params.ot {
-        // GReader 协议中 ot 可能是秒、毫秒或微秒，这里做自适应
-        let ot_sec = if ot > 10_000_000_000_000 {
-            ot / 1_000_000
-        } else if ot > 10_000_000_000 {
-            ot / 1000
-        } else {
-            ot
-        };
         query_str.push_str(&format!(
             " AND COALESCE(a.published_at, a.crawl_time, 0) >= {}",
-            ot_sec
+            normalize_timestamp(ot)
         ));
     }
 
     // nt = newest time：只取发布时间早于此时间戳的文章
     if let Some(nt) = params.nt {
-        let nt_sec = if nt > 10_000_000_000_000 {
-            nt / 1_000_000
-        } else if nt > 10_000_000_000 {
-            nt / 1000
-        } else {
-            nt
-        };
         query_str.push_str(&format!(
             " AND COALESCE(a.published_at, a.crawl_time, 0) <= {}",
-            nt_sec
+            normalize_timestamp(nt)
         ));
     }
-
-    let _ = user_id;
 }
 
 // --- Stream Items IDs ---
@@ -923,11 +952,12 @@ async fn stream_items_ids(
 
     apply_stream_filters(&mut query_str, "", &params, auth.user_id);
 
-    if params.r.as_deref() == Some("o") {
-        query_str.push_str(" ORDER BY a.published_at ASC");
-    } else {
-        query_str.push_str(" ORDER BY a.published_at DESC");
-    }
+    // 与 apply_stream_filters 的时间字段保持一致，并用 a.id 作 tie-breaker（分页稳定性）
+    let dir = if params.r.as_deref() == Some("o") { "ASC" } else { "DESC" };
+    query_str.push_str(&format!(
+        " ORDER BY COALESCE(a.published_at, a.crawl_time, 0) {}, a.id {}",
+        dir, dir
+    ));
 
     query_str.push_str(&format!(" LIMIT {} OFFSET {}", limit + 1, offset));
 
@@ -981,13 +1011,36 @@ async fn stream_items_ids(
 // --- Stream Items Contents (POST) ---
 // ReadYou 有时会用 POST + item IDs 批量获取文章内容
 
+/// 接受 {"i": "id"} 与 {"i": ["id1", "id2"]} 两种 JSON 形式
+fn deserialize_ids<'de, D>(deserializer: D) -> Result<Vec<String>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    #[derive(Deserialize)]
+    #[serde(untagged)]
+    enum OneOrMany {
+        One(String),
+        Many(Vec<String>),
+    }
+    Ok(match OneOrMany::deserialize(deserializer)? {
+        OneOrMany::One(id) => vec![id],
+        OneOrMany::Many(ids) => ids,
+    })
+}
+
 #[derive(Deserialize, Debug, Default)]
 struct StreamItemsContentsForm {
-    #[serde(rename = "i", alias = "i[]", default)]
+    #[serde(
+        rename = "i",
+        alias = "i[]",
+        default,
+        deserialize_with = "deserialize_ids"
+    )]
     ids: Vec<String>,
-    #[serde(default)]
-    _t: Option<String>,
 }
+
+/// 单个请求最多接受的文章 ID 数量（SQLite 变量上限与响应体积保护）
+const MAX_ITEM_IDS: usize = 10_000;
 
 async fn stream_items_contents(
     State(state): State<Arc<AppState>>,
@@ -998,7 +1051,6 @@ async fn stream_items_contents(
 ) -> Result<impl IntoResponse, (StatusCode, String)> {
     auth.require_permission("greader", "read")?;
     let params = parse_stream_query(raw.as_deref());
-    tracing::info!("[GReader] stream_items_contents, raw query: {:?}", raw);
     let mut ids = parse_item_ids_from_query(raw.as_deref());
 
     // 尝试从 Body 解析 ID (支持 Form 和 JSON)
@@ -1009,26 +1061,33 @@ async fn stream_items_contents(
             .unwrap_or("");
 
         if ct.contains("application/json") {
-            if let Ok(json_data) = serde_json::from_slice::<StreamItemsContentsForm>(&body) {
-                ids.extend(json_data.ids);
+            match serde_json::from_slice::<StreamItemsContentsForm>(&body) {
+                Ok(json_data) => ids.extend(json_data.ids),
+                Err(e) => tracing::warn!("[GReader] stream_items_contents: invalid JSON body: {}", e),
             }
         } else {
-            // 手动解析表单数据以兼容重复的 i=... 或 i[]=... 参数
+            // 兼容重复的 i=... 或 i[]=... 表单参数
             let body_str = String::from_utf8_lossy(&body);
-            for part in body_str.split('&') {
-                let mut kv = part.split('=');
-                if let (Some(k), Some(v)) = (kv.next(), kv.next()) {
-                    if k == "i" || k == "i[]" {
-                        if let Ok(decoded) = urlencoding::decode(v) {
-                            ids.push(decoded.into_owned());
-                        }
-                    }
-                }
-            }
+            ids.extend(
+                parse_pairs(&body_str)
+                    .into_iter()
+                    .filter(|(k, _)| k == "i" || k == "i[]")
+                    .map(|(_, v)| v),
+            );
         }
     }
 
-    let item_ids: Vec<i64> = ids.iter().filter_map(|s| greader_to_item_id(s)).collect();
+    let mut item_ids: Vec<i64> = ids.iter().filter_map(|s| greader_to_item_id(s)).collect();
+    item_ids.sort_unstable();
+    item_ids.dedup();
+    if item_ids.len() > MAX_ITEM_IDS {
+        tracing::warn!(
+            "[GReader] stream_items_contents: {} ids requested, truncating to {}",
+            item_ids.len(),
+            MAX_ITEM_IDS
+        );
+        item_ids.truncate(MAX_ITEM_IDS);
+    }
 
     if item_ids.is_empty() {
         let json = serde_json::to_string(&GReaderStreamContents {
@@ -1059,6 +1118,7 @@ async fn stream_items_contents(
         .map(|(i, _)| format!("?{}", i + 2))
         .collect::<Vec<_>>()
         .join(",");
+    let dir = if params.r.as_deref() == Some("o") { "ASC" } else { "DESC" };
     let query_str = format!(
         r#"
         SELECT 
@@ -1070,10 +1130,9 @@ async fn stream_items_contents(
         JOIN feeds f ON a.feed_id = f.id
         JOIN subscriptions s ON s.feed_id = f.id
         WHERE s.user_id = ?1 AND a.id IN ({})
-        ORDER BY COALESCE(a.published_at, a.crawl_time, 0) {}
+        ORDER BY COALESCE(a.published_at, a.crawl_time, 0) {}, a.id {}
         "#,
-        placeholders,
-        if params.r.as_deref() == Some("o") { "ASC" } else { "DESC" }
+        placeholders, dir, dir
     );
 
     let mut q = sqlx::query_as::<
@@ -1250,20 +1309,12 @@ async fn edit_tag(
     let mut add_tags = Vec::new();
     let mut rem_tags = Vec::new();
 
-    let body_str = String::from_utf8_lossy(&body);
-    for part in body_str.split('&') {
-        let mut kv = part.split('=');
-        if let (Some(k), Some(v)) = (kv.next(), kv.next()) {
-            if let Ok(decoded) = urlencoding::decode(v) {
-                let val = decoded.into_owned();
-                if k == "i" || k == "i[]" {
-                    ids_list.push(val);
-                } else if k == "a" || k == "a[]" {
-                    add_tags.push(val);
-                } else if k == "r" || k == "r[]" {
-                    rem_tags.push(val);
-                }
-            }
+    for (k, val) in parse_pairs(&body_str) {
+        match k.as_str() {
+            "i" | "i[]" => ids_list.push(val),
+            "a" | "a[]" => add_tags.push(val),
+            "r" | "r[]" => rem_tags.push(val),
+            _ => {}
         }
     }
 
@@ -1587,10 +1638,148 @@ async fn rename_tag(
 // --- Fallback ---
 
 /// 未实现的 GReader 端点兜底：返回 JSON 空数组，避免落到前端 SPA fallback 返回 HTML
-async fn greader_fallback() -> impl IntoResponse {
-    (
+async fn greader_fallback(
+    auth: AuthUser,
+) -> Result<impl IntoResponse, (StatusCode, String)> {
+    // 与真实端点保持一致：需要有效凭证，避免匿名探测得到 200
+    auth.require_permission("greader", "read")?;
+    Ok((
         StatusCode::OK,
-        [(axum::http::header::CONTENT_TYPE, "application/json; charset=utf-8")],
+        [(
+            axum::http::header::CONTENT_TYPE,
+            "application/json; charset=utf-8",
+        )],
         "[]",
-    )
+    ))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn item_id_long_form_round_trip() {
+        let id: i64 = 0x0002_ec3a_f469_48bf;
+        let long = item_id_to_greader(id);
+        assert_eq!(long, "tag:google.com,2005:reader/item/0002ec3af46948bf");
+        assert_eq!(greader_to_item_id(&long), Some(id));
+    }
+
+    #[test]
+    fn item_id_accepts_all_client_formats() {
+        // 长格式（不补零，NetNewsWire）
+        assert_eq!(greader_to_item_id("tag:google.com,2005:reader/item/2f2"), Some(0x2f2));
+        // 裸 16 位 hex（含字母，CapyReader/Reeder/Fluent Reader）
+        assert_eq!(greader_to_item_id("0002ec3af46948bf"), Some(0x0002_ec3a_f469_48bf));
+        // 裸零填充纯数字 hex 按 hex 解析（避免与十六进制回传冲突）
+        assert_eq!(greader_to_item_id("0000000000000123"), Some(0x123));
+        // 15 位十进制（Liferea/ReadYou）
+        assert_eq!(greader_to_item_id("822687906220223"), Some(822_687_906_220_223));
+        // 16 位十进制：不能按 hex 解析（本项目 ID 可超过 10^15）
+        assert_eq!(greader_to_item_id("6424130485615074"), Some(6_424_130_485_615_074));
+        // 超出 i64 范围回绕的 hex 必须拒绝
+        assert_eq!(greader_to_item_id("ffffff0000000000"), None);
+        // 非法输入
+        assert_eq!(greader_to_item_id("not-an-id"), None);
+    }
+
+    #[test]
+    fn stream_query_supports_repeated_and_encoded_params() {
+        let q = parse_stream_query(Some(
+            "s=user/-/state/com.google/reading-list&s=feed/1&xt=user/-/state/com.google/read&xt=user/-/state/com.google/starred&it=user/-/state/com.google/starred&n=5&ot=100&nt=200&c=1&r=o",
+        ));
+        assert_eq!(q.s.len(), 2);
+        assert_eq!(q.xt.len(), 2);
+        assert_eq!(q.it.len(), 1);
+        assert_eq!(q.n, Some(5));
+        assert_eq!(q.ot, Some(100));
+        assert_eq!(q.nt, Some(200));
+        assert_eq!(q.c.as_deref(), Some("1"));
+        assert_eq!(q.r.as_deref(), Some("o"));
+
+        let q = parse_stream_query(Some("s=user%2F-%2Fstate%2Fcom.google%2Fread&n=7"));
+        assert_eq!(q.s, vec!["user/-/state/com.google/read"]);
+        assert_eq!(q.n, Some(7));
+    }
+
+    #[test]
+    fn continuation_supports_numeric_and_legacy_base64() {
+        assert_eq!(encode_continuation(7), "7");
+        assert_eq!(parse_continuation("7"), 7);
+        // 旧版本发出的 base64("12")，升级后仍要能解析
+        assert_eq!(parse_continuation("MTI"), 12);
+        assert_eq!(parse_continuation("not-a-token"), 0);
+    }
+
+    #[test]
+    fn normalize_timestamp_autodetects_units() {
+        assert_eq!(normalize_timestamp(1_700_000_000), 1_700_000_000);
+        assert_eq!(normalize_timestamp(1_700_000_000_000), 1_700_000_000);
+        assert_eq!(normalize_timestamp(1_700_000_000_000_000), 1_700_000_000);
+    }
+
+    fn filters(query: &str, stream_id: &str) -> String {
+        let params = parse_stream_query(Some(query));
+        let mut sql = String::from("WHERE 1=1");
+        apply_stream_filters(&mut sql, stream_id, &params, 1);
+        sql
+    }
+
+    #[test]
+    fn stream_filters_handle_known_streams() {
+        assert!(!filters("", "user/-/state/com.google/reading-list").contains("AND 1 = 0"));
+        assert!(filters("", "user/-/state/com.google/read").contains("a.is_read = 1"));
+        assert!(filters("", "user/-/state/com.google/kept-unread").contains("a.is_read = 0"));
+        assert!(filters("", "user/-/state/com.google/fresh").contains("strftime"));
+        assert!(filters("", "feed/42").contains("a.feed_id = 42"));
+        assert!(filters("", "user/-/label/Tech").contains("fo.title = 'Tech'"));
+        assert!(filters("", "user/-/label/O'Brien").contains("fo.title = 'O''Brien'"));
+    }
+
+    #[test]
+    fn stream_filters_reject_unknown_streams() {
+        // 未识别的 stream 必须返回空结果，而不是整个阅读列表
+        assert!(filters("", "user/-/state/com.google/like").contains("AND 1 = 0"));
+        assert!(filters("", "feed/not-a-number").contains("AND 1 = 0"));
+        // 空 stream（ids 接口可省略 s）仍返回全部
+        assert!(!filters("", "").contains("AND 1 = 0"));
+    }
+
+    #[test]
+    fn stream_filters_combine_repeated_targets() {
+        // xt 多个条件取交集
+        let sql = filters(
+            "xt=user/-/state/com.google/read&xt=user/-/state/com.google/starred",
+            "user/-/state/com.google/reading-list",
+        );
+        assert!(sql.contains("a.is_read = 0"));
+        assert!(sql.contains("a.is_starred = 0"));
+
+        // it 多个条件取并集，而不是 AND
+        let sql = filters(
+            "it=user/-/state/com.google/read&it=user/-/state/com.google/starred",
+            "user/-/state/com.google/reading-list",
+        );
+        assert!(sql.contains("(a.is_read = 1 OR a.is_starred = 1)"));
+    }
+
+    #[test]
+    fn stream_filters_apply_time_window_on_published_date() {
+        // 毫秒时间戳应换算成秒，并使用 COALESCE(published_at, crawl_time)
+        let sql = filters("ot=1700000000000", "user/-/state/com.google/reading-list");
+        assert!(sql.contains("COALESCE(a.published_at, a.crawl_time, 0) >= 1700000000"));
+    }
+
+    #[test]
+    fn json_ids_accept_single_string_and_array() {
+        #[derive(Deserialize)]
+        struct Wrap {
+            #[serde(rename = "i", default, deserialize_with = "deserialize_ids")]
+            ids: Vec<String>,
+        }
+        let one: Wrap = serde_json::from_str(r#"{"i":"123"}"#).unwrap();
+        assert_eq!(one.ids, vec!["123"]);
+        let many: Wrap = serde_json::from_str(r#"{"i":["1","2"]}"#).unwrap();
+        assert_eq!(many.ids, vec!["1", "2"]);
+    }
 }
