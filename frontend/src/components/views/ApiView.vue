@@ -25,7 +25,9 @@ import {
   mdiTimerOutline,
   mdiChartDonut,
   mdiChartTimelineVariant,
-  mdiPoll
+  mdiPoll,
+  mdiAlertCircleOutline,
+  mdiCheckCircleOutline
 } from '@mdi/js'
 import { use } from 'echarts/core'
 import { CanvasRenderer } from 'echarts/renderers'
@@ -68,9 +70,20 @@ interface ApiConfig {
 
 const apiConfigs = ref<ApiConfig[]>([])
 const userSettings = ref<any>(null)
-const loading = ref(false)
+const loading = ref(true)
+const loadError = ref(false)
 const statsLoading = ref(false)
 const saving = ref(false)
+
+const snackbar = ref(false)
+const snackbarColor = ref<'success' | 'error'>('success')
+const snackbarText = ref('')
+
+const notify = (text: string, color: 'success' | 'error' = 'success') => {
+  snackbarText.value = text
+  snackbarColor.value = color
+  snackbar.value = true
+}
 
 interface UsageStats {
   total_prompt_tokens: number
@@ -96,7 +109,7 @@ interface TimeSeriesUsage {
 const usageStats = ref<UsageStats | null>(null)
 const usageHistory = ref<TimeSeriesUsage[]>([])
 const selectedFilterApi = ref<number | null>(null)
-const selectedFilterModel = ref<string>('全部模型')
+const selectedFilterModel = ref<string | null>(null)
 const selectedRange = ref('all')
 
 const dialog = ref(false)
@@ -134,18 +147,22 @@ const form = ref({
 // 从后端拉取配置
 const fetchConfigs = async () => {
   loading.value = true
+  loadError.value = false
   try {
     const res = await apiFetch('/api/translate-configs')
-    if (res.ok) {
-      const data = await res.json()
-      apiConfigs.value = data.map((item: any) => ({
-        ...item,
-        // 将数据库存的 JSON 字符串转回对象，方便前端操作
-        settings: typeof item.settings === 'string' ? JSON.parse(item.settings) : item.settings
-      }))
+    if (!res.ok) {
+      loadError.value = true
+      return
     }
+    const data = await res.json()
+    apiConfigs.value = data.map((item: any) => ({
+      ...item,
+      // 将数据库存的 JSON 字符串转回对象，方便前端操作
+      settings: typeof item.settings === 'string' ? JSON.parse(item.settings) : item.settings
+    }))
   } catch (e) {
     console.error('获取 API 配置失败:', e)
+    loadError.value = true
   } finally {
     loading.value = false
   }
@@ -188,11 +205,11 @@ const fetchUsageHistory = async () => {
   }
 }
 
+const reloadAll = () =>
+  Promise.all([fetchConfigs(), fetchUserSettings(), fetchUsageStats(), fetchUsageHistory()])
+
 onMounted(() => {
-  fetchConfigs()
-  fetchUserSettings()
-  fetchUsageStats()
-  fetchUsageHistory()
+  reloadAll()
 })
 
 // 获取提供商的 UI 信息
@@ -218,29 +235,45 @@ const openAddDialog = () => {
     retry_interval_ms: 1000,
     retry_enabled: true,
   }
+  availableModels.value = []
   selectedConfig.value = null
   dialog.value = true
 }
 
 // 打开编辑弹窗
 const openEditDialog = (config: ApiConfig) => {
+  const storedSettings = (config.settings as Record<string, any>) || {}
   form.value = { 
     name: config.name, 
     api_type: config.api_type, 
     api_key: config.api_key || '', 
     base_url: config.base_url || '', 
-    settings: { 
-      model: (config.settings as any).model || 'gpt-4o-mini',
-      max_tokens: (config.settings as any).max_tokens || 20480,
-      rpm: (config.settings as any).rpm || 3 
+    // Keep every stored setting so unrelated keys are not dropped on save
+    settings: {
+      ...storedSettings,
+      model: storedSettings.model || 'gpt-4o-mini',
+      max_tokens: storedSettings.max_tokens ?? 20480,
+      rpm: storedSettings.rpm ?? 3
     },
     timeout_seconds: config.timeout_seconds,
     retry_count: config.retry_count,
     retry_interval_ms: config.retry_interval_ms,
     retry_enabled: config.retry_enabled,
   }
+  availableModels.value = []
   selectedConfig.value = config
   dialog.value = true
+}
+
+// 组装提交给后端的 settings，数值字段空值统一为 null
+const buildSettingsPayload = () => {
+  const settings: Record<string, any> = { ...form.value.settings }
+  if (typeof settings.model === 'string') settings.model = settings.model.trim()
+  if (form.value.api_type === 'openai') {
+    settings.max_tokens = Number(settings.max_tokens) || null
+    settings.rpm = Number(settings.rpm) || null
+  }
+  return settings
 }
 
 // 保存逻辑
@@ -250,25 +283,48 @@ const saveConfig = async () => {
     const isEdit = !!selectedConfig.value
     const url = isEdit ? `/api/translate-configs/${selectedConfig.value!.id}` : '/api/translate-configs'
     const method = isEdit ? 'PUT' : 'POST'
-    
+
+    const payload: Record<string, any> = {
+      ...form.value,
+      name: form.value.name.trim(),
+      // On edit an empty string clears the override; on create it means "use the default endpoint"
+      base_url: isEdit ? form.value.base_url.trim() : (form.value.base_url.trim() || null),
+      settings: buildSettingsPayload(),
+      timeout_seconds: Number(form.value.timeout_seconds) || null,
+      retry_count: Number(form.value.retry_count) || null,
+      retry_interval_ms: Number(form.value.retry_interval_ms) || null,
+      retry_enabled: form.value.retry_enabled,
+    }
+
+    if (isEdit) {
+      // Omit an empty key so the stored one is kept
+      if (!form.value.api_key) {
+        delete payload.api_key
+      }
+    } else {
+      payload.api_key = form.value.api_key || null
+    }
+
     const res = await apiFetch(url, {
       method,
       headers: { 
         'Content-Type': 'application/json'
       },
-      body: JSON.stringify({
-        ...form.value,
-        api_key: form.value.api_key || null,
-        base_url: form.value.base_url || null,
-      })
+      body: JSON.stringify(payload)
     })
 
-    if (res.ok) {
-      await fetchConfigs()
-      dialog.value = false
+    if (!res.ok) {
+      notify(t('api.save_failed'), 'error')
+      return
     }
+
+    // Refresh settings so auto-assigned translate/summary badges show up immediately
+    await Promise.all([fetchConfigs(), fetchUserSettings()])
+    dialog.value = false
+    notify(t('api.save_success'))
   } catch (e) {
     console.error('保存失败:', e)
+    notify(t('api.save_failed'), 'error')
   } finally {
     saving.value = false
   }
@@ -277,49 +333,77 @@ const saveConfig = async () => {
 // 删除逻辑
 const deleteConfig = async () => {
   if (!selectedConfig.value) return
+  const deletedId = selectedConfig.value.id
   try {
-    const res = await apiFetch(`/api/translate-configs/${selectedConfig.value.id}`, {
+    const res = await apiFetch(`/api/translate-configs/${deletedId}`, {
       method: 'DELETE'
     })
-    if (res.ok) {
-      apiConfigs.value = apiConfigs.value.filter(c => c.id !== selectedConfig.value!.id)
-      deleteDialog.value = false
+    if (!res.ok) {
+      notify(t('api.delete_failed'), 'error')
+      return
     }
+    apiConfigs.value = apiConfigs.value.filter(c => c.id !== deletedId)
+    deleteDialog.value = false
+    selectedConfig.value = null
+    if (selectedFilterApi.value === deletedId) selectedFilterApi.value = null
+    notify(t('api.delete_success'))
+    await Promise.all([fetchUsageStats(), fetchUsageHistory(), fetchUserSettings()])
   } catch (e) {
     console.error('删除失败:', e)
+    notify(t('api.delete_failed'), 'error')
   }
 }
 const fetchingModels = ref(false)
 const availableModels = ref<string[]>([])
 
 const fetchModels = async () => {
-  if (!form.value.base_url) return
-  
+  const baseUrl = form.value.base_url.trim()
+  if (!baseUrl) {
+    notify(t('api.base_url_required'), 'error')
+    return
+  }
+
   fetchingModels.value = true
+  availableModels.value = []
   try {
-    const url = form.value.base_url.replace(/\/$/, '') + '/models'
+    const url = baseUrl.replace(/\/$/, '') + '/models'
     const headers: Record<string, string> = {}
     if (form.value.api_key) {
       headers['Authorization'] = `Bearer ${form.value.api_key}`
     }
 
     const res = await fetch(url, { headers })
-    if (res.ok) {
-      const data = await res.json()
-      if (data.data) {
-        availableModels.value = data.data.map((m: any) => m.id)
-      }
+    if (!res.ok) {
+      throw new Error(`HTTP ${res.status}`)
+    }
+    const data = await res.json()
+    if (!Array.isArray(data?.data)) {
+      throw new Error('Unexpected response shape')
+    }
+    availableModels.value = data.data.map((m: any) => m.id)
+    if (availableModels.value.length === 0) {
+      notify(t('api.fetch_models_empty'), 'error')
     }
   } catch (e) {
     console.error('获取模型列表失败:', e)
+    availableModels.value = []
+    notify(t('api.fetch_models_failed'), 'error')
   } finally {
     fetchingModels.value = false
   }
 }
 
+const apiFilterItems = computed(() => [
+  { title: t('api.all_apis'), value: null },
+  ...apiConfigs.value.map(config => ({ title: config.name, value: config.id }))
+])
+
 const availableModelsList = computed(() => {
   const models = new Set(usageHistory.value.map(h => h.model))
-  return ['全部模型', ...Array.from(models)]
+  return [
+    { title: t('api.all_models'), value: null },
+    ...Array.from(models).sort().map(model => ({ title: model, value: model }))
+  ]
 })
 
 const lineOption = computed(() => {
@@ -329,7 +413,7 @@ const lineOption = computed(() => {
   if (selectedFilterApi.value !== null) {
     filtered = filtered.filter(h => h.api_config_id === selectedFilterApi.value)
   }
-  if (selectedFilterModel.value !== '全部模型') {
+  if (selectedFilterModel.value !== null) {
     filtered = filtered.filter(h => h.model === selectedFilterModel.value)
   }
   
@@ -385,7 +469,7 @@ const pieOption = computed(() => {
     legend: { bottom: '0', left: 'center', icon: 'circle', textStyle: { fontSize: 10 } },
     series: [
       {
-        name: 'Model Usage',
+        name: t('api.model_usage'),
         type: 'pie',
         radius: ['45%', '65%'],
         avoidLabelOverlap: false,
@@ -404,12 +488,12 @@ const pieOption = computed(() => {
 
 <template>
   <div class="api-view">
-    <div class="d-flex align-center justify-space-between mb-6">
-      <div>
+    <div class="api-page-header d-flex align-center justify-space-between flex-wrap mb-6">
+      <div class="api-page-title">
         <h2 class="text-h5 font-weight-bold">{{ $t('api.title') }}</h2>
         <p class="text-body-2 text-medium-emphasis mt-1">{{ $t('api.subtitle') }}</p>
       </div>
-      <div class="d-flex align-center gap-3">
+      <div class="d-flex align-center flex-wrap gap-3">
         <!-- Token Detailed Stats Button -->
         <v-btn
           v-if="usageStats"
@@ -417,10 +501,12 @@ const pieOption = computed(() => {
           color="primary"
           rounded="pill"
           class="text-none font-weight-bold"
+          :loading="statsLoading"
+          :disabled="statsLoading"
           @click="statsDialog = true"
         >
           <v-icon start>{{ mdiPoll }}</v-icon>
-          Token 详情统计
+          {{ $t('api.token_details') }}
         </v-btn>
 
         <v-btn
@@ -436,8 +522,18 @@ const pieOption = computed(() => {
       </div>
     </div>
 
+    <!-- Token usage stats loading placeholder -->
+    <v-row v-if="statsLoading" id="token-usage-loading" class="mb-8">
+      <v-col cols="12">
+        <v-card rounded="xl" variant="flat" color="surface-variant" class="pa-6 text-center">
+          <v-progress-circular indeterminate color="primary" size="32" class="mb-3" />
+          <p class="text-caption text-medium-emphasis">{{ $t('api.loading_stats') }}</p>
+        </v-card>
+      </v-col>
+    </v-row>
+
     <!-- Token Usage Stats Section -->
-    <v-row v-if="usageStats && usageStats.total_tokens > 0" id="token-usage-section" class="mb-8">
+    <v-row v-else-if="usageStats && usageStats.total_tokens > 0" id="token-usage-section" class="mb-8">
       <v-col cols="12">
         <v-card rounded="xl" variant="flat" color="surface-variant" class="pa-6 border-thin shadow-premium">
           <div class="d-flex align-center gap-3 mb-6">
@@ -446,7 +542,7 @@ const pieOption = computed(() => {
             </v-avatar>
             <div>
               <h3 class="text-h6 font-weight-bold">{{ $t('api.usage_title') }}</h3>
-              <p class="text-caption text-medium-emphasis">基于 OpenAI 类型接口的 Tokens 实时统计</p>
+              <p class="text-caption text-medium-emphasis">{{ $t('api.usage_section_desc') }}</p>
             </div>
           </div>
           
@@ -497,9 +593,9 @@ const pieOption = computed(() => {
                   </v-list-item-subtitle>
                   <template v-slot:append>
                     <div class="text-right">
-                      <p class="text-h6 font-weight-bold mb-0">{{ item.total_tokens.toLocaleString() }} <span class="text-caption font-weight-medium text-medium-emphasis">Tokens</span></p>
+                      <p class="text-h6 font-weight-bold mb-0">{{ item.total_tokens.toLocaleString() }} <span class="text-caption font-weight-medium text-medium-emphasis">{{ $t('api.tokens_unit') }}</span></p>
                       <p class="text-caption text-medium-emphasis">
-                        {{ item.prompt_tokens.toLocaleString() }} (In) / {{ item.completion_tokens.toLocaleString() }} (Out)
+                        {{ item.prompt_tokens.toLocaleString() }} ({{ $t('api.tokens_in') }}) / {{ item.completion_tokens.toLocaleString() }} ({{ $t('api.tokens_out') }})
                       </p>
                     </div>
                   </template>
@@ -511,8 +607,23 @@ const pieOption = computed(() => {
       </v-col>
     </v-row>
 
-    <!-- 密钥列表 -->
-    <v-card v-if="apiConfigs.length === 0" rounded="xl" variant="tonal" color="surface-variant" class="text-center pa-12">
+    <!-- Loading state -->
+    <v-card v-if="loading" rounded="xl" variant="tonal" color="surface-variant" class="text-center pa-12">
+      <v-progress-circular indeterminate color="primary" size="48" class="mb-4" />
+      <p class="text-body-2 text-medium-emphasis">{{ $t('api.loading') }}</p>
+    </v-card>
+
+    <!-- Load failure -->
+    <v-card v-else-if="loadError" rounded="xl" variant="tonal" color="error" class="text-center pa-12">
+      <v-icon size="64" color="error" class="mb-4">{{ mdiAlertCircleOutline }}</v-icon>
+      <h3 class="text-h6 mb-2">{{ $t('api.load_failed') }}</h3>
+      <v-btn color="primary" rounded="pill" elevation="0" class="text-none mt-2" @click="reloadAll">
+        {{ $t('common.retry') }}
+      </v-btn>
+    </v-card>
+
+    <!-- Empty state -->
+    <v-card v-else-if="apiConfigs.length === 0" rounded="xl" variant="tonal" color="surface-variant" class="text-center pa-12">
       <v-icon size="64" color="primary" class="mb-4">{{ mdiKeyOutline }}</v-icon>
       <h3 class="text-h6 mb-2">{{ $t('api.empty_title') }}</h3>
       <p class="text-body-2 text-medium-emphasis mb-6">{{ $t('api.empty_subtitle') }}</p>
@@ -884,7 +995,7 @@ const pieOption = computed(() => {
             <v-avatar color="primary" variant="tonal" size="40">
               <v-icon color="primary">{{ mdiPoll }}</v-icon>
             </v-avatar>
-            <h3 class="text-h6 font-weight-bold">Token 消耗统计分析</h3>
+            <h3 class="text-h6 font-weight-bold">{{ $t('api.stats_title') }}</h3>
           </div>
           <v-btn :icon="mdiClose" variant="text" @click="statsDialog = false"></v-btn>
         </div>
@@ -894,10 +1005,10 @@ const pieOption = computed(() => {
           <div class="d-flex flex-wrap gap-3 mb-6 align-center">
             <v-select
               v-model="selectedFilterApi"
-              :items="[{ name: '全部 API', id: null }, ...apiConfigs]"
-              item-title="name"
-              item-value="id"
-              placeholder="API 筛选"
+              :items="apiFilterItems"
+              item-title="title"
+              item-value="value"
+              :placeholder="$t('api.filter_api_placeholder')"
               variant="outlined"
               density="comfortable"
               hide-details
@@ -907,7 +1018,9 @@ const pieOption = computed(() => {
             <v-select
               v-model="selectedFilterModel"
               :items="availableModelsList"
-              placeholder="模型筛选"
+              item-title="title"
+              item-value="value"
+              :placeholder="$t('api.filter_model_placeholder')"
               variant="outlined"
               density="comfortable"
               hide-details
@@ -923,10 +1036,10 @@ const pieOption = computed(() => {
               mandatory
               rounded="lg"
             >
-              <v-btn value="week" size="small">周</v-btn>
-              <v-btn value="month" size="small">月</v-btn>
-              <v-btn value="year" size="small">年</v-btn>
-              <v-btn value="all" size="small">全部</v-btn>
+              <v-btn value="week" size="small">{{ $t('api.range_week') }}</v-btn>
+              <v-btn value="month" size="small">{{ $t('api.range_month') }}</v-btn>
+              <v-btn value="year" size="small">{{ $t('api.range_year') }}</v-btn>
+              <v-btn value="all" size="small">{{ $t('api.range_all') }}</v-btn>
             </v-btn-toggle>
           </div>
 
@@ -935,7 +1048,7 @@ const pieOption = computed(() => {
               <v-card variant="flat" border class="pa-4 h-100 rounded-xl">
                 <p class="text-subtitle-2 font-weight-bold mb-4 d-flex align-center">
                   <v-icon size="18" class="mr-2" color="primary">{{ mdiChartTimelineVariant }}</v-icon>
-                  消耗历史趋势
+                  {{ $t('api.trend_title') }}
                 </p>
                 <div style="height: 400px;">
                   <v-chart class="chart" :option="lineOption" autoresize />
@@ -945,7 +1058,7 @@ const pieOption = computed(() => {
             <v-col cols="12" lg="4">
               <div class="d-flex flex-column gap-4 h-100">
                 <v-card variant="flat" border class="pa-4 rounded-xl flex-grow-1 d-flex flex-column">
-                  <p class="text-subtitle-2 font-weight-bold mb-4">按模型分布</p>
+                  <p class="text-subtitle-2 font-weight-bold mb-4">{{ $t('api.distribution_title') }}</p>
                   <div class="flex-grow-1" style="min-height: 300px;">
                     <v-chart class="chart" :option="pieOption" autoresize />
                   </div>
@@ -957,7 +1070,7 @@ const pieOption = computed(() => {
           <v-row class="text-center mt-6">
             <v-col v-if="usageStats">
               <v-card variant="tonal" color="primary" class="pa-6 rounded-xl">
-                <p class="text-subtitle-2 mb-2 font-weight-bold">所有服务的总计消耗 (Tokens)</p>
+                <p class="text-subtitle-2 mb-2 font-weight-bold">{{ $t('api.total_all_services') }}</p>
                 <p class="text-h2 font-weight-black">{{ usageStats.total_tokens.toLocaleString() }}</p>
               </v-card>
             </v-col>
@@ -980,10 +1093,21 @@ const pieOption = computed(() => {
         </v-card-actions>
       </v-card>
     </v-dialog>
+
+    <v-snackbar v-model="snackbar" :timeout="3000" location="bottom end" :color="snackbarColor" rounded="pill">
+      <v-icon start>{{ snackbarColor === 'error' ? mdiAlertCircleOutline : mdiCheckCircleOutline }}</v-icon>
+      {{ snackbarText }}
+    </v-snackbar>
   </div>
 </template>
 
 <style scoped>
+/* 窄屏下标题与操作按钮不再互相挤压：标题可换行，按钮整行下移。 */
+.api-page-title {
+  flex: 1 1 240px;
+  min-width: 0;
+}
+
 .api-key-card {
   transition: 
     transform var(--md-motion-duration-medium) var(--md-motion-easing-emphasized),

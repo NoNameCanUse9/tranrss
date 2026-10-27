@@ -368,3 +368,84 @@ h3,
   border-color: var(--md-sys-color-primary) !important;
   background-color: var(--md-sys-color-surface-container-highest) !important;
 }
+
+/* ============================================================
+ * Vuetify 4 兼容层
+ *
+ * Vuetify 4 取消了三类东西，而项目模板仍在大量使用：
+ *   1. v3 排版类 (.text-h1..h6 / body-1/2 / caption / subtitle-1/2 / overline)
+ *      —— v4 换成 MD3 命名 (.text-headline-* / .text-body-* / .text-title-*)
+ *   2. 部分布局工具类 (.flex-1 / .min-w-0 / .gap-* / .border-y 等)
+ *   3. MD3 没有的调色工具类 (bg-primary-lighten-5)，已从模板移除
+ * 这里集中补一份，值是 v3 的排版刻度（项目设计即按此刻度写的），
+ * 只在缺失时生效：v4 自带的同名类优先级更高时仍由 v4 决定。
+ * 只设置字号/行高/字距，不设字重，避免压掉模板里的 .font-weight-bold。
+ * ============================================================ */
+.text-h1 { font-size: 3.5rem; line-height: 1.12; }
+.text-h2 { font-size: 2.8125rem; line-height: 1.16; }
+.text-h3 { font-size: 2.25rem; line-height: 1.22; }
+.text-h4 { font-size: 1.75rem; line-height: 1.28; }
+.text-h5 { font-size: 1.5rem; line-height: 1.33; }
+.text-h6 { font-size: 1.25rem; line-height: 1.4; }
+.text-subtitle-1 { font-size: 1rem; line-height: 1.5; }
+.text-subtitle-2 { font-size: 0.875rem; line-height: 1.43; }
+.text-body-1 { font-size: 1rem; line-height: 1.5; }
+.text-body-2 { font-size: 0.875rem; line-height: 1.43; }
+.text-caption { font-size: 0.75rem; line-height: 1.33; letter-spacing: 0.01em; }
+.text-overline {
+  font-size: 0.75rem;
+  line-height: 1.33;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+/* 手机上的标题刻度：28px 的大标题在 390px 视口里会占掉半个屏幕，
+   按 MD3 的响应式排版惯例整体降一档。 */
+@media (max-width: 599px) {
+  .text-h1 { font-size: 2.25rem; }
+  .text-h2 { font-size: 2rem; }
+  .text-h3 { font-size: 1.75rem; }
+  .text-h4 { font-size: 1.5rem; line-height: 1.3; }
+  .text-h5 { font-size: 1.25rem; }
+  .text-h6 { font-size: 1.125rem; }
+}
+
+/* --- 布局工具类 --- */
+.flex-1 {
+  flex: 1 1 0% !important;
+  min-width: 0;
+}
+
+.min-w-0 {
+  min-width: 0 !important;
+}
+
+.max-w-100 {
+  max-width: 100% !important;
+}
+
+.border-y {
+  border-top: 1px solid rgba(var(--v-border-color), var(--v-border-opacity));
+  border-bottom: 1px solid rgba(var(--v-border-color), var(--v-border-opacity));
+}
+
+.border-opacity-10 {
+  --v-border-opacity: 0.1;
+}
+
+.gap-1 { gap: 4px; }
+.gap-2 { gap: 8px; }
+.gap-3 { gap: 12px; }
+.gap-4 { gap: 16px; }
+.gap-5 { gap: 20px; }
+.gap-6 { gap: 24px; }
+.gap-8 { gap: 32px; }
+
+/* --- 主题色前景类 (v4 未为 on-* 颜色生成 text- 工具类) --- */
+.text-on-primary {
+  color: rgb(var(--v-theme-on-primary)) !important;
+}
+
+.text-on-surface-variant {
+  color: rgb(var(--v-theme-on-surface-variant)) !important;
+}

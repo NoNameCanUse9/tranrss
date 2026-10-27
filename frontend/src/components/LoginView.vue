@@ -52,17 +52,21 @@ const toggleTheme = () => {
 const emit = defineEmits(['auth-success'])
 
 const handleSubmit = async () => {
+  if (loading.value) return
+
   if (!username.value || !password.value) {
     error.value = t('auth.required')
     return
   }
 
+  // 请求期间的 isLogin 可能被切换，判定与后续处理必须使用同一个快照。
+  const loginMode = isLogin.value
   loading.value = true
   error.value = ''
   messageType.value = 'error'
 
   try {
-    const endpoint = isLogin.value ? '/api/user/login' : '/api/user/register'
+    const endpoint = loginMode ? '/api/user/login' : '/api/user/register'
     const response = await fetch(endpoint, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -73,11 +77,12 @@ const handleSubmit = async () => {
     })
 
     if (!response.ok) {
-        const data = await response.json().catch(() => ({}))
-        throw new Error(data.message || (isLogin.value ? t('auth.login_failed') : t('auth.register_failed')))
+        // 后端鉴权接口返回 text/plain，直接展示服务端错误文本。
+        const body = (await response.text().catch(() => '')).trim()
+        throw new Error(body || (loginMode ? t('auth.login_failed') : t('auth.register_failed')))
     }
 
-    if (isLogin.value) {
+    if (loginMode) {
       const data = await response.json()
       localStorage.setItem('token', data.token)
       localStorage.setItem('username', data.username)
@@ -111,7 +116,7 @@ const handleSubmit = async () => {
 </script>
 
 <template>
-  <div class="login-page-wrapper login-view-bg d-flex align-center justify-center">
+  <div class="login-page-wrapper login-view-bg d-flex justify-center">
     <!-- 极简主题/语言切换 -->
     <div class="theme-toggle d-flex align-center">
       <!-- Compatible Language Select (Native fallback) -->
@@ -175,12 +180,12 @@ const handleSubmit = async () => {
 
         <v-btn
           type="submit"
-          color="primary"
+          :loading="loading"
+          :disabled="loading"
           block
           size="large"
           class="text-none font-weight-bold mb-4"
           rounded="lg"
-          :loading="loading"
         >
           {{ isLogin ? t('auth.login_btn') : t('auth.register_btn') }}
         </v-btn>
@@ -194,13 +199,14 @@ const handleSubmit = async () => {
             color="primary"
             class="text-none font-weight-bold px-1"
             density="compact"
+            :disabled="loading"
             @click="isLogin = !isLogin"
           >
             {{ isLogin ? t('auth.register_now') : t('auth.back_to_login') }}
           </v-btn>
         </div>
         <div v-else-if="!allowRegistration && isLogin" class="text-center text-caption text-medium-emphasis mt-4">
-           {{ t('auth.registration_disabled', '注册已关闭') }}
+          {{ t('auth.registration_disabled') }}
         </div>
       </v-form>
     </v-card>
@@ -211,9 +217,15 @@ const handleSubmit = async () => {
 <style scoped>
 .login-page-wrapper {
   width: 100vw;
-  min-height: 100vh;
+  /* body 被全局设置为 overflow: hidden，登录页必须自己成为滚动容器：
+     固定视口高度 + overflow-y:auto，矮视口下卡片才不会被裁掉。 */
+  height: 100vh;
   position: relative;
   overflow-x: hidden;
+  overflow-y: auto;
+  align-items: flex-start;
+  box-sizing: border-box;
+  padding: 24px 16px;
 }
 
 .login-view-bg {

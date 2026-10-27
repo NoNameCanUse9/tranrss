@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, shallowRef } from 'vue'
+import { ref, computed, shallowRef, onMounted, onUnmounted } from 'vue'
 import { useTheme, useDisplay } from 'vuetify'
 import { useI18n } from 'vue-i18n'
 import SettingsView from './views/SettingsView.vue'
@@ -7,7 +7,6 @@ import ApiView from './views/ApiView.vue'
 import SubscriptionView from './views/SubscriptionView.vue'
 import QueueView from './views/QueueView.vue'
 import ArticleView from './views/ArticleView.vue'
-import { onMounted } from 'vue'
 import { 
   mdiNewspaperVariant, 
   mdiNewspaperVariantOutline, 
@@ -98,21 +97,57 @@ const selectedFeedId = ref<number | undefined>(undefined)
 const filterRead = ref<boolean | undefined>(undefined)
 const filterStarred = ref<boolean | undefined>(undefined)
 
+const feedsError = ref(false)
+
 const fetchSubscriptions = async () => {
   try {
     const response = await apiFetch('/api/feeds')
     if (response.ok) {
       subscriptions.value = await response.json()
+      feedsError.value = false
+    } else {
+      feedsError.value = true
     }
   } catch (e) {
     console.error(e)
+    feedsError.value = true
   }
+}
+
+let activeJobsTimer: ReturnType<typeof setInterval> | null = null
+let eventsSource: EventSource | null = null
+let subscriptionsRefreshTimer: ReturnType<typeof setTimeout> | null = null
+
+// 侧边栏未读/收藏计数需要跟随后台同步与翻译事件刷新，做 500ms 去抖。
+const scheduleSubscriptionsRefresh = () => {
+  if (subscriptionsRefreshTimer) clearTimeout(subscriptionsRefreshTimer)
+  subscriptionsRefreshTimer = setTimeout(() => {
+    subscriptionsRefreshTimer = null
+    fetchSubscriptions()
+  }, 500)
 }
 
 onMounted(() => {
   fetchSubscriptions()
   fetchActiveJobsCount()
-  setInterval(fetchActiveJobsCount, 30000)
+  activeJobsTimer = setInterval(fetchActiveJobsCount, 30000)
+
+  eventsSource = new EventSource('/api/events')
+  eventsSource.onmessage = (event) => {
+    const msg = event.data
+    if (msg === 'REFRESH_FEEDS' || msg.startsWith('ARTICLE_UPDATED:')) {
+      scheduleSubscriptionsRefresh()
+    }
+  }
+})
+
+onUnmounted(() => {
+  if (activeJobsTimer) clearInterval(activeJobsTimer)
+  activeJobsTimer = null
+  if (subscriptionsRefreshTimer) clearTimeout(subscriptionsRefreshTimer)
+  subscriptionsRefreshTimer = null
+  eventsSource?.close()
+  eventsSource = null
 })
 
 const unreadCount = computed(() => subscriptions.value.reduce((acc, sub) => acc + sub.unreadCount, 0))
@@ -136,13 +171,13 @@ const selectFeed = (feedId?: number, isRead?: boolean, isStarred?: boolean) => {
   filterStarred.value = isStarred
   activeTab.value = 0
   articleListOpen.value = true // 切换源时默认打开列表
+  mobileDrawer.value = false // 窄屏抽屉选完源后立即收起
 }
 
 const logout = () => {
   localStorage.removeItem('token')
   localStorage.removeItem('username')
-  // 使用 reload 是最稳妥的退出方式，确保所有内存状态清空
-  window.location.reload()
+  emit('logout')
 }
 
 const fetchActiveJobsCount = async () => {
@@ -264,6 +299,17 @@ const getCategoryUnreadCount = (subs: any[]) => {
             </v-list-item>
           </v-list-group>
         </v-list-group>
+
+        <v-list-item v-if="feedsError" density="compact" class="px-4 mb-1 rounded-lg">
+          <v-list-item-title class="text-caption text-error">
+            {{ $t('nav.feeds_load_failed') }}
+          </v-list-item-title>
+          <template #append>
+            <v-btn size="x-small" variant="text" color="primary" @click="fetchSubscriptions">
+              {{ $t('common.retry') }}
+            </v-btn>
+          </template>
+        </v-list-item>
 
         <!-- Other Items -->
         <v-list-item
@@ -437,6 +483,21 @@ const getCategoryUnreadCount = (subs: any[]) => {
           </template>
         </div>
 
+        <v-list-item
+          v-if="feedsError && drawerOpen"
+          density="compact"
+          class="px-4 mb-1 rounded-lg"
+        >
+          <v-list-item-title class="text-caption text-error">
+            {{ $t('nav.feeds_load_failed') }}
+          </v-list-item-title>
+          <template #append>
+            <v-btn size="x-small" variant="text" color="primary" @click="fetchSubscriptions">
+              {{ $t('common.retry') }}
+            </v-btn>
+          </template>
+        </v-list-item>
+
 
         <!-- Other Items -->
         <v-list-item
@@ -607,8 +668,6 @@ const getCategoryUnreadCount = (subs: any[]) => {
   cursor: pointer;
 }
 
-.gap-1 { gap: 4px; }
-.gap-3 { gap: 12px; }
 
 /* Articles group header - two clickable zones */
 .articles-group-header {
@@ -723,5 +782,32 @@ const getCategoryUnreadCount = (subs: any[]) => {
 .lang-native-select option {
   background: var(--v-theme-surface);
   color: var(--v-theme-on-surface);
+}
+</style>
+
+<style scoped>
+
+/* 移动端底部导航：5 个入口在 390px 宽度下会挤出视口，
+   让按钮按等分收缩、标签允许省略，保证最后一项不被裁掉。 */
+@media (max-width: 599px) {
+  .v-bottom-navigation :deep(.v-btn) {
+    min-width: 0 !important;
+    flex: 1 1 0;
+    padding-inline: 2px;
+  }
+
+  .v-bottom-navigation :deep(.v-btn__content) {
+    min-width: 0;
+    max-width: 100%;
+  }
+
+  .v-bottom-navigation :deep(.v-btn__content > span) {
+    display: block;
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: 0.6875rem;
+  }
 }
 </style>

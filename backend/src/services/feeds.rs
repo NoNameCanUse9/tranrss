@@ -183,10 +183,48 @@ fn flush_acc(
 fn open_tag(elem: &scraper::node::Element) -> String {
     let mut attrs_str = String::new();
     for (k, v) in elem.attrs() {
+        if !is_safe_attr(k, v) {
+            continue;
+        }
         let escaped_v = v.replace("\"", "&quot;");
         attrs_str.push_str(&format!(" {}=\"{}\"", k, escaped_v));
     }
     format!("<{}{}>", elem.name(), attrs_str)
+}
+
+/// 过滤来自订阅源的原始 HTML 属性，阻断事件处理器与脚本协议的注入面。
+///
+/// 前端仍有 DOMPurify 兜底；这里是服务端的纵深防御，避免任何消费方拿到带
+/// `onerror` / `javascript:` 的骨架。
+fn is_safe_attr(name: &str, value: &str) -> bool {
+    let name = name.trim().to_ascii_lowercase();
+    if name.starts_with("on")
+        || name == "srcdoc"
+        || name == "formaction"
+        || name == "xlink:href"
+    {
+        return false;
+    }
+
+    let is_url_attr = matches!(
+        name.as_str(),
+        "href" | "src" | "action" | "poster" | "background" | "cite" | "data"
+    );
+    if !is_url_attr {
+        return true;
+    }
+
+    let value = value.trim_start().to_ascii_lowercase();
+    if value.starts_with("javascript:")
+        || value.starts_with("vbscript:")
+        || value.starts_with("file:")
+    {
+        return false;
+    }
+    if value.starts_with("data:") {
+        return name == "src" && value.starts_with("data:image/");
+    }
+    true
 }
 
 fn process_node<'a>(
@@ -683,4 +721,39 @@ pub async fn process_xml_content(
     tx.commit().await?;
     tracing::info!("✅ (feed_id={}) 数据库事务提交成功，同步文章完成", feed_id);
     Ok(synced_ids)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn drops_event_handlers_and_script_urls() {
+        assert!(!is_safe_attr("onerror", "alert(1)"));
+        assert!(!is_safe_attr("ONLOAD", "alert(1)"));
+        assert!(!is_safe_attr("href", "javascript:alert(1)"));
+        assert!(!is_safe_attr(" href", "  JavaScript:alert(1)"));
+        assert!(!is_safe_attr("src", "data:text/html;base64,PHNjcmlwdD4="));
+        assert!(!is_safe_attr("srcdoc", "<script>alert(1)</script>"));
+        assert!(!is_safe_attr("xlink:href", "javascript:alert(1)"));
+    }
+
+    #[test]
+    fn keeps_normal_attributes_and_inline_images() {
+        assert!(is_safe_attr("class", "article"));
+        assert!(is_safe_attr("href", "https://example.com/a"));
+        assert!(is_safe_attr("src", "data:image/png;base64,iVBORw0KGgo="));
+        assert!(is_safe_attr("width", "640"));
+    }
+
+    #[test]
+    fn skeleton_contains_no_injection_vectors() {
+        let html = r#"<p>hi</p><a href="javascript:alert(1)">link</a><img src="x" onerror="alert(1)"><script>alert(1)</script>"#;
+        let (skeleton, blocks) = extract_blocks_from_html(html);
+        let all = format!("{}{:?}", skeleton, blocks);
+        assert!(!all.to_lowercase().contains("onerror"));
+        assert!(!all.to_lowercase().contains("javascript:"));
+        assert!(!all.to_lowercase().contains("<script"));
+        assert!(all.contains("hi"));
+    }
 }

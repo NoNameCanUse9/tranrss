@@ -10,10 +10,17 @@
  * 您可以在此组件的 <style> 块中自由修改 .trans-text 的样式，
  * 所有文章的翻译展示效果都会同步变化。
  */
+import { computed } from 'vue'
+import DOMPurify from 'dompurify'
+
 const props = defineProps<{
   content: string
   customStyle?: string
 }>()
+
+// RSS/文章内容来自外部订阅源，必须在渲染前净化，避免 <img onerror> /
+// javascript: 链接等注入。DOMPurify 默认配置保留常规标签、class 与图片。
+const sanitizedContent = computed(() => DOMPurify.sanitize(props.content))
 </script>
 
 <template>
@@ -25,7 +32,7 @@ const props = defineProps<{
         {{ customStyle }}
       }
     </component>
-    <div class="article-content-body" v-html="content" />
+    <div class="article-content-body" v-html="sanitizedContent" />
   </div>
 </template>
 

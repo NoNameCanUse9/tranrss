@@ -31,6 +31,7 @@ pub async fn list_subscriptions(
             f.description,
             f.icon_url,
             f.icon_base64,
+            s.num,
             s.refresh_interval,
             f.last_status_code,
             f.last_error
@@ -317,6 +318,7 @@ pub async fn get_subscription_detail(
             f.description,
             f.icon_url,
             f.icon_base64,
+            s.num,
             s.refresh_interval,
             f.last_status_code,
             f.last_error

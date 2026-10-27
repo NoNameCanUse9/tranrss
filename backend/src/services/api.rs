@@ -107,7 +107,12 @@ pub async fn update_config(
         old.api_key
     };
 
-    let base_url = req.base_url.or(old.base_url);
+    // 空字符串代表显式清除 base_url（回落到服务商默认端点），未传则保留旧值
+    let base_url = match req.base_url {
+        Some(url) if url.trim().is_empty() => None,
+        Some(url) => Some(url),
+        None => old.base_url,
+    };
     let timeout_seconds = req.timeout_seconds.unwrap_or(old.timeout_seconds);
     let retry_count = req.retry_count.unwrap_or(old.retry_count);
     let retry_interval_ms = req.retry_interval_ms.unwrap_or(old.retry_interval_ms);

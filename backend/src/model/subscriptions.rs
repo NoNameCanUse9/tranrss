@@ -25,6 +25,7 @@ pub struct SubscriptionDetail {
     pub description: Option<String>,
     pub icon_url: Option<String>,
     pub icon_base64: Option<String>,
+    pub num: i64,
     pub refresh_interval: i64,
     pub last_status_code: Option<i32>,
     pub last_error: Option<String>,

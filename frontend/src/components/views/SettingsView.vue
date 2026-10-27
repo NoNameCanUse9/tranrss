@@ -54,7 +54,7 @@ const toggleTheme = () => {
   // isDark compute setter handles this
 }
 
-const logNumLimit = ref(300)
+const logNumLimit = ref<number | string>(300)
 const proxyEnabled = ref(false)
 const proxyUrl = ref('')
 const greaderApi = ref(false)
@@ -69,6 +69,14 @@ const importing = ref(false)
 const snackbar = ref(false)
 const snackbarText = ref(t('settings.saved'))
 
+const snackbarColor = ref<'success' | 'error'>('success')
+
+const notify = (text: string, color: 'success' | 'error' = 'success') => {
+  snackbarText.value = text
+  snackbarColor.value = color
+  snackbar.value = true
+}
+
 const greaderUrl = ref(`${window.location.origin}/api/greader`)
 const feverUrl = ref(`${window.location.origin}/api/fever`)
 const loadingConfigs = ref(true)
@@ -78,10 +86,10 @@ const apiConfigs = ref<any[]>([])
 interface AccessKeyInfo {
   id: number
   name: string
-  keyPrefix: string
+  key_prefix: string
   permissions: string[]
-  createdAt: string | null
-  lastUsedAt: string | null
+  created_at: string | null
+  last_used_at: string | null
 }
 
 const accessKeys = ref<AccessKeyInfo[]>([])
@@ -92,21 +100,28 @@ const createdKey = ref<string | null>(null)
 const accessKeyLoading = ref(false)
 
 const PERMISSION_GROUPS = [
-  { label: '文章', resource: 'articles', actions: ['read', 'write'] },
-  { label: '订阅', resource: 'subscriptions', actions: ['read', 'write'] },
-  { label: '任务', resource: 'jobs', actions: ['read', 'write'] },
-  { label: '设置', resource: 'settings', actions: ['read', 'write'] },
-  { label: 'GReader', resource: 'greader', actions: ['read', 'write'] },
+  { labelKey: 'settings.perm_group_articles', resource: 'articles', actions: ['read', 'write'] },
+  { labelKey: 'settings.perm_group_subscriptions', resource: 'subscriptions', actions: ['read', 'write'] },
+  { labelKey: 'settings.perm_group_jobs', resource: 'jobs', actions: ['read', 'write'] },
+  { labelKey: 'settings.perm_group_settings', resource: 'settings', actions: ['read', 'write'] },
+  { labelKey: 'settings.perm_group_greader', resource: 'greader', actions: ['read', 'write'] },
 ]
+
+const allConcretePerms = computed(() =>
+  PERMISSION_GROUPS.flatMap(group => group.actions.map(action => `${group.resource}:${action}`))
+)
 
 const fetchAccessKeys = async () => {
   try {
     const res = await apiFetch('/api/user/access-keys')
-    if (res.ok) {
-      accessKeys.value = await res.json()
+    if (!res.ok) {
+      notify(t('settings.keys_load_failed'), 'error')
+      return
     }
+    accessKeys.value = await res.json()
   } catch (e) {
     console.error('Failed to load access keys', e)
+    notify(t('settings.keys_load_failed'), 'error')
   }
 }
 
@@ -118,7 +133,14 @@ const openCreateKeyDialog = () => {
 }
 
 const createAccessKey = async () => {
-  if (!newKeyName.value) return
+  if (!newKeyName.value) {
+    notify(t('settings.key_name_required'), 'error')
+    return
+  }
+  if (newKeyPerms.value.length === 0) {
+    notify(t('settings.perm_select_at_least'), 'error')
+    return
+  }
   accessKeyLoading.value = true
   try {
     const res = await apiFetch('/api/user/access-keys', {
@@ -129,31 +151,42 @@ const createAccessKey = async () => {
         permissions: newKeyPerms.value,
       })
     })
-    if (res.ok) {
-      const data = await res.json()
-      createdKey.value = data.key
-      await fetchAccessKeys()
+    if (!res.ok) {
+      notify(t('settings.key_create_failed'), 'error')
+      return
     }
+    const data = await res.json()
+    createdKey.value = data.key
+    await fetchAccessKeys()
   } catch (e) {
     console.error('Failed to create access key', e)
+    notify(t('settings.key_create_failed'), 'error')
   } finally {
     accessKeyLoading.value = false
   }
 }
 
 const deleteAccessKey = async (id: number) => {
-  if (!confirm('确定要删除此 Access Key 吗？使用此 Key 的应用将无法访问。')) return
+  if (!confirm(t('settings.key_delete_confirm'))) return
   try {
     const res = await apiFetch(`/api/user/access-keys/${id}`, { method: 'DELETE' })
-    if (res.ok) {
-      await fetchAccessKeys()
+    if (!res.ok) {
+      notify(t('settings.key_delete_failed'), 'error')
+      return
     }
+    await fetchAccessKeys()
   } catch (e) {
     console.error('Failed to delete access key', e)
+    notify(t('settings.key_delete_failed'), 'error')
   }
 }
 
 const togglePerm = (perm: string) => {
+  // When every permission is granted through '*', expand it so the clicked chip can be revoked
+  if (newKeyPerms.value.includes('*')) {
+    newKeyPerms.value = allConcretePerms.value.filter(p => p !== perm)
+    return
+  }
   const idx = newKeyPerms.value.indexOf(perm)
   if (idx >= 0) {
     newKeyPerms.value.splice(idx, 1)
@@ -172,10 +205,40 @@ const toggleAllPerms = () => {
 
 const hasPerm = (perm: string) => newKeyPerms.value.includes(perm) || newKeyPerms.value.includes('*')
 
-const copyToClipboard = (text: string) => {
-  navigator.clipboard.writeText(text)
-  snackbarText.value = t('common.copy_success')
-  snackbar.value = true
+const legacyCopy = (text: string): boolean => {
+  const textarea = document.createElement('textarea')
+  textarea.value = text
+  textarea.setAttribute('readonly', '')
+  textarea.style.position = 'fixed'
+  textarea.style.top = '-1000px'
+  textarea.style.opacity = '0'
+  document.body.appendChild(textarea)
+  textarea.select()
+  let ok = false
+  try {
+    ok = document.execCommand('copy')
+  } catch {
+    ok = false
+  } finally {
+    document.body.removeChild(textarea)
+  }
+  return ok
+}
+
+const copyToClipboard = async (text: string) => {
+  try {
+    if (!navigator.clipboard?.writeText) {
+      throw new Error('Clipboard API unavailable')
+    }
+    await navigator.clipboard.writeText(text)
+    notify(t('common.copy_success'))
+  } catch {
+    if (legacyCopy(text)) {
+      notify(t('common.copy_success'))
+    } else {
+      notify(t('common.copy_failed'), 'error')
+    }
+  }
 }
 
 const fetchApiConfigs = async () => {
@@ -210,7 +273,7 @@ const loadSettings = async () => {
         // but here we let the global theme (from localStorage/main.ts) take precedence for the session.
         // If the user wants to sync with backend, they can see the difference or we can auto-apply once on login.
       }
-      if (data.log_num_limit) logNumLimit.value = data.log_num_limit
+      if (data.log_num_limit !== null && data.log_num_limit !== undefined) logNumLimit.value = data.log_num_limit
       if (data.api_proxy !== undefined && data.api_proxy !== null) proxyEnabled.value = data.api_proxy
       if (data.api_proxy_url) proxyUrl.value = data.api_proxy_url
       if (data.greader_api !== undefined && data.greader_api !== null) greaderApi.value = data.greader_api
@@ -238,15 +301,21 @@ const fetchExtSettings = async () => {
 }
 
 const toggleRegistration = async () => {
+    const desired = allowRegistration.value
     try {
-        await apiFetch('/api/user/registration-toggle', {
+        const res = await apiFetch('/api/user/registration-toggle', {
             method: 'POST',
-            body: JSON.stringify({ allow: allowRegistration.value })
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ allow: desired })
         })
-        snackbarText.value = t('settings.saved')
-        snackbar.value = true
+        if (!res.ok) {
+            throw new Error(await res.text())
+        }
+        notify(t('settings.saved'))
     } catch (e) {
         console.error('Failed to toggle registration', e)
+        allowRegistration.value = !desired
+        notify(t('settings.registration_update_failed'), 'error')
     }
 }
 
@@ -255,46 +324,46 @@ const updateUsernameAction = async () => {
     try {
         const res = await apiFetch('/api/user/username', {
             method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ new_username: newUsername.value })
         })
-        if (res.ok) {
-            localStorage.setItem('username', newUsername.value)
-            currentUsername.value = newUsername.value
-            snackbarText.value = '用户名已修改'
-            snackbar.value = true
-        } else {
-            alert('修改失败: ' + await res.text())
+        if (!res.ok) {
+            throw new Error(await res.text())
         }
+        localStorage.setItem('username', newUsername.value)
+        currentUsername.value = newUsername.value
+        notify(t('settings.username_updated'))
     } catch (e) {
         console.error('Update username failed', e)
+        notify(t('settings.username_update_failed'), 'error')
     }
 }
 
 const updatePasswordAction = async () => {
     if (!oldPassword.value || !newPassword.value) return
     if (newPassword.value !== confirmPassword.value) {
-        alert('两次输入的密码不一致')
+        notify(t('settings.password_mismatch'), 'error')
         return
     }
     try {
         const res = await apiFetch('/api/user/password', {
             method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ 
                 old_password: oldPassword.value,
                 new_password: newPassword.value 
             })
         })
-        if (res.ok) {
-            oldPassword.value = ''
-            newPassword.value = ''
-            confirmPassword.value = ''
-            snackbarText.value = '密码已修改'
-            snackbar.value = true
-        } else {
-            alert('修改失败: ' + await res.text())
+        if (!res.ok) {
+            throw new Error(await res.text())
         }
+        oldPassword.value = ''
+        newPassword.value = ''
+        confirmPassword.value = ''
+        notify(t('settings.password_updated'))
     } catch (e) {
         console.error('Update password failed', e)
+        notify(t('settings.password_update_failed'), 'error')
     }
 }
 
@@ -306,16 +375,22 @@ onMounted(async () => {
 })
 
 const saveSettings = async () => {
+  const limit = Number(logNumLimit.value)
+  if (!Number.isInteger(limit) || limit <= 0) {
+    notify(t('settings.invalid_queue_limit'), 'error')
+    return
+  }
+
   saving.value = true
   try {
-    await apiFetch('/api/user/setting', {
+    const res = await apiFetch('/api/user/setting', {
       method: 'PUT',
       headers: { 
         'Content-Type': 'application/json'
       },
       body: JSON.stringify({
         app_mode: isDark.value,
-        log_num_limit: Number(logNumLimit.value),
+        log_num_limit: limit,
         api_proxy: proxyEnabled.value,
         api_proxy_url: proxyUrl.value,
         greader_api: greaderApi.value,
@@ -326,13 +401,18 @@ const saveSettings = async () => {
         custom_trans_style: customTransStyle.value,
       })
     })
-    
+
+    if (!res.ok) {
+      notify(t('settings.save_failed'), 'error')
+      return
+    }
+
     localStorage.setItem('theme', isDark.value ? 'dark' : 'light')
-    localStorage.setItem('log_num_limit', logNumLimit.value.toString())
-    snackbarText.value = t('settings.saved')
-    snackbar.value = true
+    localStorage.setItem('log_num_limit', limit.toString())
+    notify(t('settings.saved'))
   } catch (e) {
     console.error('Save failed', e)
+    notify(t('settings.save_failed'), 'error')
   } finally {
     saving.value = false
   }
@@ -341,19 +421,22 @@ const saveSettings = async () => {
 const exportOPML = async () => {
   try {
     const res = await apiFetch('/api/feeds/opml')
-    if (res.ok) {
-      const blob = await res.blob()
-      const url = window.URL.createObjectURL(blob)
-      const a = document.createElement('a')
-      a.href = url
-      a.download = `subscriptions_${new Date().toISOString().slice(0,10)}.opml`
-      document.body.appendChild(a)
-      a.click()
-      window.URL.revokeObjectURL(url)
-      document.body.removeChild(a)
+    if (!res.ok) {
+      notify(t('settings.opml_export_failed'), 'error')
+      return
     }
+    const blob = await res.blob()
+    const url = window.URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `subscriptions_${new Date().toISOString().slice(0,10)}.opml`
+    document.body.appendChild(a)
+    a.click()
+    window.URL.revokeObjectURL(url)
+    document.body.removeChild(a)
   } catch (e) {
     console.error('Export failed', e)
+    notify(t('settings.opml_export_failed'), 'error')
   }
 }
 
@@ -374,16 +457,13 @@ const triggerImport = () => {
         method: 'POST',
         body: formData
       })
-      if (res.ok) {
-        snackbarText.value = t('settings.import_success')
-        snackbar.value = true
-      } else {
+      if (!res.ok) {
         throw new Error('Import failed')
       }
+      notify(t('settings.import_success'))
     } catch (e) {
       console.error('Import failed', e)
-      snackbarText.value = t('settings.import_failed')
-      snackbar.value = true
+      notify(t('settings.import_failed'), 'error')
     } finally {
       importing.value = false
     }
@@ -406,18 +486,18 @@ const triggerImport = () => {
             <template #prepend>
               <v-icon color="primary" class="mr-3" size="28">{{ mdiAccountCog }}</v-icon>
             </template>
-            <v-card-title class="text-h6 font-weight-bold">账号管理</v-card-title>
+            <v-card-title class="text-h6 font-weight-bold">{{ t('settings.account_mgmt') }}</v-card-title>
           </v-card-item>
           <v-divider />
           <v-card-text class="pa-8">
             <!-- 修改用户名 -->
             <div class="mb-10">
-                <p class="text-subtitle-2 font-weight-bold mb-4">修改用户名</p>
+                <p class="text-subtitle-2 font-weight-bold mb-4">{{ t('settings.change_username') }}</p>
                 <div class="d-flex" style="gap: 16px;">
                     <div class="flex-grow-1">
                         <v-text-field
                             v-model="newUsername"
-                            placeholder="新用户名"
+                            :placeholder="t('settings.new_username')"
                             variant="outlined"
                             density="comfortable"
                             rounded="lg"
@@ -428,7 +508,7 @@ const triggerImport = () => {
                         />
                     </div>
                     <v-btn color="primary" rounded="xl" size="large" @click="updateUsernameAction" class="text-none">
-                        更新用户名
+                        {{ t('settings.update_username') }}
                     </v-btn>
                 </div>
             </div>
@@ -437,11 +517,11 @@ const triggerImport = () => {
 
             <!-- 修改密码 -->
             <div>
-                <p class="text-subtitle-2 font-weight-bold mb-4">修改登录密码</p>
+                <p class="text-subtitle-2 font-weight-bold mb-4">{{ t('settings.change_password') }}</p>
                 <v-text-field
                     v-model="oldPassword"
                     type="password"
-                    placeholder="请输入原密码"
+                    :placeholder="t('settings.old_password')"
                     variant="outlined"
                     density="comfortable"
                     rounded="lg"
@@ -455,7 +535,7 @@ const triggerImport = () => {
                 <v-text-field
                     v-model="newPassword"
                     type="password"
-                    placeholder="请输入新密码"
+                    :placeholder="t('settings.new_password')"
                     variant="outlined"
                     density="comfortable"
                     rounded="lg"
@@ -468,7 +548,7 @@ const triggerImport = () => {
                 <v-text-field
                     v-model="confirmPassword"
                     type="password"
-                    placeholder="请再次填写新密码"
+                    :placeholder="t('settings.confirm_new_password')"
                     variant="outlined"
                     density="comfortable"
                     rounded="lg"
@@ -488,7 +568,7 @@ const triggerImport = () => {
                         @click="updatePasswordAction"
                         class="text-none font-weight-bold"
                     >
-                        确认重置密码
+                        {{ t('settings.reset_password') }}
                     </v-btn>
                 </div>
             </div>
@@ -501,7 +581,7 @@ const triggerImport = () => {
             <template #prepend>
               <v-icon color="primary" class="mr-3" size="28">{{ mdiKeyOutline }}</v-icon>
             </template>
-            <v-card-title class="text-h6 font-weight-bold">API 访问密钥</v-card-title>
+            <v-card-title class="text-h6 font-weight-bold">{{ t('settings.access_keys') }}</v-card-title>
             <template #append>
               <v-btn
                 color="primary"
@@ -512,18 +592,18 @@ const triggerImport = () => {
                 class="text-none"
                 @click="openCreateKeyDialog"
               >
-                创建密钥
+                {{ t('settings.create_key') }}
               </v-btn>
             </template>
           </v-card-item>
           <v-divider />
           <v-card-text class="pa-8">
-            <p class="text-body-2 text-medium-emphasis mb-6">用于 CLI、TUI 或 Agent 程序访问 TranRSS API。创建后请妥善保存，密钥仅显示一次。</p>
+            <p class="text-body-2 text-medium-emphasis mb-6">{{ t('settings.access_keys_desc') }} {{ t('settings.access_keys_save_hint') }}</p>
 
             <div v-if="accessKeys.length === 0" class="text-center py-8">
               <v-icon size="48" color="medium-emphasis" class="mb-3">{{ mdiKey }}</v-icon>
-              <p class="text-body-1 text-medium-emphasis">暂无访问密钥</p>
-              <p class="text-caption text-medium-emphasis">点击上方「创建密钥」生成第一个 API Key</p>
+              <p class="text-body-1 text-medium-emphasis">{{ t('settings.no_keys') }}</p>
+              <p class="text-caption text-medium-emphasis">{{ t('settings.no_keys_hint') }}</p>
             </div>
 
             <v-list v-else lines="two" density="comfortable" bg-color="surface" rounded="lg">
@@ -537,12 +617,12 @@ const triggerImport = () => {
                 </template>
                 <v-list-item-title class="font-weight-medium">
                   {{ key.name }}
-                  <code class="ml-2 text-caption" style="opacity: 0.6;">{{ key.keyPrefix }}</code>
+                  <code class="ml-2 text-caption" style="opacity: 0.6;">{{ key.key_prefix }}</code>
                 </v-list-item-title>
                 <v-list-item-subtitle>
-                  <span v-if="key.permissions.includes('*')">全部权限</span>
+                  <span v-if="key.permissions.includes('*')">{{ t('settings.perm_all') }}</span>
                   <span v-else>{{ key.permissions.join(', ') }}</span>
-                  <span v-if="key.lastUsedAt" class="ml-2">· 最后使用: {{ key.lastUsedAt }}</span>
+                  <span v-if="key.last_used_at" class="ml-2">· {{ t('settings.last_used') }}: {{ key.last_used_at }}</span>
                 </v-list-item-subtitle>
                 <template #append>
                   <v-btn
@@ -564,7 +644,7 @@ const triggerImport = () => {
         <v-dialog v-model="accessKeyDialog" max-width="560" persistent>
           <v-card rounded="xl">
             <v-card-title class="d-flex align-center justify-space-between pa-6 pb-2">
-              <span class="text-h6 font-weight-bold">创建访问密钥</span>
+              <span class="text-h6 font-weight-bold">{{ t('settings.create_key_title') }}</span>
               <v-btn icon variant="text" size="small" @click="accessKeyDialog = false">
                 <v-icon>{{ mdiClose }}</v-icon>
               </v-btn>
@@ -574,8 +654,8 @@ const triggerImport = () => {
               <!-- 创建成功后显示完整 key -->
               <div v-if="createdKey" class="text-center py-4">
                 <v-icon size="48" color="success" class="mb-3">{{ mdiCheckCircleOutline }}</v-icon>
-                <p class="text-body-1 font-weight-bold mb-2">密钥创建成功</p>
-                <p class="text-caption text-medium-emphasis mb-4">请立即复制保存，关闭后将无法再次查看完整密钥。</p>
+                <p class="text-body-1 font-weight-bold mb-2">{{ t('settings.key_created') }}</p>
+                <p class="text-caption text-medium-emphasis mb-4">{{ t('settings.key_created_hint') }}</p>
                 <div class="d-flex align-center border-sm border-opacity-25 rounded-lg px-3 py-3 bg-surface mb-4">
                   <code class="text-body-2 flex-grow-1" style="word-break: break-all;">{{ createdKey }}</code>
                   <v-btn
@@ -596,7 +676,7 @@ const triggerImport = () => {
                   class="text-none"
                   @click="accessKeyDialog = false"
                 >
-                  完成
+                  {{ t('settings.done') }}
                 </v-btn>
               </div>
 
@@ -604,8 +684,8 @@ const triggerImport = () => {
               <div v-else>
                 <v-text-field
                   v-model="newKeyName"
-                  label="密钥名称"
-                  placeholder="例如: tui, agent, script"
+                  :label="t('settings.key_name')"
+                  :placeholder="t('settings.key_name_hint')"
                   variant="outlined"
                   density="comfortable"
                   rounded="lg"
@@ -616,12 +696,12 @@ const triggerImport = () => {
                   bg-color="surface"
                 />
 
-                <p class="text-subtitle-2 font-weight-bold mb-3">权限设置</p>
+                <p class="text-subtitle-2 font-weight-bold mb-3">{{ t('settings.permissions') }}</p>
                 <v-card variant="outlined" rounded="lg" class="mb-4">
                   <v-card-text class="pa-4">
                     <!-- 全选 -->
                     <div class="d-flex align-center justify-space-between mb-3 pb-3 border-b-sm border-opacity-10">
-                      <span class="text-body-2 font-weight-medium">全部权限</span>
+                      <span class="text-body-2 font-weight-medium">{{ t('settings.perm_all') }}</span>
                       <v-switch
                         :model-value="newKeyPerms.includes('*')"
                         color="primary"
@@ -633,7 +713,7 @@ const triggerImport = () => {
 
                     <!-- 分组权限 -->
                     <div v-for="group in PERMISSION_GROUPS" :key="group.resource" class="mb-2">
-                      <p class="text-caption text-medium-emphasis font-weight-bold mb-1">{{ group.label }}</p>
+                      <p class="text-caption text-medium-emphasis font-weight-bold mb-1">{{ t(group.labelKey) }}</p>
                       <div class="d-flex flex-wrap" style="gap: 8px;">
                         <v-chip
                           v-for="action in group.actions"
@@ -644,7 +724,7 @@ const triggerImport = () => {
                           class="text-none"
                           @click="togglePerm(`${group.resource}:${action}`)"
                         >
-                          {{ action === 'read' ? '读取' : '写入' }}
+                          {{ action === 'read' ? t('settings.read_perm') : t('settings.write_perm') }}
                         </v-chip>
                       </div>
                     </div>
@@ -660,7 +740,7 @@ const triggerImport = () => {
                   class="mb-4"
                   :icon="mdiAlertCircleOutline"
                 >
-                  请至少选择一项权限
+                  {{ t('settings.perm_select_at_least') }}
                 </v-alert>
               </div>
             </v-card-text>
@@ -672,7 +752,7 @@ const triggerImport = () => {
                 class="text-none"
                 @click="accessKeyDialog = false"
               >
-                取消
+                {{ t('common.cancel') }}
               </v-btn>
               <v-btn
                 color="primary"
@@ -683,7 +763,7 @@ const triggerImport = () => {
                 :disabled="!newKeyName || newKeyPerms.length === 0"
                 @click="createAccessKey"
               >
-                创建
+                {{ t('settings.create_key_submit') }}
               </v-btn>
             </v-card-actions>
           </v-card>
@@ -695,14 +775,14 @@ const triggerImport = () => {
             <template #prepend>
               <v-icon color="primary" class="mr-2">{{ mdiShieldLock }}</v-icon>
             </template>
-            <v-card-title class="text-h6 font-weight-bold">安全与公开设置</v-card-title>
+            <v-card-title class="text-h6 font-weight-bold">{{ t('settings.security_settings') }}</v-card-title>
           </v-card-item>
           <v-divider />
           <v-card-text class="pa-6">
             <div class="d-flex align-center justify-space-between mb-4">
               <div>
-                <p class="text-body-2 font-weight-medium">允许新用户注册</p>
-                <p class="text-caption text-medium-emphasis">开启后，访客将可以在登录页自行创建账号。这对演示站很有用，但正式站建议关闭。</p>
+                <p class="text-body-2 font-weight-medium">{{ t('settings.allow_registration') }}</p>
+                <p class="text-caption text-medium-emphasis">{{ t('settings.allow_registration_desc') }}</p>
               </div>
               <v-switch
                 v-model="allowRegistration"
@@ -758,14 +838,14 @@ const triggerImport = () => {
             <template #prepend>
               <v-icon color="primary" class="mr-2">{{ mdiTranslate }}</v-icon>
             </template>
-            <v-card-title class="text-h6 font-weight-bold">翻译样式自定义 (CSS)</v-card-title>
+            <v-card-title class="text-h6 font-weight-bold">{{ t('settings.trans_style_title') }}</v-card-title>
           </v-card-item>
           <v-divider />
           <v-card-text class="pa-6">
-            <p class="text-body-2 font-weight-medium mb-2">已应用到 .trans-text 类的 CSS 样式</p>
+            <p class="text-body-2 font-weight-medium mb-2">{{ t('settings.trans_style_applied') }}</p>
             <v-textarea
               v-model="customTransStyle"
-              placeholder="例如: display: block; font-style: italic; opacity: 0.6;"
+              :placeholder="t('settings.trans_style_placeholder')"
               variant="outlined"
               density="comfortable"
               rounded="lg"
@@ -780,7 +860,7 @@ const triggerImport = () => {
               </template>
             </v-textarea>
             <p class="text-caption text-medium-emphasis mt-2">
-              提示：这是针对译文文本块的行内样式。可以使用标准的 CSS 属性，如 color, font-size, margin 等。
+              {{ t('settings.trans_style_hint') }}
             </p>
           </v-card-text>
         </v-card>
@@ -827,7 +907,7 @@ const triggerImport = () => {
             <div class="d-flex align-center justify-space-between mb-4">
               <div>
                 <p class="text-body-2 font-weight-medium">Fever API</p>
-                <p class="text-caption text-medium-emphasis">兼容 FreshRSS 客户端协议</p>
+                <p class="text-caption text-medium-emphasis">{{ t('settings.fever_desc') }}</p>
               </div>
               <v-switch v-model="feverApi" color="success" hide-details />
             </div>
@@ -878,7 +958,7 @@ const triggerImport = () => {
                 <template #no-data>
                   <div class="pa-4 text-center">
                     <p class="text-caption text-medium-emphasis mb-2">{{ t('settings.no_api_configs') }}</p>
-                    <p class="text-caption">请先在「API 密钥」页面添加配置</p>
+                    <p class="text-caption">{{ t('settings.add_api_config_hint') }}</p>
                   </div>
                 </template>
               </v-select>
@@ -962,7 +1042,7 @@ const triggerImport = () => {
                 <p class="text-body-2 font-weight-medium mb-1">{{ t('settings.opml_info') }}</p>
                 <p class="text-caption text-medium-emphasis">{{ t('settings.opml_desc') }}</p>
               </div>
-              <div class="d-flex" style="gap: 16px;">
+              <div class="opml-actions d-flex flex-wrap">
                 <v-btn
                   variant="outlined"
                   color="primary"
@@ -970,7 +1050,7 @@ const triggerImport = () => {
                   class="text-none font-weight-medium"
                   :prepend-icon="mdiFileImportOutline"
                   size="large"
-                  min-width="200"
+
                   :loading="importing"
                   @click="triggerImport"
                 >
@@ -983,7 +1063,7 @@ const triggerImport = () => {
                   class="text-none font-weight-medium"
                   :prepend-icon="mdiFileExportOutline"
                   size="large"
-                  min-width="200"
+
                   @click="exportOPML"
                 >
                   {{ t('settings.export_opml') }}
@@ -1041,8 +1121,8 @@ const triggerImport = () => {
       </v-btn>
     </div>
 
-    <v-snackbar v-model="snackbar" :timeout="3000" location="bottom end" color="primary" rounded="pill">
-      <v-icon start>{{ mdiCheckCircleOutline }}</v-icon>
+    <v-snackbar v-model="snackbar" :timeout="3000" location="bottom end" :color="snackbarColor" rounded="pill">
+      <v-icon start>{{ snackbarColor === 'error' ? mdiAlertCircleOutline : mdiCheckCircleOutline }}</v-icon>
       {{ snackbarText }}
     </v-snackbar>
   </div>
@@ -1077,6 +1157,26 @@ const triggerImport = () => {
 /* 兼容深色模式下的亮度 */
 .v-theme--dark .settings-view :deep(.v-selection-control--dirty.v-switch--selected .v-switch__track) {
   background-color: #4ade80 !important;
+}
+
+/* OPML 两个按钮原先固定 200px 宽，在 390px 视口下整行溢出 66px。 */
+.opml-actions {
+  gap: 16px;
+}
+
+.opml-actions :deep(.v-btn) {
+  min-width: 200px;
+}
+
+@media (max-width: 599px) {
+  .opml-actions {
+    width: 100%;
+  }
+
+  .opml-actions :deep(.v-btn) {
+    flex: 1 1 100%;
+    min-width: 0 !important;
+  }
 }
 
 </style>

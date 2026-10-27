@@ -42,6 +42,7 @@ const { t } = useI18n()
 
 interface Subscription {
   id: number
+  feedId: number
   title: string
   url: string
   category: string
@@ -76,12 +77,13 @@ const error = ref('')
 
 const fetchSubscriptions = async () => {
   loading.value = true
+  error.value = ''
   try {
     const response = await apiFetch('/api/feeds')
-    if (!response.ok) throw new Error(t('sub.status_error'))
+    if (!response.ok) throw new Error(t('sub.fetch_failed'))
     subscriptions.value = await response.json()
   } catch (e: any) {
-    error.value = e.message
+    error.value = e?.message || t('sub.fetch_failed')
   } finally {
     loading.value = false
   }
@@ -103,6 +105,9 @@ const inactiveSearch = ref('')
 const selectedInactive = ref<number[]>([])
 const activating = ref(false)
 const isNonStandard = ref(false)
+const isEditMode = computed(() => !!selectedSub.value)
+const deletingIds = ref<Set<number>>(new Set())
+let previewRequestId = 0
 
 const filteredInactive = computed(() => {
   if (!inactiveSearch.value) return inactiveFeeds.value
@@ -112,23 +117,29 @@ const filteredInactive = computed(() => {
   )
 })
 
-const fetchInactive = async () => {
+const fetchInactive = async (): Promise<boolean> => {
   try {
     const response = await apiFetch('/api/feeds/inactive')
-    if (!response.ok) throw new Error(t('sub.inactive_list'))
+    if (!response.ok) throw new Error(t('sub.inactive_fetch_failed'))
     inactiveFeeds.value = await response.json()
+    return true
   } catch (e: any) {
-    error.value = e.message
+    snackbar.value = { show: true, text: e?.message || t('sub.inactive_fetch_failed'), color: 'error' }
+    return false
   }
 }
 
 const openInactiveDialog = async () => {
-  await fetchInactive()
+  selectedInactive.value = []
+  inactiveSearch.value = ''
+  if (!(await fetchInactive())) return
   inactiveDialog.value = true
 }
 
 const activateSelected = async () => {
-  if (selectedInactive.value.length === 0) return
+  const available = new Set(inactiveFeeds.value.map(f => f.feed_id))
+  const ids = selectedInactive.value.filter(id => available.has(id))
+  if (ids.length === 0) return
   activating.value = true
   try {
     const response = await apiFetch('/api/feeds/inactive/activate', {
@@ -136,15 +147,15 @@ const activateSelected = async () => {
       headers: {
         'Content-Type': 'application/json'
       },
-      body: JSON.stringify({ feed_ids: selectedInactive.value })
+      body: JSON.stringify({ feed_ids: ids })
     })
-    if (!response.ok) throw new Error('恢复失败')
-    snackbar.value = { show: true, text: `已成功恢复 ${selectedInactive.value.length} 个订阅`, color: 'success' }
+    if (!response.ok) throw new Error(t('sub.restore_failed'))
+    snackbar.value = { show: true, text: t('sub.restore_success', { n: ids.length }), color: 'success' }
     inactiveDialog.value = false
     selectedInactive.value = []
     fetchSubscriptions()
   } catch (e: any) {
-    snackbar.value = { show: true, text: e.message, color: 'error' }
+    snackbar.value = { show: true, text: e.message || t('sub.restore_failed'), color: 'error' }
   } finally {
     activating.value = false
   }
@@ -176,7 +187,7 @@ const form = ref({
   description: '',
   iconUrl: '',
   iconBase64: '',
-  num: 200,
+  num: null as number | null,
   refreshInterval: 30,
   isShared: false,
 })
@@ -218,7 +229,7 @@ const syncNow = async (id: number) => {
     snackbar.value = { show: true, text: t('sub.sync_started'), color: 'success' }
     await fetchSubscriptions()
   } catch (e: any) {
-    snackbar.value = { show: true, text: e.message, color: 'error' }
+    snackbar.value = { show: true, text: e.message || t('common.sync_failed'), color: 'error' }
   } finally {
     syncing.value[id] = false
   }
@@ -232,12 +243,12 @@ const syncAll = async () => {
     const response = await apiFetch('/api/feeds/sync_all', {
       method: 'POST'
     })
-    if (!response.ok) throw new Error('全部同步失败')
+    if (!response.ok) throw new Error(t('common.sync_failed'))
     
-    snackbar.value = { show: true, text: '同步任务已在后台开始', color: 'success' }
+    snackbar.value = { show: true, text: t('sub.sync_started'), color: 'success' }
     await fetchSubscriptions()
   } catch (e: any) {
-    snackbar.value = { show: true, text: e.message, color: 'error' }
+    snackbar.value = { show: true, text: e.message || t('common.sync_failed'), color: 'error' }
   } finally {
     syncAllLoading.value = false
   }
@@ -246,7 +257,7 @@ const syncAll = async () => {
 const openAddDialog = () => {
   form.value = { 
     title: '', url: '', category: '', targetLanguage: 'Chinese', autoTranslate: false, needSummary: false,
-    siteUrl: '', description: '', iconUrl: '', iconBase64: '', num: 200, refreshInterval: 30, isShared: false
+    siteUrl: '', description: '', iconUrl: '', iconBase64: '', num: null, refreshInterval: 30, isShared: false
   }
   selectedSub.value = null
   isNonStandard.value = false
@@ -265,7 +276,7 @@ const openEditDialog = (sub: Subscription) => {
     description: sub.description || '',
     iconUrl: sub.iconUrl || '',
     iconBase64: sub.iconBase64 || '',
-    num: sub.num || 200,
+    num: sub.num,
     refreshInterval: sub.refreshInterval || 30,
     isShared: sub.isShared || false,
   }
@@ -280,18 +291,29 @@ const confirmDelete = (sub: Subscription) => {
 }
 
 const deleteSub = async () => {
-  if (!selectedSub.value) return
-  
+  const sub = selectedSub.value
+  if (!sub || deletingIds.value.has(sub.id)) return
+
+  const started = new Set(deletingIds.value)
+  started.add(sub.id)
+  deletingIds.value = started
+
+  let succeeded = false
   try {
-    const response = await apiFetch(`/api/feeds/${selectedSub.value.id}`, {
+    const response = await apiFetch(`/api/feeds/${sub.id}`, {
       method: 'DELETE'
     })
-    if (!response.ok) throw new Error('删除失败')
+    if (!response.ok) throw new Error(t('sub.delete_failed'))
+    succeeded = true
     await fetchSubscriptions()
-  } catch (e) {
-    console.error(e)
+  } catch (e: any) {
+    snackbar.value = { show: true, text: e?.message || t('sub.delete_failed'), color: 'error' }
+  } finally {
+    const remaining = new Set(deletingIds.value)
+    remaining.delete(sub.id)
+    deletingIds.value = remaining
   }
-  deleteDialog.value = false
+  if (succeeded) deleteDialog.value = false
 }
 
 const saveSub = async () => {
@@ -300,23 +322,28 @@ const saveSub = async () => {
     const isEdit = !!selectedSub.value
     const url = isEdit ? `/api/feeds/${selectedSub.value!.id}` : '/api/feeds'
     const method = isEdit ? 'PUT' : 'POST'
-    
-    // 调整参数名以匹配后端模型
-    const payload = {
-      feedUrl: form.value.url,
+
+    // 调整参数名以匹配后端模型；更新接口会忽略 feedUrl/元数据字段，仅在创建时提交
+    const payload: Record<string, unknown> = {
       category: form.value.category,
       customTitle: form.value.title,
       needTranslate: form.value.autoTranslate,
       needSummary: form.value.needSummary,
-      siteUrl: form.value.siteUrl,
-      description: form.value.description,
-      iconUrl: form.value.iconUrl,
-      iconBase64: form.value.iconBase64,
       targetLanguage: form.value.targetLanguage,
-      num: form.value.num,
+      num: form.value.num ?? undefined,
       refreshInterval: form.value.refreshInterval,
       isShared: form.value.isShared,
       // folderId: ... // 暂时默认由后端根据 category 自动处理
+    }
+
+    if (!isEdit) {
+      Object.assign(payload, {
+        feedUrl: form.value.url,
+        siteUrl: form.value.siteUrl,
+        description: form.value.description,
+        iconUrl: form.value.iconUrl,
+        iconBase64: form.value.iconBase64,
+      })
     }
 
     const response = await apiFetch(url, {
@@ -327,17 +354,17 @@ const saveSub = async () => {
       body: JSON.stringify(payload),
     })
 
-    if (!response.ok) throw new Error('保存失败')
-    
-    snackbar.value = { 
-      show: true, 
-      text: isEdit ? '已成功更新订阅配置' : '订阅成功，文章稍后将自动出现在列表中', 
-      color: 'success' 
+    if (!response.ok) throw new Error(t('sub.save_failed'))
+
+    snackbar.value = {
+      show: true,
+      text: isEdit ? t('sub.edit_success') : t('sub.add_success'),
+      color: 'success'
     }
     await fetchSubscriptions()
     dialog.value = false
   } catch (e: any) {
-    snackbar.value = { show: true, text: e.message || '保存失败', color: 'error' }
+    snackbar.value = { show: true, text: e?.message || t('sub.save_failed'), color: 'error' }
     console.error(e)
   } finally {
     saving.value = false
@@ -352,7 +379,12 @@ const formatDate = (dateStr: string | null) => {
 
 const handleUrlBlur = async () => {
   if (!form.value.url || selectedSub.value) return
-  
+
+  const requestId = ++previewRequestId
+  const requestedUrl = form.value.url
+  const isCurrent = () =>
+    requestId === previewRequestId && dialog.value && !selectedSub.value && form.value.url === requestedUrl
+
   fetchingPreview.value = true
   isNonStandard.value = false
   try {
@@ -361,19 +393,20 @@ const handleUrlBlur = async () => {
       headers: {
         'Content-Type': 'application/json'
       },
-      body: JSON.stringify({ url: form.value.url })
+      body: JSON.stringify({ url: requestedUrl })
     })
-    
-    if (!response.ok) throw new Error('获取订阅信息失败')
-    
+
+    if (!response.ok) throw new Error(t('sub.preview_failed'))
+
     const data = await response.json()
-    
+    if (!isCurrent()) return
+
     // 如果后端返回了非标标记
     if (data.title === 'Non-standard RSS Source') {
       isNonStandard.value = true
       snackbar.value = {
         show: true,
-        text: '警告：此订阅源格式不规范，部分元数据可能缺失，但仍可尝试同步。',
+        text: t('sub.nonstandard_warning'),
         color: 'warning'
       }
     }
@@ -381,37 +414,39 @@ const handleUrlBlur = async () => {
     if (data.title && !form.value.title) {
       form.value.title = data.title
     }
-    form.value.siteUrl = data.siteUrl || ''
-    form.value.description = data.description || ''
-    form.value.iconUrl = data.iconUrl || ''
-    form.value.iconBase64 = data.iconBase64 || ''
+    if (!form.value.siteUrl) form.value.siteUrl = data.siteUrl || ''
+    if (!form.value.description) form.value.description = data.description || ''
+    if (!form.value.iconUrl) form.value.iconUrl = data.iconUrl || ''
+    if (!form.value.iconBase64) form.value.iconBase64 = data.iconBase64 || ''
   } catch (e: any) {
+    if (!isCurrent()) return
     snackbar.value = {
       show: true,
-      text: e.message || '获取订阅信息失败，请检查 URL 是否正确',
+      text: e?.message || t('sub.preview_failed_hint'),
       color: 'error'
     }
   } finally {
-    fetchingPreview.value = false
+    if (requestId === previewRequestId) fetchingPreview.value = false
   }
 }
 
 const shareUrl = computed(() => {
-  const title = form.value.title || selectedSub.value?.title || ''
-  if (!title) return ''
-  return `${window.location.origin}/share/${encodeURIComponent(title)}`
+  const feedId = selectedSub.value?.feedId
+  if (!feedId) return ''
+  return `${window.location.origin}/share/${feedId}`
 })
 
 const copyToClipboard = async (text: string) => {
   try {
     await navigator.clipboard.writeText(text)
-    snackbar.value = { show: true, text: '链接已复制到剪贴板', color: 'success' }
+    snackbar.value = { show: true, text: t('common.copy_success'), color: 'success' }
   } catch (err) {
-    snackbar.value = { show: true, text: '复制失败', color: 'error' }
+    snackbar.value = { show: true, text: t('sub.copy_failed'), color: 'error' }
   }
 }
 
 const copyShareUrl = () => {
+  if (!shareUrl.value) return
   copyToClipboard(shareUrl.value)
 }
 
@@ -478,8 +513,25 @@ watch([() => form.value.autoTranslate, () => form.value.needSummary], ([trans, s
 
     <div class="pa-4 pt-0">
 
+    <!-- 加载状态 -->
+    <v-card v-if="loading" rounded="xl" variant="tonal" color="surface-variant" class="text-center pa-12">
+      <v-progress-circular indeterminate color="primary" size="48" class="mb-4" />
+      <p class="text-body-1">{{ $t('sub.loading') }}</p>
+    </v-card>
+
+    <!-- 加载失败 -->
+    <v-card v-else-if="error" rounded="xl" variant="tonal" color="error" class="text-center pa-12">
+      <v-icon size="64" color="error" class="mb-4">{{ mdiAlertCircleOutline }}</v-icon>
+      <h3 class="text-h6 mb-2">{{ $t('sub.load_error_title') }}</h3>
+      <p class="text-body-2 text-medium-emphasis mb-6">{{ error }}</p>
+      <v-btn color="primary" rounded="pill" elevation="0" class="text-none" @click="fetchSubscriptions">
+        <v-icon start :icon="mdiRefresh" />
+        {{ $t('common.retry') }}
+      </v-btn>
+    </v-card>
+
     <!-- 空状态 -->
-    <v-card v-if="filtered.length === 0" rounded="xl" variant="tonal" color="surface-variant" class="text-center pa-12">
+    <v-card v-else-if="filtered.length === 0" rounded="xl" variant="tonal" color="surface-variant" class="text-center pa-12">
       <v-icon size="64" color="primary" class="mb-4">{{ mdiRssBox }}</v-icon>
       <h3 class="text-h6 mb-2">{{ search ? $t('sub.empty_search') : $t('sub.empty_no_feeds') }}</h3>
       <p class="text-body-2 text-medium-emphasis mb-6">{{ search ? $t('sub.empty_try_other') : $t('sub.empty_add_first') }}</p>
@@ -557,7 +609,7 @@ watch([() => form.value.autoTranslate, () => form.value.needSummary], ([trans, s
             <v-spacer />
 
             <div class="d-flex align-center gap-4 text-caption text-medium-emphasis mb-4 flex-wrap">
-              <span class="d-flex align-center text-no-wrap flex-shrink-0"><v-icon size="14" class="mr-1" :icon="mdiNewspaper" />{{ sub.articleCount }} 篇</span>
+              <span class="d-flex align-center text-no-wrap flex-shrink-0"><v-icon size="14" class="mr-1" :icon="mdiNewspaper" />{{ $t('sub.article_count', { n: sub.articleCount }) }}</span>
               <span class="d-flex align-center min-w-0">
                 <v-icon size="14" class="mr-1 flex-shrink-0" :icon="mdiClockOutline" />
                 <span class="text-truncate">{{ formatDate(sub.lastSync) }}</span>
@@ -595,6 +647,8 @@ watch([() => form.value.autoTranslate, () => form.value.needSummary], ([trans, s
                 rounded="circle" 
                 class="text-none" 
                 min-width="36"
+                :loading="deletingIds.has(sub.id)"
+                :disabled="deletingIds.has(sub.id)"
                 @click="confirmDelete(sub)"
               >
                 <v-icon size="16" :icon="mdiTrashCanOutline" />
@@ -628,20 +682,20 @@ watch([() => form.value.autoTranslate, () => form.value.needSummary], ([trans, s
             <section>
               <h3 class="text-subtitle-1 font-weight-bold mb-4 d-flex align-center">
                 <v-icon color="primary" class="mr-2">{{ mdiRss }}</v-icon>
-                订阅源元数据
+                {{ $t('sub.metadata_section') }}
               </h3>
               
               <div class="d-flex flex-column gap-6 w-100">
                 <!-- 实时预览卡片 -->
                 <div class="preview-card pa-6 rounded-xl text-center d-flex flex-column align-center gap-2 mb-2 w-100">
-                <v-avatar size="80" rounded="xl" class="shadow-sm mb-2" color="white">
+                <v-avatar size="80" rounded="xl" class="elevation-1 mb-2" color="white">
                   <v-img :src="form.iconBase64 || form.iconUrl || ''" cover>
                       <template v-slot:placeholder>
                         <v-icon size="40" color="grey-lighten-2">{{ mdiRssBox }}</v-icon>
                       </template>
                     </v-img>
                   </v-avatar>
-                  <div v-if="form.title || form.url" class="text-h6 font-weight-bold text-truncate max-w-100">
+                  <div v-if="form.title || form.url" class="text-h6 font-weight-bold text-truncate">
                     {{ form.title || $t('sub.add_btn') }}
                   </div>
                   <div v-if="form.siteUrl" class="text-body-2 text-primary text-decoration-none d-flex align-center">
@@ -658,7 +712,7 @@ watch([() => form.value.autoTranslate, () => form.value.needSummary], ([trans, s
                   :icon="mdiAlertDecagram"
                   class="text-caption mb-2"
                 >
-                  检测到非标准 RSS 格式。为了保证兼容性，我们将使用基础模式抓取，建议检查该源的 XML 规范。
+                  {{ $t('sub.nonstandard_alert') }}
                 </v-alert>
 
                 <div class="d-flex flex-column gap-4 w-100">
@@ -670,8 +724,9 @@ watch([() => form.value.autoTranslate, () => form.value.needSummary], ([trans, s
                     rounded="lg" 
                     color="primary" 
                     :prepend-inner-icon="mdiRss" 
-                    :hint="$t('sub.url_hint')"
+                    :hint="isEditMode ? $t('sub.metadata_readonly_hint') : $t('sub.url_hint')"
                     persistent-hint
+                    :readonly="isEditMode"
                     @blur="handleUrlBlur"
                     :loading="fetchingPreview"
                     class="w-100"
@@ -686,6 +741,7 @@ watch([() => form.value.autoTranslate, () => form.value.needSummary], ([trans, s
                       rounded="lg" 
                       color="primary" 
                       :prepend-inner-icon="mdiEarth" 
+                      :readonly="isEditMode"
                       hide-details 
                       style="flex: 1"
                     />
@@ -697,6 +753,7 @@ watch([() => form.value.autoTranslate, () => form.value.needSummary], ([trans, s
                       rounded="lg" 
                       color="primary" 
                       :prepend-inner-icon="mdiImageOutline" 
+                      :readonly="isEditMode"
                       hide-details 
                       style="flex: 1"
                     />
@@ -708,8 +765,8 @@ watch([() => form.value.autoTranslate, () => form.value.needSummary], ([trans, s
                     variant="outlined" 
                     density="comfortable" 
                     rounded="lg" 
-                    color="primary" 
                     :prepend-inner-icon="mdiFormatListText" 
+                    :readonly="isEditMode"
                     hide-details 
                     rows="2"
                     class="w-100"
@@ -725,7 +782,7 @@ watch([() => form.value.autoTranslate, () => form.value.needSummary], ([trans, s
                 :icon="mdiInformationOutline"
                 class="text-caption mt-6"
               >
-                输入 RSS 地址后，我们将自动为您提取这些信息。
+                {{ $t('sub.preview_hint') }}
               </v-alert>
             </section>
 
@@ -803,7 +860,7 @@ watch([() => form.value.autoTranslate, () => form.value.needSummary], ([trans, s
                 <v-icon color="info" class="mr-2">{{ mdiRobotOutline }}</v-icon>
                 {{ $t('sub.ai_enhance') }}
               </h3>
-              <v-card variant="tonal" border color="primary" rounded="lg" class="pa-4 bg-primary-lighten-5">
+              <v-card variant="tonal" border color="primary" rounded="lg" class="pa-4">
                 <div class="d-flex align-center justify-space-between mb-4">
                   <div class="d-flex align-center">
                     <v-avatar color="primary" size="32" class="mr-3">
@@ -840,8 +897,8 @@ watch([() => form.value.autoTranslate, () => form.value.needSummary], ([trans, s
                       <v-icon size="18" color="white">{{ mdiShareVariant }}</v-icon>
                     </v-avatar>
                     <div>
-                      <p class="text-body-2 font-weight-bold">共享发布 (RSS)</p>
-                      <p class="text-caption text-medium-emphasis">启用后可通过公开 URL 订阅该源的翻译版</p>
+                      <p class="text-body-2 font-weight-bold">{{ $t('sub.share_title') }}</p>
+                      <p class="text-caption text-medium-emphasis">{{ $t('sub.share_desc') }}</p>
                     </div>
                   </div>
                   <v-switch 
@@ -856,9 +913,9 @@ watch([() => form.value.autoTranslate, () => form.value.needSummary], ([trans, s
                 <v-expand-transition>
                   <div v-if="form.isShared" class="mt-4 pa-3 bg-surface rounded-lg border-thin d-flex align-center gap-2">
                     <code class="text-caption text-truncate flex-1">{{ shareUrl }}</code>
-                    <v-btn size="x-small" variant="tonal" color="primary" @click="copyShareUrl">
+                    <v-btn size="x-small" variant="tonal" color="primary" :disabled="!shareUrl" @click="copyShareUrl">
                       <v-icon start size="14">{{ mdiContentCopy }}</v-icon>
-                      复制
+                      {{ $t('common.copy') }}
                     </v-btn>
                   </div>
                 </v-expand-transition>
@@ -925,8 +982,8 @@ watch([() => form.value.autoTranslate, () => form.value.needSummary], ([trans, s
         </v-card-text>
         <v-card-actions class="pa-6 pt-0">
           <v-spacer />
-          <v-btn variant="text" class="text-none" rounded="pill" @click="deleteDialog = false">{{ $t('common.cancel') }}</v-btn>
-          <v-btn color="error" class="text-none font-weight-bold px-6" rounded="pill" elevation="0" @click="deleteSub">{{ $t('common.delete') }}</v-btn>
+          <v-btn variant="text" class="text-none" rounded="pill" :disabled="deletingIds.has(selectedSub?.id ?? -1)" @click="deleteDialog = false">{{ $t('common.cancel') }}</v-btn>
+          <v-btn color="error" class="text-none font-weight-bold px-6" rounded="pill" elevation="0" :loading="deletingIds.has(selectedSub?.id ?? -1)" @click="deleteSub">{{ $t('common.delete') }}</v-btn>
         </v-card-actions>
       </v-card>
     </v-dialog>
@@ -1008,8 +1065,8 @@ watch([() => form.value.autoTranslate, () => form.value.needSummary], ([trans, s
           </v-list>
           
           <div v-else class="text-center py-12 text-medium-emphasis">
-            <v-icon size="48" color="grey-lighten-1" class="mb-2">{{ mdiCheckCircleOutline }}</v-icon>
-            <p>{{ $t('sub.no_inactive') }}</p>
+            <v-icon size="48" color="grey-lighten-1" class="mb-2">{{ inactiveFeeds.length > 0 && inactiveSearch ? mdiMagnify : mdiCheckCircleOutline }}</v-icon>
+            <p>{{ inactiveFeeds.length > 0 && inactiveSearch ? $t('sub.inactive_no_matches') : $t('sub.no_inactive') }}</p>
           </div>
         </v-card-text>
 
@@ -1054,6 +1111,13 @@ watch([() => form.value.autoTranslate, () => form.value.needSummary], ([trans, s
 @media (min-width: 960px) {
   .subscription-view { --view-pad: 32px; }
 }
+/* 订阅数量没有后端上限。卡片高度按视口内实测（auto）缓存，离屏卡片跳过
+   布局与绘制，滚动时只重排视口附近的内容。 */
+.sub-card-col {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 240px;
+}
+
 
 .page-header-title {
   flex: 1 1 260px;
@@ -1094,11 +1158,6 @@ watch([() => form.value.autoTranslate, () => form.value.needSummary], ([trans, s
   line-height: 1.6;
   min-height: 3.2em;
 }
-.gap-2 { gap: 8px; }
-.gap-3 { gap: 12px; }
-.gap-4 { gap: 16px; }
-.gap-6 { gap: 24px; }
-.min-w-0 { min-width: 0; }
 
 /* Premium Dialog Styles */
 .subscription-dialog {

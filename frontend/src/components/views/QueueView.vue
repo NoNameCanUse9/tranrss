@@ -66,6 +66,7 @@ interface QueueJob {
   run_at: number
   duration: string | null
   error: string | null
+  errors?: string[]
   isGroup?: boolean
   expanded?: boolean
   subJobs?: SubJob[]
@@ -80,16 +81,37 @@ interface QueueJob {
   feedTitle?: string
 }
 
+const loading = ref(true)
+const error = ref('')
+let requestSeq = 0
+
+const aggregateStatus = (stats: NonNullable<QueueJob['stats']>): QueueJob['status'] => {
+  if (stats.running > 0) return 'running'
+  if (stats.pending > 0) return 'pending'
+  if (stats.failed > 0) return 'failed'
+  return 'done'
+}
+
+const MAX_ERRORS_PER_GROUP = 5
+
+// Jobs arrive newest-first, so keep the leading (latest) distinct messages per group.
+const mergeErrors = (errors: string[], next: string | null | undefined): string[] => {
+  if (!next) return errors
+  const message = next.trim()
+  if (!message || errors.includes(message)) return errors
+  errors.push(message)
+  if (errors.length > MAX_ERRORS_PER_GROUP) errors.length = MAX_ERRORS_PER_GROUP
+  return errors
+}
 const jobs = ref<QueueJob[]>([])
 let timer: any = null
 
-const groupJobs = (rawJobs: any[]): QueueJob[] => {
+const groupJobs = (rawJobs: any[], expandedKeys: Set<string> = new Set()): QueueJob[] => {
   if (!rawJobs.length) return []
   const grouped: QueueJob[] = []
   
   
   for (const rj of rawJobs) {
-    if (rj.type === 'cron') continue;
 
     if (rj.type === 'sync') {
       // Find latest sync group to see if we can merge (keep time proximity grouping for sync)
@@ -111,11 +133,9 @@ const groupJobs = (rawJobs: any[]): QueueJob[] => {
         lastGroup.stats!.running += rj.status === 'running' ? 1 : 0
         lastGroup.stats!.done += rj.status === 'done' ? 1 : 0
         lastGroup.stats!.failed += rj.status === 'failed' ? 1 : 0
-        
-        if (lastGroup.stats!.running > 0) lastGroup.status = 'running'
-        else if (lastGroup.stats!.pending > 0) lastGroup.status = 'pending'
-        else if (lastGroup.stats!.failed > 0) lastGroup.status = 'failed'
-        else lastGroup.status = 'done'
+        lastGroup.status = aggregateStatus(lastGroup.stats!)
+        if (rj.title) lastGroup.titles.push(rj.title)
+        lastGroup.errors = mergeErrors(lastGroup.errors ?? [], rj.error)
         continue
       }
       
@@ -127,6 +147,7 @@ const groupJobs = (rawJobs: any[]): QueueJob[] => {
         groupedIds: [rj.id],
         isGroup: true,
         expanded: false,
+        errors: mergeErrors([], rj.error),
         subJobs: [{
            id: rj.id,
            title: rj.title,
@@ -153,6 +174,7 @@ const groupJobs = (rawJobs: any[]): QueueJob[] => {
 
       if (existingGroup) {
         existingGroup.groupedIds.push(rj.id)
+        existingGroup.titles.push(rj.title)
         existingGroup.subJobs!.push({
            id: rj.id,
            title: rj.title,
@@ -164,14 +186,11 @@ const groupJobs = (rawJobs: any[]): QueueJob[] => {
         existingGroup.stats!.running += rj.status === 'running' ? 1 : 0
         existingGroup.stats!.done += rj.status === 'done' ? 1 : 0
         existingGroup.stats!.failed += rj.status === 'failed' ? 1 : 0
+        existingGroup.status = aggregateStatus(existingGroup.stats!)
         
-        if (existingGroup.stats!.running > 0) existingGroup.status = 'running'
-        else if (existingGroup.stats!.pending > 0) existingGroup.status = 'pending'
-        else if (existingGroup.stats!.failed > 0) existingGroup.stats!.failed >= existingGroup.groupedIds.length ? existingGroup.status = 'failed' : existingGroup.status = 'done'
-        else existingGroup.status = 'done'
-        
-        // Use earliest run_at and combine errors
+        // Use earliest run_at and merge distinct errors
         if (rj.run_at < existingGroup.run_at) existingGroup.run_at = rj.run_at
+        existingGroup.errors = mergeErrors(existingGroup.errors ?? [], rj.error)
         continue
       }
 
@@ -183,6 +202,7 @@ const groupJobs = (rawJobs: any[]): QueueJob[] => {
         groupedIds: [rj.id],
         isGroup: true,
         expanded: false,
+        errors: mergeErrors([], rj.error),
         subJobs: [{
            id: rj.id,
            title: rj.title,
@@ -206,6 +226,7 @@ const groupJobs = (rawJobs: any[]): QueueJob[] => {
       groupedIds: [rj.id],
       isGroup: false,
       expanded: false,
+      errors: mergeErrors([], rj.error),
       subJobs: [],
       stats: {
          pending: rj.status === 'pending' ? 1 : 0,
@@ -215,20 +236,39 @@ const groupJobs = (rawJobs: any[]): QueueJob[] => {
       }
     })
   }
+
+  for (const group of grouped) {
+    if (group.isGroup) {
+      group.error = group.errors?.[0] ?? null
+      group.expanded = expandedKeys.has(group.groupedIds[0] ?? group.id)
+    }
+  }
   
   return grouped
 }
 
 const fetchJobs = async () => {
+  const seq = ++requestSeq
+  loading.value = true
   try {
     const response = await apiFetch('/api/jobs')
-    if (response.ok) {
-      const data: BackendJob[] = await response.json()
-      const mapped = data.map(mapBackendJob)
-      jobs.value = groupJobs(mapped)
-    }
-  } catch (e) {
-    console.error('Fetch jobs failed:', e)
+    if (seq !== requestSeq) return
+    if (!response.ok) throw new Error(t('queue.load_failed'))
+    const data: BackendJob[] = await response.json()
+    if (seq !== requestSeq) return
+    const mapped = data.map(mapBackendJob)
+    const expandedKeys = new Set(
+      jobs.value
+        .filter(job => job.isGroup && job.expanded)
+        .map(job => job.groupedIds[0] ?? job.id)
+    )
+    jobs.value = groupJobs(mapped, expandedKeys)
+    error.value = ''
+  } catch (e: any) {
+    if (seq !== requestSeq) return
+    error.value = e?.message || t('queue.load_failed')
+  } finally {
+    if (seq === requestSeq) loading.value = false
   }
 }
 
@@ -304,7 +344,26 @@ const mapBackendJob = (bj: BackendJob): QueueJob => {
 }
 
 let eventSource: EventSource | null = null
-const systemLogs = ref<Array<{level: string, target: string, message: string, time: string}>>([])
+
+interface SystemLog {
+  id: number
+  level: string
+  target: string
+  message: string
+  time: string
+}
+
+let nextLogId = 0
+const systemLogs = ref<SystemLog[]>([])
+
+let refreshTimer: ReturnType<typeof setTimeout> | null = null
+const scheduleRefresh = () => {
+  if (refreshTimer) clearTimeout(refreshTimer)
+  refreshTimer = setTimeout(() => {
+    refreshTimer = null
+    fetchJobs()
+  }, 400)
+}
 
 onMounted(() => {
   fetchJobs()
@@ -315,9 +374,9 @@ onMounted(() => {
   eventSource = new EventSource('/api/events')
   eventSource.onmessage = (event) => {
     const msg = event.data
-    // 当有 feed 刷新或文章更新完成时，立即拉取最新 job 状态
+    // 当有 feed 刷新或文章更新完成时，延迟拉取最新 job 状态，避免事件风暴
     if (msg === 'REFRESH_FEEDS' || msg.startsWith('ARTICLE_UPDATED:')) {
-      fetchJobs()
+      scheduleRefresh()
     }
     // 捕获后台推送的 WARN+ 日志
     if (msg.startsWith('LOG:')) {
@@ -325,7 +384,8 @@ onMounted(() => {
         const log = JSON.parse(msg.slice(4))
         systemLogs.value.unshift({
           ...log,
-          time: new Date().toLocaleTimeString()
+          time: new Date().toLocaleTimeString(),
+          id: ++nextLogId
         })
         // 只保留最近 50 条
         if (systemLogs.value.length > 50) systemLogs.value.pop()
@@ -336,6 +396,7 @@ onMounted(() => {
 
 onUnmounted(() => {
   if (timer) clearInterval(timer)
+  if (refreshTimer) clearTimeout(refreshTimer)
   eventSource?.close()
 })
 
@@ -383,6 +444,13 @@ const stats = computed(() => ({
   done: jobs.value.filter(j => j.status === 'done').length,
   failed: jobs.value.filter(j => j.status === 'failed').length,
 }))
+
+const groupProgress = (job: QueueJob) => {
+  const s = job.stats
+  if (!s) return 0
+  const total = s.pending + s.running + s.done + s.failed
+  return total === 0 ? 0 : Math.round((s.done / total) * 100)
+}
 
 const typeInfo = (type: string): { icon: string; color: string; label: string } => {
   const map: Record<string, { icon: string; color: string; label: string }> = {
@@ -438,17 +506,30 @@ const clearCompleted = async () => {
         <h2 class="text-h5 font-weight-bold">{{ $t('queue.title') }}</h2>
         <p class="text-body-2 text-medium-emphasis mt-1">{{ $t('queue.subtitle') }}</p>
       </div>
-      <v-btn
-        v-if="stats.done > 0"
-        variant="tonal"
-        color="surface-variant"
-        rounded="pill"
-        class="text-none"
-        @click="clearCompleted"
-      >
-        <v-icon start :icon="mdiBroom" />
-        {{ $t('queue.clear_done') }}
-      </v-btn>
+      <div class="d-flex align-center gap-2">
+        <v-btn
+          variant="tonal"
+          color="primary"
+          rounded="pill"
+          class="text-none"
+          :loading="loading"
+          @click="fetchJobs"
+        >
+          <v-icon start :icon="mdiRefresh" />
+          {{ $t('queue.refresh') }}
+        </v-btn>
+        <v-btn
+          v-if="stats.done > 0"
+          variant="tonal"
+          color="surface-variant"
+          rounded="pill"
+          class="text-none"
+          @click="clearCompleted"
+        >
+          <v-icon start :icon="mdiBroom" />
+          {{ $t('queue.clear_done') }}
+        </v-btn>
+      </div>
     </div>
 
     <!-- 统计卡片 (自动均分的 Grid 布局) -->
@@ -502,8 +583,24 @@ const clearCompleted = async () => {
       </v-chip-group>
     </div>
 
+    <!-- 加载状态 -->
+    <v-card v-if="loading && jobs.length === 0" rounded="xl" variant="tonal" color="surface-variant" class="text-center pa-10">
+      <v-progress-circular indeterminate color="primary" size="48" class="mb-4" />
+      <p class="text-body-1">{{ $t('queue.loading') }}</p>
+    </v-card>
+
+    <!-- 加载失败 -->
+    <v-card v-else-if="error" rounded="xl" variant="tonal" color="error" class="text-center pa-10">
+      <v-icon size="48" color="error" class="mb-3">{{ mdiAlertCircleOutline }}</v-icon>
+      <p class="text-body-1 mb-4">{{ error }}</p>
+      <v-btn color="primary" rounded="pill" class="text-none" @click="fetchJobs">
+        <v-icon start :icon="mdiRefresh" />
+        {{ $t('common.retry') }}
+      </v-btn>
+    </v-card>
+
     <!-- 任务列表 -->
-    <v-card v-if="filtered.length === 0" rounded="xl" variant="tonal" color="surface-variant" class="text-center pa-10">
+    <v-card v-else-if="filtered.length === 0" rounded="xl" variant="tonal" color="surface-variant" class="text-center pa-10">
       <v-icon size="48" color="primary" class="mb-3">{{ mdiClipboardCheckOutline }}</v-icon>
       <p class="text-body-1">{{ $t('queue.empty') }}</p>
     </v-card>
@@ -560,10 +657,13 @@ const clearCompleted = async () => {
                 <span class="d-flex align-center flex-shrink-0">
                   <v-icon size="14" class="mr-1">{{ mdiClockOutline }}</v-icon>{{ job.startedAt }}
                 </span>
+                <span v-if="job.duration" class="d-flex align-center flex-shrink-0">
+                  <v-icon size="14" class="mr-1">{{ mdiProgressClock }}</v-icon>{{ $t('queue.duration', { d: job.duration }) }}
+                </span>
                 <v-chip :color="typeInfo(job.type).color" size="x-small" variant="tonal" class="text-none flex-shrink-0">
                   {{ typeInfo(job.type).label }}
                 </v-chip>
-                <span v-if="job.error" class="text-error text-truncate job-error">({{ job.error }})</span>
+                <span v-if="job.error" class="text-error text-truncate job-error">({{ job.error }}<template v-if="(job.errors?.length ?? 0) > 1"> +{{ job.errors!.length - 1 }}</template>)</span>
               </div>
             </div>
 
@@ -607,6 +707,16 @@ const clearCompleted = async () => {
             class="mb-2"
             :buffer-value="0"
           />
+          <v-progress-linear
+            v-else-if="job.isGroup && (job.stats?.pending || job.stats?.running)"
+            :model-value="groupProgress(job)"
+            :color="job.status === 'failed' ? 'error' : 'primary'"
+            bg-color="surface-variant"
+            rounded
+            height="6"
+            class="mb-2"
+            :class="{ 'wavy-progress': job.status === 'running' }"
+          />
 
           <!-- 错误信息 / 分组详情展出 -->
           <v-alert
@@ -627,11 +737,13 @@ const clearCompleted = async () => {
 
           <v-expand-transition>
             <div v-if="job.isGroup && job.expanded" class="pt-3 d-flex flex-column gap-2">
+              <div v-if="job.errors?.length" class="d-flex flex-column gap-1">
+                <span v-for="err in job.errors" :key="err" class="text-caption text-error wrap-text">• {{ err }}</span>
+              </div>
               <div v-for="sub in job.subJobs" :key="sub.id" class="d-flex align-center justify-space-between bg-surface pa-2 rounded-lg border-thin">
                 <div class="d-flex align-center gap-2 min-w-0 flex-1">
                   <v-icon :color="statusInfo(sub.status).color" size="18" :class="{ 'mdi-spin': sub.status === 'running' }" class="flex-shrink-0">{{ statusInfo(sub.status).icon }}</v-icon>
                   <span class="text-caption text-truncate font-weight-medium flex-1">{{ sub.title }}</span>
-                  <span v-if="sub.error" class="text-caption text-error ml-2 text-truncate">{{ sub.error }}</span>
                 </div>
                 <div class="d-flex align-center gap-2 flex-shrink-0">
                   <v-tooltip v-if="sub.error" :text="$t('queue.view_error')" location="top">
@@ -666,7 +778,7 @@ const clearCompleted = async () => {
       <v-card-text class="pa-0">
         <v-list density="compact" class="pa-0 bg-transparent">
           <v-list-item
-            v-for="(log, i) in systemLogs" :key="i"
+            v-for="log in systemLogs" :key="log.id"
             class="text-caption log-item"
           >
             <template #prepend>
@@ -692,6 +804,10 @@ const clearCompleted = async () => {
   width: 100%;
 }
 .job-card {
+  /* 任务条数由 user_setting.log_num_limit 决定（默认 300，可调大）。
+     离屏卡片跳过布局/绘制，避免列表随任务累积越来越慢。 */
+  content-visibility: auto;
+  contain-intrinsic-size: auto 160px;
   transition: 
     transform var(--md-motion-duration-medium) var(--md-motion-easing-emphasized),
     box-shadow var(--md-motion-duration-medium) var(--md-motion-easing-emphasized) !important;
@@ -709,12 +825,6 @@ const clearCompleted = async () => {
   overflow-wrap: anywhere !important;
   word-break: normal !important;
 }
-.gap-2 { gap: 8px; }
-
-.gap-3 { gap: 12px; }
-.gap-4 { gap: 16px; }
-.gap-5 { gap: 20px; }
-.min-w-0 { min-width: 0; }
 .cursor-pointer { cursor: pointer; }
 
 /* 任务卡片：标题与错误信息在窄屏下换行而不是被压扁 */

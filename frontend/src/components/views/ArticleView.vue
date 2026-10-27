@@ -15,13 +15,17 @@ import {
   mdiClockOutline,
   mdiNewspaperVariantOutline,
   mdiChevronUp,
-  mdiChevronDown
+  mdiChevronDown,
+  mdiArrowLeft,
 } from '@mdi/js'
 import ArticleContent from '../ArticleContent.vue'
 import { apiFetch } from '../../utils/api'
-import { prepareText, calculateHeight } from '../../utils/textLayout'
+import { useDisplay } from 'vuetify'
 
 const { t } = useI18n()
+// 窄屏下文章列表与正文不能并排：一次只显示一个面板。
+const { mdAndUp } = useDisplay()
+const mobileShowContent = ref(false)
 
 const props = defineProps<{
   feedId?: number,
@@ -38,8 +42,6 @@ const stitchedContent = ref('')
 const articleSearch = ref('')
 const contentArea = ref<HTMLElement | null>(null)
 const customTransStyle = ref('')
-const containerWidth = ref(0)
-const calculatedHeight = ref(0)
 
 const filteredArticles = computed(() => {
   if (!articleSearch.value.trim()) return articles.value
@@ -51,23 +53,30 @@ const filteredArticles = computed(() => {
   )
 })
 
+let articlesRequestSeq = 0
+
 const fetchArticles = async () => {
+  const seq = ++articlesRequestSeq
   loading.value = true
   try {
     const params = new URLSearchParams()
     if (props.feedId) params.append('feed_id', props.feedId.toString())
     if (props.isRead !== undefined) params.append('is_read', props.isRead.toString())
     if (props.isStarred !== undefined) params.append('is_starred', props.isStarred.toString())
-    
+
     const res = await apiFetch('/api/articles?' + params.toString())
     const data = await res.json()
+    // 快速切源/搜索时可能先后发出多个请求，只让最后一次落地
+    if (seq !== articlesRequestSeq) return
     articles.value = data
-    // Pre-calculate layouts for titles in the list (14px font for subtitle-2)
-    data.forEach((a: any) => {
-      if (a.title) prepareText(`art-${a.id}-title`, a.title, 'bold 14px Inter, sans-serif')
-    })
+    // 列表整体替换对象，选中项要重新指向新副本，否则已读/星标状态会各走各的
+    const current = selectedArticle.value
+    if (current) {
+      const fresh = data.find((a: any) => a.id === current.id)
+      if (fresh) selectedArticle.value = fresh
+    }
   } finally {
-    loading.value = false
+    if (seq === articlesRequestSeq) loading.value = false
   }
 }
 
@@ -77,10 +86,6 @@ const fetchArticleDetail = async (id: number) => {
   articleDetail.value = data.detail
   blocks.value = data.blocks
   stitchedContent.value = data.content
-  
-  // Prepare content for pretext measurement (strip HTML for text measuring)
-  const plainText = data.content.replace(/<[^>]*>/g, ' ')
-  prepareText(`art-${id}-body`, plainText, '1.1rem Inter, sans-serif')
   
   if (!articleDetail.value.isRead) {
     updateReadStatus(id, true)
@@ -175,17 +180,30 @@ const fetchUserSettings = async () => {
     }
 }
 
+let eventsSource: EventSource | null = null
+let articlesRefreshTimer: ReturnType<typeof setTimeout> | null = null
+
+// 后台同步/翻译每完成一次就推一条 SSE。逐条全量重拉列表会造成刷新风暴，
+// 这里按 400ms 合并（与 QueueView 一致），避免列表在同步期间反复重建。
+const scheduleArticlesRefresh = () => {
+  if (articlesRefreshTimer) clearTimeout(articlesRefreshTimer)
+  articlesRefreshTimer = setTimeout(() => {
+    articlesRefreshTimer = null
+    fetchArticles()
+  }, 400)
+}
+
 onMounted(() => {
   fetchArticles()
   fetchUserSettings()
 
   // 📡 开启实时推送监听
-  const eventSource = new EventSource('/api/events')
-  eventSource.onmessage = (event) => {
+  eventsSource = new EventSource('/api/events')
+  eventsSource.onmessage = (event) => {
     const msg = event.data
     // 信号 A: 订阅同步完成
     if (msg === 'REFRESH_FEEDS') {
-      fetchArticles()
+      scheduleArticlesRefresh()
     }
     // 信号 B: 文章翻译/总结完成
     if (msg.startsWith('ARTICLE_UPDATED:')) {
@@ -193,42 +211,18 @@ onMounted(() => {
       if (selectedArticle.value && selectedArticle.value.id === updatedId) {
         fetchArticleDetail(updatedId)
       }
-      fetchArticles() // 刷新列表标记
+      scheduleArticlesRefresh() // 合并刷新列表标记
     }
   }
-
-  onUnmounted(() => {
-    eventSource.close()
-  })
-  
-  if (contentArea.value) {
-    let rafId: number | null = null
-    let lastWidth = 0
-    
-    const observer = new ResizeObserver((entries) => {
-      if (rafId) cancelAnimationFrame(rafId)
-      
-      rafId = requestAnimationFrame(() => {
-        for (let entry of entries) {
-          const newWidth = Math.floor(entry.contentRect.width)
-          // 只有当宽度发生实质性变化（>2px）且有选中文章时才计算
-          if (Math.abs(newWidth - lastWidth) > 2 && selectedArticle.value) {
-            containerWidth.value = newWidth
-            lastWidth = newWidth
-            const res = calculateHeight(
-              `art-${selectedArticle.value.id}-body`, 
-              '1.1rem Inter, sans-serif', 
-              newWidth, 
-              1.1 * 16 * 1.8
-            )
-            calculatedHeight.value = res.height
-          }
-        }
-      })
-    })
-    observer.observe(contentArea.value)
-  }
 })
+
+onUnmounted(() => {
+  if (articlesRefreshTimer) clearTimeout(articlesRefreshTimer)
+  articlesRefreshTimer = null
+  eventsSource?.close()
+  eventsSource = null
+})
+
 watch(() => [props.feedId, props.isRead, props.isStarred], () => {
   articleSearch.value = ''
   fetchArticles()
@@ -240,6 +234,13 @@ const selectArticle = (article: any) => {
   selectedArticle.value = article
   fetchArticleDetail(article.id)
   isSidebarVisible.value = false // 点击文章后收起列表
+  mobileShowContent.value = true // 窄屏切换到正文面板
+}
+
+// 窄屏返回列表：同时恢复被 selectArticle 收起的列表面板。
+const mobileBack = () => {
+  mobileShowContent.value = false
+  isSidebarVisible.value = true
 }
 
 const formatDate = (ts: number) => {
@@ -270,7 +271,9 @@ const nextArticle = () => {
   }
 }
 
-watch(selectedArticle, () => {
+// 只在真正换了文章时回到顶部：后台刷新会把 selectedArticle 换成新副本，
+// 按对象 watch 会让正在读的文章被拉回开头。
+watch(() => selectedArticle.value?.id, () => {
   if (contentArea.value) {
     contentArea.value.scrollTo({ top: 0, behavior: 'smooth' })
   }
@@ -281,8 +284,8 @@ watch(selectedArticle, () => {
   <div class="article-view d-flex h-100 overflow-hidden">
     <!-- Article List -->
     <div 
+      v-show="mdAndUp || !mobileShowContent"
       class="article-list border-e transition-sidebar" 
-      :class="{ 'sidebar-hidden': !isSidebarVisible }"
     >
       <!-- 搜索栏 -->
       <div class="article-search-box">
@@ -359,13 +362,24 @@ watch(selectedArticle, () => {
 
     <!-- Article Content -->
     <div 
+        v-show="mdAndUp || mobileShowContent"
         ref="contentArea"
         class="article-content flex-grow-1 overflow-y-auto px-6 py-8 custom-scrollbar bg-surface position-relative"
     >
+      <v-btn
+        v-if="!mdAndUp"
+        variant="text"
+        class="text-none mb-2"
+        :prepend-icon="mdiArrowLeft"
+        @click="mobileBack"
+      >
+        {{ $t('article.back_to_list') }}
+      </v-btn>
+
       <div v-if="selectedArticle && articleDetail" class="mx-auto" style="max-width: 900px;">
-        <div class="d-flex align-start justify-space-between mb-2">
-            <h1 class="text-h4 font-weight-bold flex-grow-1 mr-4">{{ articleDetail.title }}</h1>
-            <div class="d-flex">
+        <div class="article-head d-flex align-start justify-space-between mb-2">
+            <h1 class="article-title text-h4 font-weight-bold flex-grow-1 mr-4">{{ articleDetail.title }}</h1>
+            <div class="article-actions d-flex">
                 <v-btn
                     icon
                     variant="text"
@@ -431,6 +445,27 @@ watch(selectedArticle, () => {
                     target="_blank"
                     :title="$t('article.open_browser')"
                 />
+                <!-- 窄屏没有悬浮按钮（会盖住正文），翻页放到标题操作区 -->
+                <template v-if="!mdAndUp">
+                  <v-btn
+                      icon
+                      variant="text"
+                      :disabled="!canPrev"
+                      @click="prevArticle"
+                      :title="$t('article.prev_article')"
+                  >
+                      <v-icon>{{ mdiChevronUp }}</v-icon>
+                  </v-btn>
+                  <v-btn
+                      icon
+                      variant="text"
+                      :disabled="!canNext"
+                      @click="nextArticle"
+                      :title="$t('article.next_article')"
+                  >
+                      <v-icon>{{ mdiChevronDown }}</v-icon>
+                  </v-btn>
+                </template>
             </div>
         </div>
         
@@ -448,7 +483,7 @@ watch(selectedArticle, () => {
         <ArticleContent :content="stitchedContent" :custom-style="customTransStyle" />
 
         <!-- 悬浮导航按钮 -->
-        <div class="floating-nav d-flex flex-column ga-6">
+        <div v-if="mdAndUp" class="floating-nav d-flex flex-column ga-6">
           <v-btn
             icon
             elevation="4"
@@ -494,7 +529,7 @@ watch(selectedArticle, () => {
 <style scoped>
 .article-view {
   height: calc(100vh - var(--top-header-height, 64px)); /* Exact height of viewport minus global app bar */
-  margin: -16px -24px -32px; /* Pull out to edges of container padding from HomeView */
+  margin: -16px -16px -32px; /* Pull out to edges of container padding from HomeView */
 }
 
 @media (min-width: 960px) {
@@ -650,6 +685,50 @@ watch(selectedArticle, () => {
 
 .scale-up {
     border: 2px solid rgba(var(--v-theme-primary), 0.1);
+}
+
+/* 窄屏：容器 padding 为 pa-4 (16px)，负边距必须同步，否则右侧溢出 8px。 */
+@media (min-width: 600px) and (max-width: 959px) {
+  .article-view {
+    margin: -24px -24px -32px;
+  }
+}
+
+/* 窄屏一次只显示一个面板：列表占满宽度，正文由 v-show 控制。 */
+@media (max-width: 959px) {
+  .article-list {
+    width: 100%;
+  }
+
+  .article-content {
+    padding-inline: 16px;
+  }
+
+  /* 底部导航（56px）是浮在内容之上的；v-main 已预留 padding-bottom，
+     但本视图用 100vh 硬算高度并抵消了 padding，必须自己减掉导航高度，
+     否则正文最后一段会被导航条盖住。 */
+  .article-view {
+    height: calc(100vh - var(--top-header-height, 64px) - 56px);
+  }
+
+  /* 上一页/下一页按钮同样要抬到导航条上方，否则后一个按钮被遮住。 */
+  .floating-nav {
+    bottom: calc(56px + 16px);
+    right: 16px;
+  }
+}
+
+/* 手机上标题与操作按钮并排会把标题压成 4-5 字一行，改为上下堆叠。 */
+@media (max-width: 599px) {
+  .article-head {
+    flex-wrap: wrap;
+  }
+
+  .article-title {
+    flex: 1 1 100%;
+    margin-right: 0 !important;
+    margin-bottom: 8px;
+  }
 }
 </style>
 
