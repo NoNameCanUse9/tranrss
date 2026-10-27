@@ -571,7 +571,7 @@ watch([() => form.value.autoTranslate, () => form.value.needSummary], ([trans, s
                     {{ statusInfo(sub).label }}
                   </v-chip>
                 </template>
-                <div class="text-caption pa-1" style="max-width: 300px">{{ sub.lastError }}</div>
+                    <div class="text-caption pa-1 tooltip-error" style="max-width: 300px">{{ sub.lastError }}</div>
               </v-tooltip>
               <v-chip
                 v-else
@@ -1197,6 +1197,16 @@ watch([() => form.value.autoTranslate, () => form.value.needSummary], ([trans, s
   background: white;
   border: 1px solid rgba(0, 0, 0, 0.05);
   transition: transform 0.3s ease;
+}
+
+/* 错误原文可能是一整页上游 HTML，工具提示里最多显示 6 行 */
+.tooltip-error {
+  display: -webkit-box;
+  -webkit-line-clamp: 6;
+  -webkit-box-orient: vertical;
+  line-clamp: 6;
+  overflow: hidden;
+  overflow-wrap: anywhere;
 }
 .preview-card:hover {
   transform: translateY(-2px);

@@ -93,11 +93,20 @@ const aggregateStatus = (stats: NonNullable<QueueJob['stats']>): QueueJob['statu
 }
 
 const MAX_ERRORS_PER_GROUP = 5
+// 单条错误可能是一整页上游 HTML 或调用栈；截断后再进 DOM，避免卡片被撑爆
+const MAX_ERROR_CHARS = 300
+
+const clipError = (message: string): string => {
+  const normalized = message.replace(/\s+/g, ' ').trim()
+  return normalized.length > MAX_ERROR_CHARS
+    ? normalized.slice(0, MAX_ERROR_CHARS) + '…'
+    : normalized
+}
 
 // Jobs arrive newest-first, so keep the leading (latest) distinct messages per group.
 const mergeErrors = (errors: string[], next: string | null | undefined): string[] => {
   if (!next) return errors
-  const message = next.trim()
+  const message = clipError(next)
   if (!message || errors.includes(message)) return errors
   errors.push(message)
   if (errors.length > MAX_ERRORS_PER_GROUP) errors.length = MAX_ERRORS_PER_GROUP

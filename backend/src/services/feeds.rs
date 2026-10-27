@@ -453,7 +453,8 @@ pub async fn fetch_and_process_feed(db: &SqlitePool, user_id: i64, feed_id: i64)
     }
 
     // 如果走到这里，说明循环正常结束但没有返回 Ok，即全部尝试都失败了
-    // 更新连续失败计数
+    // 错误原文可能是整页上游 HTML，落库前截断，避免列表和数据库一起膨胀
+    let last_err_msg = last_err_msg.map(|msg| crate::utils::text::truncate_error_text(&msg));
     sqlx::query(
         "UPDATE feeds SET last_error = ?, last_status_code = ?, consecutive_fetch_failures = consecutive_fetch_failures + 1 WHERE id = ?"
     )

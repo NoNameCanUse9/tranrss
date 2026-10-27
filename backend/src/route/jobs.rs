@@ -137,6 +137,9 @@ async fn get_jobs(
             .await
             .unwrap_or(300);
 
+    // 用户可把日志上限设得很大；这里兜底，避免一次响应拖回上万条任务
+    let log_num_limit = log_num_limit.clamp(1, 500);
+
     // 2. 获取任务日志
     let rows = sqlx::query("SELECT id, job_type, status, attempts, last_error, run_at, done_at, job FROM Jobs ORDER BY run_at DESC LIMIT ?")
         .bind(log_num_limit)
@@ -223,22 +226,23 @@ async fn get_jobs(
 
             // 如果任务已成功，则隐藏之前的错误消息
             let status: String = row.get("status");
-            let mut last_error: Option<String> = if status.to_lowercase() == "done" {
+            let last_error: Option<String> = if status.to_lowercase() == "done" {
                 None
             } else {
                 row.get("last_error")
             };
 
-            // 处理 Apalis 序列化的错误消息 (常见于 {"Err": "..."})
-            if let Some(err) = last_error.as_ref() {
-                if let Ok(json_err) = serde_json::from_str::<serde_json::Value>(err) {
-                    if let Some(msg) = json_err.get("Err").and_then(|v| v.as_str()) {
-                        last_error = Some(msg.to_string());
-                    } else if json_err.get("Ok").is_some() {
-                        last_error = None; // 如果是 {"Ok": null} 这种表示法，也清除
-                    }
-                }
-            }
+            // 处理 Apalis 序列化的错误消息 (常见于 {"Err": "..."})，并统一截断长度：
+            // 失败原因可能是整页上游 HTML 或完整调用栈，原样下发会把列表撑爆。
+            // {"Ok": ...} 仍表示成功，按原逻辑清除错误。
+            let last_error = last_error.and_then(|err| match serde_json::from_str::<serde_json::Value>(&err) {
+                Ok(json_err) => match json_err.get("Err").and_then(|v| v.as_str()) {
+                    Some(msg) => Some(crate::utils::text::truncate_error_text(msg)),
+                    None if json_err.get("Ok").is_some() => None,
+                    None => Some(crate::utils::text::truncate_error_text(&err)),
+                },
+                Err(_) => Some(crate::utils::text::truncate_error_text(&err)),
+            });
 
             JobInfo {
                 id: row.get("id"),
