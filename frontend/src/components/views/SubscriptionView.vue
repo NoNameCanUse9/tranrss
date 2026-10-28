@@ -540,9 +540,19 @@ watch([() => form.value.autoTranslate, () => form.value.needSummary], ([trans, s
       </v-btn>
     </v-card>
 
-    <v-row v-else>
-      <v-col v-for="sub in filtered" :key="sub.id" cols="12" sm="6" md="6" lg="4" xl="3" class="d-flex sub-card-col">
-        <v-card rounded="xl" variant="flat" color="surface" class="sub-card h-100 w-100">
+    <!-- 卡片网格：用显式 CSS Grid 而不是 v-row/v-col。
+         v4 的列宽依赖 --v-col-gap-x + calc() 计算 flex-basis，一旦该变量在
+         某些环境下缺失，列会退回内容宽度（首张长描述卡片会被撑满整行）。
+         Grid 的轨道宽度只由容器决定，单张卡片不可能再独占一行。 -->
+    <div v-else class="sub-grid">
+      <v-card
+        v-for="sub in filtered"
+        :key="sub.id"
+        rounded="xl"
+        variant="flat"
+        color="surface"
+        class="sub-card h-100 w-100"
+      >
           <v-card-text class="pa-5 d-flex flex-column h-100">
             <div class="d-flex align-start justify-space-between gap-2 mb-2">
               <div class="flex-1 min-w-0">
@@ -655,9 +665,8 @@ watch([() => form.value.autoTranslate, () => form.value.needSummary], ([trans, s
               </v-btn>
             </div>
           </v-card-text>
-        </v-card>
-      </v-col>
-    </v-row>
+      </v-card>
+    </div>
 
     <!-- 添加/编辑对话框 -->
     <v-dialog v-model="dialog" width="60%" :scrim="true" persistent scrollable>
@@ -1111,11 +1120,14 @@ watch([() => form.value.autoTranslate, () => form.value.needSummary], ([trans, s
 @media (min-width: 960px) {
   .subscription-view { --view-pad: 32px; }
 }
-/* 订阅数量没有后端上限。卡片高度按视口内实测（auto）缓存，离屏卡片跳过
-   布局与绘制，滚动时只重排视口附近的内容。 */
-.sub-card-col {
-  content-visibility: auto;
-  contain-intrinsic-size: auto 240px;
+/* 订阅卡片网格：轨道由容器宽度决定，卡片宽度在所有浏览器/缩放下都一致。
+   300px 的下限让 1280px 宽的窗口仍是 4 列（与原来的 xl=3 一致），
+   窄屏退回 1 列，min() 保证 < 300px 的视口不会横向溢出。 */
+.sub-grid {
+  display: grid;
+  gap: 24px;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 300px), 1fr));
+  align-items: stretch;
 }
 
 
@@ -1140,6 +1152,7 @@ watch([() => form.value.autoTranslate, () => form.value.needSummary], ([trans, s
 .sub-card {
   display: flex;
   flex-direction: column;
+  min-width: 0;
   transition: transform 0.2s cubic-bezier(0.4, 0, 0.2, 1), box-shadow 0.2s ease;
   overflow: hidden;
   border: 1px solid rgba(var(--v-theme-primary), 0.05) !important;

@@ -245,10 +245,6 @@ h3,
   max-width: 100% !important;
 }
 
-.sub-card-col {
-  min-width: 0 !important;
-}
-
 .sub-card:active {
   transform: scale(0.96);
   /* MD3 Spring click feedback */
